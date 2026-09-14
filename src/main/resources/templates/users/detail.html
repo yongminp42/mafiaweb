@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${user.nickname} + ' | MAFIAGAME'">유저 프로필 | MAFIAGAME</title>
+  <link rel="stylesheet" th:href="@{/css/profile.css}">
+</head>
+<body>
+<main class="profile-shell">
+  <header class="topbar">
+    <a class="brand" href="/rooms">
+      <span class="brand-mark">M</span>
+      <span>MAFIA<span>GAME</span></span>
+    </a>
+    <nav class="nav-links" aria-label="메인 메뉴">
+      <a href="/rooms">게임 로비</a>
+      <a class="login-link" href="/login">로그인</a>
+      <a class="signup-link" href="/signup">회원가입</a>
+    </nav>
+  </header>
+
+  <a class="back" href="/rooms">← 게임 로비로</a>
+
+  <section class="profile-hero">
+    <div class="avatar-large" th:text="${#strings.substring(user.nickname, 0, 1)}">유</div>
+    <div class="profile-copy">
+      <p class="eyebrow">PLAYER PROFILE</p>
+      <div class="name-line">
+        <h1 th:text="${user.nickname}">유진</h1>
+        <span class="online-badge"><i></i> 온라인</span>
+      </div>
+      <p th:text="${user.bio}">마을을 지키는 밤의 추리꾼</p>
+      <small th:text="${user.joinedAt} + '부터 함께했어요'">2026년 9월 가입부터 함께했어요</small>
+    </div>
+    <button class="friend-button" type="button" id="friendButton">＋ 친구 추가</button>
+  </section>
+
+  <section class="stats-grid" aria-label="게임 통계">
+    <article><span class="stat-icon coral">♠</span><div><small>플레이한 게임</small><strong th:text="${user.totalGames}">48</strong><em>판</em></div></article>
+    <article><span class="stat-icon mint">★</span><div><small>전체 승률</small><strong th:text="${user.winRate()} + '%'">65%</strong><em th:text="${user.wins} + '승'">31승</em></div></article>
+    <article><span class="stat-icon purple">♟</span><div><small>마피아 승률</small><strong th:text="${user.mafiaWinRate()} + '%'">71%</strong><em th:text="${user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">12승 / 17판</em></div></article>
+  </section>
+
+  <section class="profile-content">
+    <div class="history-panel">
+      <div class="section-head"><div><p class="eyebrow">GAME HISTORY</p><h2>최근 게임</h2></div><a href="#">전체 전적 보기 →</a></div>
+      <div class="game-list">
+        <article class="game-row" th:each="game : ${recentGames}">
+          <span class="result-dot" th:classappend="${game.result == '승리'} ? ' win' : ' loss'"></span>
+          <div class="game-info"><h3 th:text="${game.roomTitle}">달빛 아래의 마피아</h3><p><span th:text="${game.role}">시민</span> · <span th:text="${game.status}">생존</span></p></div>
+          <strong th:classappend="${game.result == '승리'} ? ' win-text' : ' loss-text'" th:text="${game.result}">승리</strong>
+          <time th:text="${game.playedAt}">12분 전</time>
+        </article>
+      </div>
+    </div>
+    <aside class="achievement-panel">
+      <p class="eyebrow">ACHIEVEMENTS</p>
+      <h2>획득한 배지</h2>
+      <div class="badges">
+        <article><span>♛</span><b>첫 승리</b><small>첫 게임 승리</small></article>
+        <article><span>☾</span><b>밤의 지배자</b><small>마피아 10회 승리</small></article>
+        <article class="locked"><span>?</span><b>완벽한 추리</b><small>경찰 5회 승리</small></article>
+      </div>
+    </aside>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+  const friendButton = document.querySelector('#friendButton');
+  const toast = document.querySelector('#toast');
+  friendButton.addEventListener('click', () => {
+    friendButton.classList.toggle('added');
+    friendButton.textContent = friendButton.classList.contains('added') ? '✓ 친구 요청됨' : '＋ 친구 추가';
+    toast.textContent = friendButton.classList.contains('added') ? '친구 요청을 보냈습니다.' : '친구 요청을 취소했습니다.';
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
+  });
+</script>
+</body>
+</html>
