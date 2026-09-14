@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>마피아 게임 | 게임 로비</title>
+  <link rel="stylesheet" th:href="@{/css/rooms.css}">
+</head>
+<body>
+<main class="lobby-shell">
+  <header class="topbar">
+    <a class="brand" href="/rooms" aria-label="마피아 게임 로비 홈">
+      <span class="brand-mark">M</span>
+      <span>MAFIA<span>GAME</span></span>
+    </a>
+    <div class="online"><i></i> 현재 <strong>128</strong>명 접속 중</div>
+    <nav class="auth-links" aria-label="계정 메뉴"><a href="/login">로그인</a><a class="signup-link" href="/signup">회원가입</a></nav>
+  </header>
+
+  <section class="hero">
+    <div>
+      <p class="eyebrow">GAME LOBBY</p>
+      <h1>누구를 믿을 것인가.</h1>
+      <p>방에 입장해 시민과 마피아의 치열한 심리전을 시작하세요.</p>
+    </div>
+    <button class="create-room" type="button" id="createRoom"><span>＋</span> 새 게임 만들기</button>
+  </section>
+
+  <section class="room-panel" aria-labelledby="room-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="room-title">진행 중인 게임</h2>
+        <p><strong th:text="${#lists.size(rooms)}">6</strong>개의 방을 찾았어요</p>
+      </div>
+      <div class="controls">
+        <label class="search"><span>⌕</span><input id="roomSearch" type="search" placeholder="방 제목 검색"></label>
+        <select id="roomFilter" aria-label="방 상태 필터">
+          <option value="all">모든 게임</option>
+          <option value="WAITING">대기 중</option>
+          <option value="PLAYING">게임 중</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="room-list" id="roomList">
+      <article class="room-card" th:each="room : ${rooms}" th:data-status="${room.status}" th:data-title="${room.title}">
+        <div class="room-number" th:text="${'0' + (roomStat.index + 1)}">01</div>
+        <div class="room-main">
+          <div class="room-title-line">
+            <span class="lock" th:if="${room.locked}">▣</span>
+            <h3 th:text="${room.title}">달빛 아래의 마피아</h3>
+            <span class="badge" th:classappend="${room.status == 'PLAYING'} ? ' playing' : ''" th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
+          </div>
+          <p th:text="${room.description}">초보 환영 · 빠른 진행</p>
+        </div>
+        <div class="players"><span>♟</span> <strong th:text="${room.players}">6</strong><em>/</em><span th:text="${room.capacity}">8</span></div>
+        <a class="join" th:href="@{/rooms/{id}(id=${roomStat.index + 1})}" th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
+      </article>
+    </div>
+    <p class="empty" id="emptyState" hidden>조건에 맞는 게임이 없습니다.</p>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+  const search = document.querySelector('#roomSearch');
+  const filter = document.querySelector('#roomFilter');
+  const cards = [...document.querySelectorAll('.room-card')];
+  const empty = document.querySelector('#emptyState');
+  function updateRooms() {
+    const query = search.value.trim().toLowerCase();
+    let visible = 0;
+    cards.forEach(card => {
+      const show = (filter.value === 'all' || card.dataset.status === filter.value)
+        && card.dataset.title.toLowerCase().includes(query);
+      card.hidden = !show;
+      if (show) visible++;
+    });
+    empty.hidden = visible !== 0;
+  }
+  search.addEventListener('input', updateRooms);
+  filter.addEventListener('change', updateRooms);
+  const toast = document.querySelector('#toast');
+  document.querySelectorAll('.join, #createRoom').forEach(button => button.addEventListener('click', () => {
+    toast.textContent = button.id === 'createRoom' ? '새 게임 만들기를 준비하고 있어요.' : '게임 입장을 준비하고 있어요.';
+    toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200);
+  }));
+</script>
+</body>
+</html>
