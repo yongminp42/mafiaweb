@@ -1,4 +1,4 @@
-package kr.or.oti.mafiagame.auth;
+package kr.or.oti.mafiagame.controller;
 
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
