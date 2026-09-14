@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>게임방 | MAFIAGAME</title>
+  <link rel="stylesheet" th:href="@{/css/rooms.css}">
+</head>
+<body class="detail-body">
+<main class="lobby-shell">
+  <header class="topbar">
+    <a class="brand" href="/rooms">
+      <span class="brand-mark">M</span>
+      <span>MAFIA<span>GAME</span></span>
+    </a>
+    <div class="online"><i></i>현재 <strong>128</strong>명 접속 중</div>
+    <nav class="auth-links" aria-label="계정 메뉴">
+      <a href="/login">로그인</a>
+      <a class="signup-link" href="/signup">회원가입</a>
+    </nav>
+  </header>
+  <a class="back" href="/rooms">← 게임 목록으로</a>
+  <section class="game-room-head">
+    <div>
+      <p class="eyebrow">ROOM <span th:text="${roomId}">01</span></p>
+      <div class="detail-title">
+        <h1 th:text="${room.title}">달빛 아래의 마피아</h1>
+        <span class="badge">대기 중</span>
+      </div>
+      <p th:text="${room.description}">초보 환영 · 빠른 진행</p>
+    </div>
+    <div class="head-players">
+      <b th:text="${room.players}">6</b> / <em th:text="${room.capacity}">8</em>
+      <small>참가 중</small>
+    </div>
+  </section>
+  <section class="game-grid">
+    <section class="waiting-panel" aria-labelledby="players-title">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">PLAYERS</p>
+          <h2 id="players-title">참가자 <span th:text="${room.players}">6</span>명</h2>
+        </div>
+        <button class="invite" id="invite" type="button">친구 초대</button>
+      </div>
+      <div class="member-grid">
+        <article class="member host">
+          <div class="avatar a1">유</div><b>유진</b><small>방장</small>
+        </article>
+        <article class="member" th:each="member, stat : ${members}" th:if="${stat.index > 0}">
+          <div class="avatar" th:text="${#strings.substring(member, 0, 1)}">민</div>
+          <b th:text="${member}">민수</b>
+        </article>
+        <article class="member empty-seat" th:each="slot : ${#numbers.sequence(room.players + 1, room.capacity)}">
+          <div class="avatar">+</div><b>빈 자리</b>
+        </article>
+      </div>
+      <div class="rule-box">
+        <b>기본 설정</b>
+        <span>마피아 2명 · 경찰 1명 · 의사 1명 · 낮 90초 / 밤 45초</span>
+      </div>
+      <button class="ready" id="ready" type="button">준비 완료</button>
+      <p class="ready-note">모든 참가자가 준비되면 게임이 시작됩니다.</p>
+    </section>
+    <aside class="chat-panel" aria-label="대기방 채팅">
+      <div class="chat-head"><i></i><b>대기방 채팅</b><small>6</small></div>
+      <div class="messages"><p class="notice">방에 입장했습니다. 즐거운 게임 되세요!</p><p><b>유진</b><br>어서 오세요! 같이 해요.</p><p><b>소연</b><br>이번 판은 꼭 시민 이길 거예요.</p></div>
+      <form class="chat-input" id="chatForm"><input placeholder="메시지 입력" aria-label="채팅 메시지"><button type="submit">➤</button></form>
+    </aside>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+  const toast = document.querySelector('#toast');
+  function showToast(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
+  document.querySelector('#ready').addEventListener('click', event => { const button = event.currentTarget; button.classList.toggle('is-ready'); button.textContent = button.classList.contains('is-ready') ? '준비 취소' : '준비 완료'; });
+  document.querySelector('#invite').addEventListener('click', () => showToast('초대 링크를 준비하고 있어요.'));
+  document.querySelector('#chatForm').addEventListener('submit', event => { event.preventDefault(); const input = event.currentTarget.querySelector('input'); if (input.value.trim()) showToast('채팅 기능을 연결할 준비가 되었습니다.'); event.currentTarget.reset(); });
+</script>
+</body>
+</html>
