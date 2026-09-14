@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>회원가입 | MAFIAGAME</title>
+  <link rel="stylesheet" th:href="@{/css/auth.css}">
+</head>
+<body>
+<main class="auth-layout">
+  <section class="auth-art signup-art" aria-hidden="true">
+    <a class="brand light" href="/rooms"><span class="brand-mark">M</span> MAFIA<span>GAME</span></a>
+    <div class="art-copy"><p>JOIN THE GAME</p><h1>당신의 추리가<br>게임을 바꿉니다.</h1><span>♣</span></div>
+    <small>© 2026 MAFIAGAME</small>
+  </section>
+  <section class="auth-content">
+    <a class="mobile-brand brand" href="/rooms"><span class="brand-mark">M</span> MAFIA<span>GAME</span></a>
+    <div class="auth-card signup-card">
+      <p class="eyebrow">CREATE ACCOUNT</p>
+      <h2>마피아 게임 시작하기</h2>
+      <p class="subtitle">몇 가지 정보만 입력하면 바로 참여할 수 있어요.</p>
+      <form id="signupForm">
+        <label>닉네임<input type="text" placeholder="게임에서 사용할 이름" minlength="2" required></label>
+        <label>이메일<input type="email" placeholder="name@example.com" autocomplete="email" required></label>
+        <label>비밀번호<input type="password" placeholder="8자 이상 입력하세요" minlength="8" autocomplete="new-password" required></label>
+        <label>비밀번호 확인<input type="password" placeholder="비밀번호를 한 번 더 입력하세요" minlength="8" autocomplete="new-password" required></label>
+        <label class="check agreement"><input type="checkbox" required> <span><a href="#">이용약관</a> 및 <a href="#">개인정보 처리방침</a>에 동의합니다.</span></label>
+        <button class="primary" type="submit">회원가입</button>
+      </form>
+      <p class="switch">이미 계정이 있으신가요? <a href="/login">로그인</a></p>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>
+  document.querySelector('#signupForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const passwords = event.currentTarget.querySelectorAll('input[type=password]');
+    const toast = document.querySelector('#toast');
+    toast.textContent = passwords[0].value === passwords[1].value ? '회원가입 기능을 연결할 준비가 되었습니다.' : '비밀번호가 서로 다릅니다.';
+    toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2500);
+  });
+</script>
+</body>
+</html>
