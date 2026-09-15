@@ -4,7 +4,7 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 
 ## 구현 체크리스트
 
-현재 방, 참가자, 접속자 수, 채팅 메시지는 예시 데이터 또는 UI 동작입니다. 실제 서버 기능과 구분해 표시했습니다.
+현재 방, 참가자, 접속자 수는 일부 예시 데이터이며, 게임방 채팅은 인증된 사용자끼리 WebSocket/STOMP로 실시간 전송됩니다.
 
 - [x] Java 17, Spring Boot 3.5.16, Gradle Wrapper 프로젝트 구성
 - [x] MariaDB·MyBatis 연결 설정의 뼈대 구성
@@ -15,6 +15,7 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 - [x] 입장·관전 링크 및 새 게임 만들기 안내 UI
 - [x] 게임방(`/rooms/{roomId}`) 대기 화면
 - [x] 참가자·빈 자리·기본 규칙·대기방 채팅 UI
+- [x] 게임방 인증 사용자 간 실시간 채팅
 - [x] 준비 완료 버튼 상태 전환과 초대·채팅 안내 UI
 - [x] 로그인(`/login`) 및 회원가입(`/signup`) 화면
 - [x] Spring Security 폼 로그인 설정과 로그인 실패/로그아웃 안내
@@ -22,7 +23,8 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 - [ ] 회원가입·계정 저장 및 실제 사용자 인증
 - [ ] MariaDB 스키마, MyBatis 매퍼 및 데이터 조회
 - [ ] 방 생성·입장·퇴장·비밀번호 검증
-- [ ] 실시간 채팅과 준비 상태 동기화
+- [x] 실시간 채팅
+- [ ] 준비 상태 동기화
 - [ ] WebSocket/STOMP 기반 실시간 게임 진행
 - [ ] 직업 배정, 낮/밤 진행, 투표, 승패 판정
 
@@ -39,7 +41,7 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 ### 프로젝트 기반
 
 - [x] Java 17 및 Gradle Wrapper 환경에서 빌드·테스트를 확인한다.
-- [ ] WebSocket 의존성 버전을 Spring Boot BOM과 호환되게 정리한다.
+- [x] WebSocket 의존성 버전을 Spring Boot BOM과 호환되게 정리한다.
 - [ ] 개발·테스트·운영 프로필을 분리한다.
 - [x] DB 계정 정보를 환경 변수로 받을 수 있게 한다.
 - [ ] 공통 응답, 예외 코드, 로그 형식을 정의한다.
@@ -94,12 +96,12 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 
 ### WebSocket/STOMP
 
-- [ ] WebSocket 엔드포인트와 STOMP broker를 설정한다.
-- [ ] SockJS 사용 여부를 결정한다.
-- [ ] 인증 사용자를 WebSocket 세션과 연결한다.
+- [x] WebSocket 엔드포인트(`/ws`)와 STOMP broker를 설정한다.
+- [x] SockJS 대신 브라우저 기본 WebSocket을 사용하도록 결정한다.
+- [x] 인증 사용자를 WebSocket 세션과 연결한다.
 - [ ] 구독 시 방 참가 여부와 역할별 권한을 검증한다.
-- [ ] 공개 채팅, 마피아 채팅, 투표, 개인 알림 채널을 구현한다.
-- [ ] `JOIN`, `LEAVE`, `CHAT`, `PHASE`, `VOTE`, `RESULT`, `ERROR` 메시지 타입을 정의한다.
+- [x] 공개 채팅을 구현한다.
+- [x] `CHAT`, `ERROR` 메시지 타입을 정의한다.
 - [ ] 연결 종료와 비정상 종료를 처리하고 재접속 시 방 상태를 복원한다.
 
 ### 게임 진행과 타이머
@@ -253,5 +255,5 @@ src/main/resources/
 1. 회원가입 및 로그인 사용자 저장
 2. 방·사용자 도메인과 MariaDB/MyBatis 연동
 3. 방 생성·입장·대기 상태 관리
-4. WebSocket 기반 채팅과 준비 상태 동기화
+4. WebSocket 기반 준비 상태 동기화
 5. 게임 상태 머신, 역할·투표·승패 로직 구현
