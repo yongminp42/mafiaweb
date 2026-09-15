@@ -1,7 +1,7 @@
 CREATE TABLE `user` (
     user_id BIGINT NOT NULL AUTO_INCREMENT,
     user_name VARCHAR(30) NOT NULL,
-    email VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     user_level INT NOT NULL DEFAULT 1,
     bio VARCHAR(500),
