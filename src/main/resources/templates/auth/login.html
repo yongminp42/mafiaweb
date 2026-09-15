@@ -21,14 +21,12 @@
       <p class="subtitle">계정으로 로그인하고 게임에 참여하세요.</p>
       <p class="alert" th:if="${param.error}">이메일 또는 비밀번호를 확인해 주세요.</p>
       <p class="success" th:if="${param.logout}">성공적으로 로그아웃되었습니다.</p>
+      <p class="success" th:if="${param.signup}">회원가입이 완료되었습니다. 로그인해 주세요.</p>
       <form th:action="@{/login}" method="post">
-        <label>이메일<input type="text" name="username" placeholder="name@example.com"></label>
+        <label>이메일<input type="email" name="email" placeholder="name@example.com" autocomplete="username" required></label>
         <label>비밀번호<input type="password" name="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required></label>
-        <div class="form-row"><label class="check"><input type="checkbox" name="remember-me"> <span>로그인 상태 유지</span></label><a href="#">비밀번호 찾기</a></div>
         <button class="primary" type="submit">로그인</button>
       </form>
-      <div class="divider"><span>또는</span></div>
-      <button class="social" type="button"><b>G</b> Google로 계속하기</button>
       <p class="switch">아직 계정이 없으신가요? <a href="/signup">회원가입</a></p>
     </div>
   </section>
