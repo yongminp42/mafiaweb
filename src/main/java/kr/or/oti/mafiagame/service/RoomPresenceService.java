@@ -17,7 +17,7 @@ import kr.or.oti.mafiagame.domain.RoomList;
 import kr.or.oti.mafiagame.dto.RoomParticipant;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
-import kr.or.oti.mafiagame.exception.RoomPresenceException;
+import kr.or.oti.mafiagame.exception.RoomWebSocketException;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
 
 @Service
@@ -37,7 +37,7 @@ public class RoomPresenceService {
 
     public void join(long roomId, String sessionId, Principal principal) {
         if (sessionId == null || sessionId.isBlank() || principal == null) {
-            throw new RoomPresenceException("게임방 연결 정보를 확인할 수 없습니다.");
+            throw new RoomWebSocketException("게임방 연결 정보를 확인할 수 없습니다.");
         }
 
         RoomList room = requireRoom(roomId);
@@ -71,20 +71,20 @@ public class RoomPresenceService {
 
     public void updateReady(long roomId, String sessionId, RoomReadyRequest request) {
         if (request == null) {
-            throw new RoomPresenceException("준비 상태를 확인할 수 없습니다.");
+            throw new RoomWebSocketException("준비 상태를 확인할 수 없습니다.");
         }
 
         RoomPresenceState currentState;
         synchronized (monitor) {
             Long joinedRoomId = roomBySession.get(sessionId);
             if (!Long.valueOf(roomId).equals(joinedRoomId)) {
-                throw new RoomPresenceException("먼저 게임방에 입장해 주세요.");
+                throw new RoomWebSocketException("먼저 게임방에 입장해 주세요.");
             }
 
             Map<String, RoomParticipant> participants = participantsByRoom.get(roomId);
             RoomParticipant participant = participants == null ? null : participants.get(sessionId);
             if (participant == null) {
-                throw new RoomPresenceException("게임방 참가자 정보를 찾을 수 없습니다.");
+                throw new RoomWebSocketException("게임방 참가자 정보를 찾을 수 없습니다.");
             }
 
             participants.put(sessionId, new RoomParticipant(
@@ -125,7 +125,7 @@ public class RoomPresenceService {
     private RoomList requireRoom(long roomId) {
         RoomList room = roomService.getRoom(roomId);
         if (room == null) {
-            throw new RoomPresenceException("존재하지 않는 게임방입니다.");
+            throw new RoomWebSocketException("존재하지 않는 게임방입니다.");
         }
         return room;
     }

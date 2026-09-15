@@ -11,7 +11,7 @@ import org.springframework.stereotype.Controller;
 
 import kr.or.oti.mafiagame.dto.ChatError;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
-import kr.or.oti.mafiagame.exception.RoomPresenceException;
+import kr.or.oti.mafiagame.exception.RoomWebSocketException;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 
 @Controller
@@ -38,9 +38,9 @@ public class RoomPresenceController {
         roomPresenceService.updateReady(roomId, headers.getSessionId(), request);
     }
 
-    @MessageExceptionHandler(RoomPresenceException.class)
+    @MessageExceptionHandler(RoomWebSocketException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
-    public ChatError handlePresenceException(RoomPresenceException exception) {
+    public ChatError handlePresenceException(RoomWebSocketException exception) {
         return new ChatError("ERROR", exception.getMessage());
     }
 }
