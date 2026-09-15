@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,7 +14,14 @@
       <span>MAFIA<span>GAME</span></span>
     </a>
     <div class="online"><i></i> 현재 <strong>128</strong>명 접속 중</div>
-    <nav class="auth-links" aria-label="계정 메뉴"><a href="/login">로그인</a><a class="signup-link" href="/signup">회원가입</a></nav>
+    <nav class="auth-links" aria-label="계정 메뉴">
+      <a sec:authorize="isAnonymous()" href="/login">로그인</a>
+      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
+      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
+      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
+        <button class="logout-button" type="submit">로그아웃</button>
+      </form>
+    </nav>
   </header>
 
   <section class="hero">
@@ -51,13 +58,13 @@
             <h3 th:text="${room.title}">달빛 아래의 마피아</h3>
             <span class="badge" th:classappend="${room.status == 'PLAYING'} ? ' playing' : ''" th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
           </div>
-          <p th:text="${room.description}">초보 환영 · 빠른 진행</p>
+          <p><span th:text="${room.hostName}">방장</span>님의 게임</p>
         </div>
-        <div class="players"><span>♟</span> <strong th:text="${room.players}">6</strong><em>/</em><span th:text="${room.capacity}">8</span></div>
-        <a class="join" th:href="@{/rooms/{id}(id=${roomStat.index + 1})}" th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
+        <div class="players"><span>♟</span> <strong th:text="${room.currentPlayers}">6</strong><em>/</em><span th:text="${room.maxPlayers}">8</span></div>
+        <a class="join" th:href="@{/rooms/{id}(id=${room.roomId})}" th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
       </article>
     </div>
-    <p class="empty" id="emptyState" hidden>조건에 맞는 게임이 없습니다.</p>
+    <p class="empty" id="emptyState" th:hidden="${!#lists.isEmpty(rooms)}">조건에 맞는 게임이 없습니다.</p>
   </section>
 </main>
 
