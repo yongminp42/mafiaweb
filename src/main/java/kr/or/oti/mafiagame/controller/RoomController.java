@@ -62,6 +62,7 @@ public class RoomController {
             Model model) {
         model.addAttribute("roomId", roomId);
         model.addAttribute("nickname", user == null ? "" : user.getNickname());
+        model.addAttribute("userId", user == null ? "" : user.getUserId());
         RoomList room = roomService.getRoom(roomId);
         if (room == null) {
             model.addAttribute("room", new RoomView(

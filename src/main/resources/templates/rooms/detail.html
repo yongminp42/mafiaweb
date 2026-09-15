@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>게임방 | MAFIAGAME</title>
   <link rel="stylesheet" th:href="@{/css/rooms.css}">
 </head>
-<body class="detail-body" th:attr="data-room-id=${roomId},data-nickname=${nickname}">
+<body class="detail-body" th:attr="data-room-id=${roomId},data-nickname=${nickname},data-user-id=${userId},data-capacity=${room.capacity}">
 <main class="lobby-shell">
   <header class="topbar">
     <a class="brand" href="/rooms">
@@ -15,8 +15,13 @@
     </a>
     <div class="online"><i></i>현재 <strong>128</strong>명 접속 중</div>
     <nav class="auth-links" aria-label="계정 메뉴">
-      <a href="/login">로그인</a>
-      <a class="signup-link" href="/signup">회원가입</a>
+      <a sec:authorize="isAnonymous()" href="/login">로그인</a>
+      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
+      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
+      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+        <button class="logout-button" type="submit">로그아웃</button>
+      </form>
     </nav>
   </header>
   <a class="back" href="/rooms">← 게임 목록으로</a>
@@ -32,7 +37,7 @@
       <p th:text="${room.description}">초보 환영 · 빠른 진행</p>
     </div>
     <div class="head-players">
-      <b th:text="${room.players}">6</b> / <em th:text="${room.capacity}">8</em>
+      <b id="roomPlayerCount" th:text="${room.players}">6</b> / <em th:text="${room.capacity}">8</em>
       <small>참가 중</small>
     </div>
   </section>
@@ -41,11 +46,11 @@
       <div class="section-title">
         <div>
           <p class="eyebrow">PLAYERS</p>
-          <h2 id="players-title">참가자 <span th:text="${room.players}">6</span>명</h2>
+          <h2 id="players-title">참가자 <span id="roomMemberCount" th:text="${room.players}">6</span>명</h2>
         </div>
         <button class="invite" id="invite" type="button">친구 초대</button>
       </div>
-      <div class="member-grid">
+      <div class="member-grid" id="memberGrid">
         <article class="member" th:each="member, stat : ${members}"
                  th:classappend="${stat.index == 0} ? ' host' : ''">
           <div class="avatar" th:classappend="${stat.index == 0} ? ' a1' : ''"
@@ -81,7 +86,6 @@
 <script>
   const toast = document.querySelector('#toast');
   function showToast(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
-  document.querySelector('#ready').addEventListener('click', event => { const button = event.currentTarget; button.classList.toggle('is-ready'); button.textContent = button.classList.contains('is-ready') ? '준비 취소' : '준비 완료'; });
   document.querySelector('#invite').addEventListener('click', () => showToast('초대 링크를 준비하고 있어요.'));
 </script>
 <script th:src="@{/js/chat.js}"></script>
