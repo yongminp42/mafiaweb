@@ -1,9 +1,9 @@
 package kr.or.oti.mafiagame.exception;
 
-public class RoomPresenceException extends RuntimeException {
+public class RoomWebSocketException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
-    public RoomPresenceException(String message) {
+    public RoomWebSocketException(String message) {
         super(message);
     }
 }

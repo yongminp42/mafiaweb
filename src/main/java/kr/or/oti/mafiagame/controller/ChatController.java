@@ -15,7 +15,7 @@ import kr.or.oti.mafiagame.domain.RoomList;
 import kr.or.oti.mafiagame.dto.ChatError;
 import kr.or.oti.mafiagame.dto.ChatMessage;
 import kr.or.oti.mafiagame.dto.ChatMessageRequest;
-import kr.or.oti.mafiagame.exception.ChatException;
+import kr.or.oti.mafiagame.exception.RoomWebSocketException;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
 import kr.or.oti.mafiagame.service.RoomService;
 
@@ -39,13 +39,13 @@ public class ChatController {
             ChatMessageRequest request,
             Principal principal) {
         if (principal == null) {
-            throw new ChatException("로그인 후 채팅을 이용할 수 있습니다.");
+            throw new RoomWebSocketException("로그인 후 채팅을 이용할 수 있습니다.");
         }
 
         String content = normalizeContent(request);
         RoomList room = roomService.getRoom(roomId);
         if (room == null) {
-            throw new ChatException("존재하지 않는 게임방입니다.");
+            throw new RoomWebSocketException("존재하지 않는 게임방입니다.");
         }
 
         String sender = resolveNickname(principal);
@@ -54,9 +54,9 @@ public class ChatController {
                 new ChatMessage(roomId, CHAT_TYPE, sender, content, Instant.now()));
     }
 
-    @MessageExceptionHandler(ChatException.class)
+    @MessageExceptionHandler(RoomWebSocketException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
-    public ChatError handleChatException(ChatException exception) {
+    public ChatError handleRoomWebSocketException(RoomWebSocketException exception) {
         return new ChatError(ERROR_TYPE, exception.getMessage());
     }
 
@@ -66,10 +66,10 @@ public class ChatController {
                 : request.content().strip();
 
         if (content.isBlank()) {
-            throw new ChatException("메시지를 입력해 주세요.");
+            throw new RoomWebSocketException("메시지를 입력해 주세요.");
         }
         if (content.codePointCount(0, content.length()) > MAX_MESSAGE_LENGTH) {
-            throw new ChatException("메시지는 300자 이하로 입력해 주세요.");
+            throw new RoomWebSocketException("메시지는 300자 이하로 입력해 주세요.");
         }
         return content;
     }
