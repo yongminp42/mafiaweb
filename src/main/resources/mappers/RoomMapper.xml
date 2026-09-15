@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="kr.or.oti.mafiagame.dao.RoomMapper">
+    <select id="findAll" resultType="kr.or.oti.mafiagame.domain.RoomList">
+        SELECT
+            gr.room_id AS room_id,
+            gr.title AS title,
+            host.user_name AS host_name,
+            COUNT(rm.user_id) AS current_players,
+            gr.max_players AS max_players,
+            gr.status AS status,
+            CASE
+                WHEN gr.room_password IS NOT NULL AND gr.room_password != '' THEN TRUE
+                ELSE FALSE
+            END AS locked
+        FROM game_room gr
+        JOIN `user` host ON host.user_id = gr.host_user_id
+        LEFT JOIN room_members rm ON rm.room_id = gr.room_id
+        GROUP BY
+            gr.room_id,
+            gr.title,
+            host.user_name,
+            gr.max_players,
+            gr.status,
+            gr.room_password,
+            gr.created_time
+        ORDER BY
+            CASE WHEN gr.status = 'WAITING' THEN 0 ELSE 1 END,
+            gr.created_time DESC
+    </select>
+
+    <select id="findById" resultType="kr.or.oti.mafiagame.domain.RoomList">
+        SELECT
+            gr.room_id AS room_id,
+            gr.title AS title,
+            host.user_name AS host_name,
+            COUNT(rm.user_id) AS current_players,
+            gr.max_players AS max_players,
+            gr.status AS status,
+            CASE
+                WHEN gr.room_password IS NOT NULL AND gr.room_password != '' THEN TRUE
+                ELSE FALSE
+            END AS locked
+        FROM game_room gr
+        JOIN `user` host ON host.user_id = gr.host_user_id
+        LEFT JOIN room_members rm ON rm.room_id = gr.room_id
+        WHERE gr.room_id = #{roomId}
+        GROUP BY
+            gr.room_id,
+            gr.title,
+            host.user_name,
+            gr.max_players,
+            gr.status,
+            gr.room_password
+    </select>
+
+    <select id="findMemberNames" resultType="string">
+        SELECT u.user_name
+        FROM room_members rm
+        JOIN `user` u ON u.user_id = rm.user_id
+        WHERE rm.room_id = #{roomId}
+        ORDER BY rm.joined_time, rm.user_id
+    </select>
+
+    <insert id="insert" parameterType="kr.or.oti.mafiagame.domain.Room"
+            useGeneratedKeys="true" keyProperty="roomId">
+        INSERT INTO game_room (host_user_id, title, room_password, max_players, status)
+        VALUES (#{hostUserId}, #{title}, #{roomPassword}, #{maxPlayers}, #{status})
+    </insert>
+
+    <insert id="insertMember">
+        INSERT INTO room_members (room_id, user_id, is_ready)
+        VALUES (#{roomId}, #{userId}, FALSE)
+    </insert>
+</mapper>

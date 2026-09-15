@@ -6,7 +6,7 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 
 현재 방, 참가자, 접속자 수, 채팅 메시지는 예시 데이터 또는 UI 동작입니다. 실제 서버 기능과 구분해 표시했습니다.
 
-- [x] Java 21, Spring Boot 4.0.8, Gradle Wrapper 프로젝트 구성
+- [x] Java 17, Spring Boot 3.5.16, Gradle Wrapper 프로젝트 구성
 - [x] MariaDB·MyBatis 연결 설정의 뼈대 구성
 - [x] 애플리케이션 컨텍스트 로드 테스트
 - [x] 게임 로비(`/`, `/rooms`) 화면
@@ -38,7 +38,7 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 
 ### 프로젝트 기반
 
-- [ ] Java 21 및 Gradle Wrapper 환경에서 빌드·테스트를 확인한다.
+- [x] Java 17 및 Gradle Wrapper 환경에서 빌드·테스트를 확인한다.
 - [ ] WebSocket 의존성 버전을 Spring Boot BOM과 호환되게 정리한다.
 - [ ] 개발·테스트·운영 프로필을 분리한다.
 - [x] DB 계정 정보를 환경 변수로 받을 수 있게 한다.
@@ -149,11 +149,11 @@ Spring Boot와 Thymeleaf로 만드는 웹 기반 마피아 게임 프로젝트�
 
 | 구분 | 사용 기술 |
 | --- | --- |
-| Language | Java 21 |
-| Framework | Spring Boot 4.0.8 |
+| Language | Java 17 |
+| Framework | Spring Boot 3.5.16 |
 | Web | Spring MVC, Thymeleaf |
 | Security | Spring Security |
-| Data access | MyBatis 4.0.1 |
+| Data access | MyBatis Spring Boot Starter 3.0.5 |
 | Database | MariaDB |
 | Build | Gradle Wrapper 8.14.5 |
 
@@ -183,6 +183,29 @@ macOS 또는 Linux에서는 다음 명령을 사용합니다.
 ```powershell
 .\gradlew.bat test
 ```
+
+### Java 버전 변경 후 VS Code에서 import 오류가 발생할 때
+
+`package org.springframework... does not exist`, `cannot find symbol`이 여러 클래스에 함께 나타나면 먼저 Gradle 빌드와 편집기의 프로젝트 인식을 구분해서 확인합니다.
+
+```powershell
+java -version
+.\gradlew.bat test
+```
+
+빌드가 성공하는데 편집기에만 오류가 남으면 다음 순서로 처리합니다.
+
+1. `build.gradle`이 있는 `mafiagame` 폴더 전체를 VS Code에서 엽니다.
+2. Oracle의 `Java` 확장(`Oracle.oracle-java`)과 `Language Support for Java(TM) by Red Hat`이 동시에 활성화되어 있다면, 이 프로젝트에서는 Oracle 확장의 톱니바퀴 메뉴에서 **Disable (Workspace)**를 선택하고 Red Hat 확장을 사용합니다.
+3. 프로젝트의 `.vscode/settings.json`에서 `java.configuration.runtimes`의 `JavaSE-17` 경로와 `java.import.gradle.java.home`을 설치된 JDK 17 폴더로 지정합니다. `java.configuration.updateBuildConfiguration`은 `automatic`, `java.server.launchMode`는 `Standard`로 설정합니다.
+4. `Ctrl+Shift+P` → `Java: Clean Java Language Server Workspace` → `Reload and delete`를 실행합니다. Java 분석 캐시를 초기화하는 작업이며 소스 코드는 삭제하지 않습니다.
+5. Gradle 프로젝트 가져오기와 의존성 분석이 끝날 때까지 기다립니다.
+
+프로젝트를 빌드하는 JDK와 편집기 분석기를 실행하는 JDK는 별개입니다. 이 프로젝트는 Gradle 툴체인과 편집기 프로젝트 런타임 모두 Java 17을 사용하도록 설정되어 있습니다.
+
+참고: [VS Code Java 프로젝트 관리](https://code.visualstudio.com/docs/java/java-project), [Red Hat Java 확장의 JDK 요구 사항](https://github.com/redhat-developer/vscode-java/wiki/JDK-Requirements).
+
+STS에서는 `Gradle > Refresh Gradle Project`로 의존성을 다시 불러옵니다. `clean`이 보고서 파일 잠금 때문에 실패하면 해당 파일을 사용 중인 프로그램을 닫고 재시도하거나, 우선 `clean` 없이 `test`로 컴파일과 테스트를 확인합니다.
 
 ## 환경 변수
 
