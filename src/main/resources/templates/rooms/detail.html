@@ -6,7 +6,7 @@
   <title>게임방 | MAFIAGAME</title>
   <link rel="stylesheet" th:href="@{/css/rooms.css}">
 </head>
-<body class="detail-body">
+<body class="detail-body" th:attr="data-room-id=${roomId},data-nickname=${nickname}">
 <main class="lobby-shell">
   <header class="topbar">
     <a class="brand" href="/rooms">
@@ -66,9 +66,14 @@
       <p class="ready-note">모든 참가자가 준비되면 게임이 시작됩니다.</p>
     </section>
     <aside class="chat-panel" aria-label="대기방 채팅">
-      <div class="chat-head"><i></i><b>대기방 채팅</b><small>6</small></div>
-      <div class="messages"><p class="notice">방에 입장했습니다. 즐거운 게임 되세요!</p><p><b>유진</b><br>어서 오세요! 같이 해요.</p><p><b>소연</b><br>이번 판은 꼭 시민 이길 거예요.</p></div>
-      <form class="chat-input" id="chatForm"><input placeholder="메시지 입력" aria-label="채팅 메시지"><button type="submit">➤</button></form>
+      <div class="chat-head"><i id="chatStatusDot"></i><b>대기방 채팅</b><small id="chatConnectionStatus">연결 중</small></div>
+      <div class="messages" id="messages" aria-live="polite">
+        <p class="notice" id="chatNotice">채팅 서버에 연결 중입니다.</p>
+      </div>
+      <form class="chat-input" id="chatForm">
+        <input name="content" maxlength="300" placeholder="메시지 입력" aria-label="채팅 메시지" autocomplete="off">
+        <button type="submit" aria-label="메시지 보내기">➤</button>
+      </form>
     </aside>
   </section>
 </main>
@@ -78,7 +83,7 @@
   function showToast(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
   document.querySelector('#ready').addEventListener('click', event => { const button = event.currentTarget; button.classList.toggle('is-ready'); button.textContent = button.classList.contains('is-ready') ? '준비 취소' : '준비 완료'; });
   document.querySelector('#invite').addEventListener('click', () => showToast('초대 링크를 준비하고 있어요.'));
-  document.querySelector('#chatForm').addEventListener('submit', event => { event.preventDefault(); const input = event.currentTarget.querySelector('input'); if (input.value.trim()) showToast('채팅 기능을 연결할 준비가 되었습니다.'); event.currentTarget.reset(); });
 </script>
+<script th:src="@{/js/chat.js}"></script>
 </body>
 </html>
