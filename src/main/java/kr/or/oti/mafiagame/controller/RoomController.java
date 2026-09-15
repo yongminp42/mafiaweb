@@ -56,8 +56,12 @@ public class RoomController {
     }
 
     @GetMapping("/rooms/{roomId}")
-    public String roomDetail(@PathVariable("roomId") long roomId, Model model) {
+    public String roomDetail(
+            @PathVariable("roomId") long roomId,
+            @AuthenticationPrincipal CustomUserDetails user,
+            Model model) {
         model.addAttribute("roomId", roomId);
+        model.addAttribute("nickname", user == null ? "" : user.getNickname());
         RoomList room = roomService.getRoom(roomId);
         if (room == null) {
             model.addAttribute("room", new RoomView(
