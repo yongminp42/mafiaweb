@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,7 +14,14 @@
       <span>MAFIA<span>GAME</span></span>
     </a>
     <div class="online"><i></i> 현재 <strong>128</strong>명 접속 중</div>
-    <nav class="auth-links" aria-label="계정 메뉴"><a href="/login">로그인</a><a class="signup-link" href="/signup">회원가입</a></nav>
+    <nav class="auth-links" aria-label="계정 메뉴">
+      <a sec:authorize="isAnonymous()" href="/login">로그인</a>
+      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
+      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
+      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
+        <button class="logout-button" type="submit">로그아웃</button>
+      </form>
+    </nav>
   </header>
 
   <section class="hero">
