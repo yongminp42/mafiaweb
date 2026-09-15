@@ -19,3 +19,30 @@
   font:inherit;
   cursor:pointer;
 }
+
+.create-room { display:inline-flex; align-items:center; text-decoration:none; }
+.room-create-shell { display:grid; grid-template-columns:minmax(0, .9fr) minmax(360px, 1fr); gap:42px; align-items:stretch; margin:22px 0 50px; padding:42px; border:1px solid var(--line); border-radius:18px; background:var(--paper); }
+.room-create-copy { padding:28px 0; }
+.room-create-copy h1 { margin:0 0 14px; color:var(--ink); font-size:32px; line-height:1.25; letter-spacing:-1.5px; }
+.room-create-copy p:last-child { max-width:330px; margin:0; color:var(--muted); font-size:14px; line-height:1.8; }
+.room-form { padding:28px; border-radius:14px; background:#f7f8fa; }
+.room-form > label, .room-form fieldset { display:block; margin:0 0 20px; color:#343a47; font-size:13px; font-weight:700; }
+.room-form input[type=text], .room-form input[type=password] { display:block; width:100%; margin-top:8px; padding:12px; border:1px solid #dfe2e8; border-radius:7px; outline:0; background:#fff; color:var(--ink); font:13px 'Noto Sans KR'; }
+.room-form input:focus { border-color:var(--coral); box-shadow:0 0 0 3px rgba(244,93,77,.1); }
+.room-form fieldset { padding:0; border:0; }
+.room-form legend { margin-bottom:9px; }
+.capacity-options { display:flex; gap:8px; }
+.capacity-options label { flex:1; position:relative; margin:0; cursor:pointer; }
+.capacity-options input { position:absolute; opacity:0; }
+.capacity-options span { display:block; padding:10px 3px; border:1px solid #dfe2e8; border-radius:7px; background:#fff; color:#69717e; text-align:center; font-size:12px; font-weight:500; }
+.capacity-options input:checked + span { border-color:var(--coral); background:#fff3f1; color:var(--coral); font-weight:700; }
+.field-help { display:block; margin-top:8px; color:#9097a2; font-size:11px; font-weight:400; }
+.private-toggle { display:flex !important; align-items:center; gap:8px; cursor:pointer; }
+.private-toggle input { accent-color:var(--coral); }
+.password-field { display:none; }
+.password-field.is-visible { display:block; }
+.password-field label { display:block; color:#343a47; font-size:13px; font-weight:700; }
+.room-submit { margin-top:4px; }
+.cancel-room { display:block; margin-top:12px; color:#7c8491; font-size:12px; text-align:center; text-decoration:none; }
+.alert { margin:0 0 18px; padding:10px 12px; border-radius:6px; background:#fff0ee; color:#d54c3d; font-size:12px; }
+@media(max-width:750px){.room-create-shell{grid-template-columns:1fr;gap:12px;padding:24px}.room-create-copy{padding:0}.room-create-copy h1{font-size:27px}.room-form{padding:20px}}

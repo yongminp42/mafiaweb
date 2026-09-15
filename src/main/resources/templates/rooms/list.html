@@ -30,7 +30,7 @@
       <h1>누구를 믿을 것인가.</h1>
       <p>방에 입장해 시민과 마피아의 치열한 심리전을 시작하세요.</p>
     </div>
-    <button class="create-room" type="button" id="createRoom"><span>＋</span> 새 게임 만들기</button>
+    <a class="create-room" id="createRoom" href="/rooms/new"><span>＋</span> 새 게임 만들기</a>
   </section>
 
   <section class="room-panel" aria-labelledby="room-title">
@@ -50,7 +50,7 @@
     </div>
 
     <div class="room-list" id="roomList">
-      <article class="room-card" th:each="room : ${rooms}" th:data-status="${room.status}" th:data-title="${room.title}">
+      <article class="room-card" th:each="room, roomStat : ${rooms}" th:data-status="${room.status}" th:data-title="${room.title}">
         <div class="room-number" th:text="${'0' + (roomStat.index + 1)}">01</div>
         <div class="room-main">
           <div class="room-title-line">
@@ -88,8 +88,8 @@
   search.addEventListener('input', updateRooms);
   filter.addEventListener('change', updateRooms);
   const toast = document.querySelector('#toast');
-  document.querySelectorAll('.join, #createRoom').forEach(button => button.addEventListener('click', () => {
-    toast.textContent = button.id === 'createRoom' ? '새 게임 만들기를 준비하고 있어요.' : '게임 입장을 준비하고 있어요.';
+  document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => {
+    toast.textContent = '게임 입장을 준비하고 있어요.';
     toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200);
   }));
 </script>
