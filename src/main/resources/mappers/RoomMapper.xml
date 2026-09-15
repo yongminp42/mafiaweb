@@ -7,6 +7,7 @@
     <select id="findAll" resultType="kr.or.oti.mafiagame.domain.RoomList">
         SELECT
             gr.room_id AS room_id,
+            gr.host_user_id AS host_user_id,
             gr.title AS title,
             host.user_name AS host_name,
             COUNT(rm.user_id) AS current_players,
@@ -21,6 +22,7 @@
         LEFT JOIN room_members rm ON rm.room_id = gr.room_id
         GROUP BY
             gr.room_id,
+            gr.host_user_id,
             gr.title,
             host.user_name,
             gr.max_players,
@@ -35,6 +37,7 @@
     <select id="findById" resultType="kr.or.oti.mafiagame.domain.RoomList">
         SELECT
             gr.room_id AS room_id,
+            gr.host_user_id AS host_user_id,
             gr.title AS title,
             host.user_name AS host_name,
             COUNT(rm.user_id) AS current_players,
@@ -50,6 +53,7 @@
         WHERE gr.room_id = #{roomId}
         GROUP BY
             gr.room_id,
+            gr.host_user_id,
             gr.title,
             host.user_name,
             gr.max_players,

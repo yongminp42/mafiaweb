@@ -9,6 +9,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class RoomList {
     private long roomId;
+    private long hostUserId;
     private String title;
     private String hostName;
     private int currentPlayers;

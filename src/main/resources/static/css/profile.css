@@ -65,6 +65,17 @@ body {
   color:#fff;
   font-weight:700;
 }
+.nav-links form {
+  margin:0;
+}
+.nav-links .logout-button {
+  padding:0;
+  border:0;
+  color:#626977;
+  background:transparent;
+  font:inherit;
+  cursor:pointer;
+}
 .back {
   display:inline-block;
   margin:8px 0 17px;

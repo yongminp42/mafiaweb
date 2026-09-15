@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,8 +15,13 @@
     </a>
     <nav class="nav-links" aria-label="메인 메뉴">
       <a href="/rooms">게임 로비</a>
-      <a class="login-link" href="/login">로그인</a>
-      <a class="signup-link" href="/signup">회원가입</a>
+      <a sec:authorize="isAnonymous()" class="login-link" href="/login">로그인</a>
+      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
+      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
+      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+        <button class="logout-button" type="submit">로그아웃</button>
+      </form>
     </nav>
   </header>
 

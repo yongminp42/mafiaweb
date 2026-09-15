@@ -1,15 +1,22 @@
 (() => {
   const roomId = document.body.dataset.roomId;
   const nickname = document.body.dataset.nickname || '';
+  const userId = document.body.dataset.userId ? Number(document.body.dataset.userId) : null;
+  const capacity = Number(document.body.dataset.capacity || 0);
   const socketUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   const form = document.querySelector('#chatForm');
   const input = form?.querySelector('input[name="content"]');
+  const readyButton = document.querySelector('#ready');
+  const memberGrid = document.querySelector('#memberGrid');
+  const roomPlayerCount = document.querySelector('#roomPlayerCount');
+  const roomMemberCount = document.querySelector('#roomMemberCount');
   const messages = document.querySelector('#messages');
   const notice = document.querySelector('#chatNotice');
   const connectionStatus = document.querySelector('#chatConnectionStatus');
   const statusDot = document.querySelector('#chatStatusDot');
   const submitButton = form?.querySelector('button[type="submit"]');
   const topicDestination = `/topic/rooms/${roomId}/chat`;
+  const presenceDestination = `/topic/rooms/${roomId}/presence`;
   const errorDestination = '/user/queue/errors';
 
   if (!roomId || !form || !input || !messages) {
@@ -21,6 +28,12 @@
   let reconnectTimer;
   let connected = false;
   let shouldReconnect = true;
+  let currentReady = false;
+  let presenceReady = false;
+
+  if (readyButton) {
+    readyButton.disabled = true;
+  }
 
   function showToast(message) {
     const toast = document.querySelector('#toast');
@@ -36,6 +49,10 @@
     connectionStatus.textContent = label;
     statusDot.classList.toggle('offline', !isOnline);
     submitButton.disabled = !isOnline;
+    if (!isOnline) {
+      presenceReady = false;
+    }
+    updateReadyAvailability(isOnline);
   }
 
   function setNotice(message) {
@@ -98,8 +115,13 @@
       connected = true;
       setConnectionStatus('실시간', true);
       setNotice('실시간 채팅에 연결되었습니다.');
+      socket.send(createFrame('SUBSCRIBE', { id: 'room-presence', destination: presenceDestination, ack: 'auto' }));
       socket.send(createFrame('SUBSCRIBE', { id: 'room-chat', destination: topicDestination, ack: 'auto' }));
       socket.send(createFrame('SUBSCRIBE', { id: 'chat-errors', destination: errorDestination, ack: 'auto' }));
+      socket.send(createFrame('SEND', {
+        destination: `/app/rooms/${roomId}/join`,
+        'content-type': 'application/json'
+      }, '{}'));
       return;
     }
 
@@ -108,6 +130,10 @@
         const message = JSON.parse(frame.body);
         if (message.type === 'ERROR' || frame.headers.destination === errorDestination) {
           showToast(message.message || '채팅 메시지를 처리하지 못했습니다.');
+          return;
+        }
+        if (frame.headers.destination === presenceDestination || Array.isArray(message.participants)) {
+          renderParticipants(message.participants);
           return;
         }
         if (message.type === 'CHAT') {
@@ -152,6 +178,79 @@
     item.append(sender, content, time);
     messages.append(item);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function renderReadyButton(isReady) {
+    currentReady = Boolean(isReady);
+    if (!readyButton) {
+      return;
+    }
+    readyButton.classList.toggle('is-ready', currentReady);
+    readyButton.textContent = currentReady ? '준비 취소' : '준비 완료';
+  }
+
+  function updateReadyAvailability(isOnline = connected) {
+    if (readyButton) {
+      readyButton.disabled = !isOnline || !presenceReady;
+    }
+  }
+
+  function renderParticipants(participants) {
+    if (!memberGrid || !Array.isArray(participants)) {
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let currentParticipant = null;
+
+    participants.forEach(participant => {
+      const article = document.createElement('article');
+      article.className = `member${participant.host ? ' host' : ''}${participant.ready ? ' participant-ready' : ''}`;
+
+      const avatar = document.createElement('div');
+      avatar.className = `avatar${participant.host ? ' a1' : ''}`;
+      avatar.textContent = Array.from(participant.nickname || '?')[0] || '?';
+
+      const name = document.createElement('b');
+      name.textContent = participant.nickname || '알 수 없음';
+
+      const status = document.createElement('small');
+      const labels = [];
+      if (participant.host) {
+        labels.push('방장');
+      }
+      labels.push(participant.ready ? '준비 완료' : '대기 중');
+      status.textContent = labels.join(' · ');
+
+      article.append(avatar, name, status);
+      fragment.append(article);
+
+      const isCurrentUser = userId !== null
+        ? Number(participant.userId) === userId
+        : participant.nickname === nickname;
+      if (isCurrentUser) {
+        currentParticipant = participant;
+      }
+    });
+
+    const emptySeats = Math.max(capacity - participants.length, 0);
+    for (let index = 0; index < emptySeats; index += 1) {
+      const emptySeat = document.createElement('article');
+      emptySeat.className = 'member empty-seat';
+      emptySeat.innerHTML = '<div class="avatar">+</div><b>빈 자리</b>';
+      fragment.append(emptySeat);
+    }
+
+    memberGrid.replaceChildren(fragment);
+    if (roomPlayerCount) {
+      roomPlayerCount.textContent = participants.length;
+    }
+    if (roomMemberCount) {
+      roomMemberCount.textContent = participants.length;
+    }
+    presenceReady = currentParticipant !== null;
+    renderReadyButton(currentParticipant?.ready || false);
+    updateReadyAvailability();
   }
 
   function connect() {
@@ -204,6 +303,18 @@
     }, JSON.stringify({ content })));
     input.value = '';
     input.focus();
+  });
+
+  readyButton?.addEventListener('click', () => {
+    if (!connected || socket.readyState !== WebSocket.OPEN) {
+      showToast('게임방 연결 중입니다.');
+      return;
+    }
+
+    socket.send(createFrame('SEND', {
+      destination: `/app/rooms/${roomId}/ready`,
+      'content-type': 'application/json'
+    }, JSON.stringify({ ready: !currentReady })));
   });
 
   window.addEventListener('beforeunload', () => {

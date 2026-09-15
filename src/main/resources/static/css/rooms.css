@@ -28,6 +28,9 @@
 .chat-message time { align-self:end; color:#a3a9b3; font-size:10px; }
 .chat-message.own { text-align:right; }
 .chat-input button:disabled { opacity:.45; cursor:not-allowed; }
+.member.participant-ready { border-color:#bce9dc; background:#f7fffc; }
+.member.participant-ready small { color:var(--mint); }
+.ready:disabled { opacity:.55; cursor:not-allowed; }
 
 .create-room { display:inline-flex; align-items:center; text-decoration:none; }
 .room-create-shell { display:grid; grid-template-columns:minmax(0, .9fr) minmax(360px, 1fr); gap:42px; align-items:stretch; margin:22px 0 50px; padding:42px; border:1px solid var(--line); border-radius:18px; background:var(--paper); }
