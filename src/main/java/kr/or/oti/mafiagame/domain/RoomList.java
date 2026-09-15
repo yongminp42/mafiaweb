@@ -7,7 +7,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
-public class RoomSummary {
+public class RoomList {
     private long roomId;
     private String title;
     private String hostName;
