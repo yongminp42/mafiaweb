@@ -36,6 +36,13 @@ public class RoomService {
     }
 
     @Transactional
+    public void transferHost(long roomId, long hostUserId) {
+        if (roomMapper.updateHostUserId(roomId, hostUserId) != 1) {
+            throw new IllegalStateException("방장 정보를 변경하지 못했어요.");
+        }
+    }
+
+    @Transactional
     public long createRoom(long hostUserId, String title, Integer maxPlayers, String password) {
         String normalizedTitle = title == null ? "" : title.trim();
         if (normalizedTitle.length() < 2 || normalizedTitle.length() > 100) {

@@ -2,10 +2,11 @@ package kr.or.oti.mafiagame.service;
 
 import java.security.Principal;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -29,6 +30,7 @@ public class RoomPresenceService {
     private final Object monitor = new Object();
     private final Map<Long, Map<String, RoomParticipant>> participantsByRoom = new HashMap<>();
     private final Map<String, Long> roomBySession = new HashMap<>();
+    private final Map<Long, Long> hostUserByRoom = new HashMap<>();
 
     public RoomPresenceService(SimpMessagingTemplate messagingTemplate, RoomService roomService) {
         this.messagingTemplate = messagingTemplate;
@@ -52,14 +54,16 @@ public class RoomPresenceService {
             }
 
             Map<String, RoomParticipant> participants = participantsByRoom
-                    .computeIfAbsent(roomId, ignored -> new HashMap<>());
+                    .computeIfAbsent(roomId, ignored -> new LinkedHashMap<>());
+            hostUserByRoom.putIfAbsent(roomId, room.getHostUserId());
             RoomParticipant previous = participants.get(sessionId);
             boolean ready = previous != null && previous.ready();
             participants.put(sessionId, new RoomParticipant(
                     identity.userId(),
                     identity.nickname(),
-                    identity.userId() == room.getHostUserId(),
+                    Objects.equals(hostUserByRoom.get(roomId), identity.userId()),
                     ready));
+            assignHostIfNeeded(roomId, participants);
             currentState = snapshot(roomId);
         }
 
@@ -90,7 +94,7 @@ public class RoomPresenceService {
             participants.put(sessionId, new RoomParticipant(
                     participant.userId(),
                     participant.nickname(),
-                    participant.host(),
+                    Objects.equals(hostUserByRoom.get(roomId), participant.userId()),
                     request.ready()));
             currentState = snapshot(roomId);
         }
@@ -139,19 +143,45 @@ public class RoomPresenceService {
         participants.remove(sessionId);
         if (participants.isEmpty()) {
             participantsByRoom.remove(roomId);
+            hostUserByRoom.remove(roomId);
             return null;
         }
+        assignHostIfNeeded(roomId, participants);
         return snapshot(roomId);
     }
 
     private RoomPresenceState snapshot(long roomId) {
-        List<RoomParticipant> participants = new ArrayList<>(participantsByRoom.get(roomId).values());
-        participants.sort(Comparator
-                .comparing(RoomParticipant::host)
-                .reversed()
-                .thenComparing(RoomParticipant::nickname)
-                .thenComparingLong(RoomParticipant::userId));
+        Map<String, RoomParticipant> currentParticipants = participantsByRoom.get(roomId);
+        Long hostUserId = hostUserByRoom.get(roomId);
+        List<RoomParticipant> participants = new ArrayList<>(currentParticipants.size());
+        for (RoomParticipant participant : currentParticipants.values()) {
+            participants.add(new RoomParticipant(
+                    participant.userId(),
+                    participant.nickname(),
+                    Objects.equals(hostUserId, participant.userId()),
+                    participant.ready()));
+        }
         return new RoomPresenceState(roomId, List.copyOf(participants));
+    }
+
+    private void assignHostIfNeeded(long roomId, Map<String, RoomParticipant> participants) {
+        if (participants.isEmpty()) {
+            hostUserByRoom.remove(roomId);
+            return;
+        }
+
+        Long currentHostUserId = hostUserByRoom.get(roomId);
+        boolean currentHostIsPresent = participants.values().stream()
+                .anyMatch(participant -> Objects.equals(currentHostUserId, participant.userId()));
+        if (currentHostIsPresent) {
+            return;
+        }
+
+        RoomParticipant successor = participants.values().iterator().next();
+        if (successor.userId() > 0 && !Objects.equals(currentHostUserId, successor.userId())) {
+            roomService.transferHost(roomId, successor.userId());
+        }
+        hostUserByRoom.put(roomId, successor.userId());
     }
 
     private void broadcast(RoomPresenceState state) {

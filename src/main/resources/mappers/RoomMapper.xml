@@ -79,4 +79,10 @@
         INSERT INTO room_members (room_id, user_id, is_ready)
         VALUES (#{roomId}, #{userId}, FALSE)
     </insert>
+
+    <update id="updateHostUserId">
+        UPDATE game_room
+        SET host_user_id = #{hostUserId}
+        WHERE room_id = #{roomId}
+    </update>
 </mapper>
