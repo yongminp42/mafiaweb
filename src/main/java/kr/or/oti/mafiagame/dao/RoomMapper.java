@@ -6,13 +6,13 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import kr.or.oti.mafiagame.domain.Room;
-import kr.or.oti.mafiagame.domain.RoomList;
+import kr.or.oti.mafiagame.dto.RoomSummary;
 
 @Mapper
 public interface RoomMapper {
-    List<RoomList> findAll();
+    List<RoomSummary> findAll();
 
-    RoomList findById(@Param("roomId") long roomId);
+    RoomSummary findById(@Param("roomId") long roomId);
 
     List<String> findMemberNames(@Param("roomId") long roomId);
 

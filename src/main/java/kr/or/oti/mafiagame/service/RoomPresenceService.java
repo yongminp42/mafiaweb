@@ -14,11 +14,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import kr.or.oti.mafiagame.domain.RoomList;
 import kr.or.oti.mafiagame.dto.RoomParticipant;
 import kr.or.oti.mafiagame.dto.RoomPresenceCount;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
+import kr.or.oti.mafiagame.dto.RoomSummary;
 import kr.or.oti.mafiagame.exception.RoomWebSocketException;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
 
@@ -49,7 +49,7 @@ public class RoomPresenceService {
         RoomPresenceState previousState = null;
 
         synchronized (monitor) {
-            RoomList room = requireRoom(roomId);
+            RoomSummary room = requireRoom(roomId);
             Long previousRoomId = roomBySession.put(sessionId, roomId);
             if (previousRoomId != null && previousRoomId != roomId) {
                 previousState = removeSession(previousRoomId, sessionId);
@@ -115,6 +115,17 @@ public class RoomPresenceService {
         broadcast(currentState);
     }
 
+    public boolean isParticipant(long roomId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+
+        synchronized (monitor) {
+            Map<String, RoomParticipant> participants = participantsByRoom.get(roomId);
+            return participants != null && participants.containsKey(sessionId);
+        }
+    }
+
     @EventListener
     public void handleDisconnect(SessionDisconnectEvent event) {
         leave(event.getSessionId());
@@ -139,8 +150,8 @@ public class RoomPresenceService {
         }
     }
 
-    private RoomList requireRoom(long roomId) {
-        RoomList room = roomService.getRoom(roomId);
+    private RoomSummary requireRoom(long roomId) {
+        RoomSummary room = roomService.getRoom(roomId);
         if (room == null) {
             throw new RoomWebSocketException("존재하지 않는 게임방입니다.");
         }

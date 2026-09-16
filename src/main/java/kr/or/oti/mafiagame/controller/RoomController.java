@@ -1,7 +1,5 @@
 package kr.or.oti.mafiagame.controller;
 
-import java.util.List;
-
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -10,7 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import kr.or.oti.mafiagame.domain.RoomList;
+import kr.or.oti.mafiagame.dto.RoomView;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
 import kr.or.oti.mafiagame.service.RoomService;
 import kr.or.oti.mafiagame.service.RoomService.RoomCreationException;
@@ -63,25 +61,13 @@ public class RoomController {
         model.addAttribute("roomId", roomId);
         model.addAttribute("nickname", user == null ? "" : user.getNickname());
         model.addAttribute("userId", user == null ? "" : user.getUserId());
-        RoomList room = roomService.getRoom(roomId);
+        RoomView room = roomService.getRoomView(roomId);
         if (room == null) {
-            model.addAttribute("room", new RoomView(
-                    "Moonlight Mafia", "Beginner friendly · quick game", 6, 8, "WAITING", false));
-            model.addAttribute("members", List.of("Yujin", "Minsu", "Soyeon", "Dohyun", "Haneul", "Jihu"));
-        } else {
-            model.addAttribute("room", new RoomView(
-                    room.getTitle(),
-                    room.getHostName() + "님이 만든 대기방 · 인원이 모이면 시작해요",
-                    room.getCurrentPlayers(),
-                    room.getMaxPlayers(),
-                    room.getStatus(),
-                    room.isLocked()));
-            model.addAttribute("members", roomService.getMemberNames(roomId));
+            return "redirect:/rooms";
         }
-        return "rooms/detail";
-    }
 
-    public record RoomView(String title, String description, int players, int capacity,
-                           String status, boolean locked) {
+        model.addAttribute("room", room);
+        model.addAttribute("members", roomService.getMemberNames(roomId));
+        return "rooms/detail";
     }
 }
