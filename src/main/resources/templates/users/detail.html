@@ -42,15 +42,16 @@
   </section>
 
   <section class="stats-grid" aria-label="게임 통계">
-    <article><span class="stat-icon coral">♠</span><div><small>플레이한 게임</small><strong th:text="${user.totalGames}">48</strong><em>판</em></div></article>
-    <article><span class="stat-icon mint">★</span><div><small>전체 승률</small><strong th:text="${user.winRate()} + '%'">65%</strong><em th:text="${user.wins} + '승'">31승</em></div></article>
-    <article><span class="stat-icon purple">♟</span><div><small>마피아 승률</small><strong th:text="${user.mafiaWinRate()} + '%'">71%</strong><em th:text="${user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">12승 / 17판</em></div></article>
+    <article><span class="stat-icon coral">♠</span><div><small>플레이한 게임</small><strong th:text="${user.totalGames}">0</strong><em>판</em></div></article>
+    <article><span class="stat-icon mint">★</span><div><small>전체 승률</small><strong th:text="${user.winRate()} + '%'">0%</strong><em th:text="${user.wins} + '승'">0승</em></div></article>
+    <article><span class="stat-icon purple">♟</span><div><small>마피아 승률</small><strong th:text="${user.mafiaGames == null ? '집계 준비 중' : user.mafiaWinRate() + '%'}">집계 준비 중</strong><em th:text="${user.mafiaGames == null ? '게임 이력 없음' : user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">게임 이력 없음</em></div></article>
   </section>
 
   <section class="profile-content">
     <div class="history-panel">
       <div class="section-head"><div><p class="eyebrow">GAME HISTORY</p><h2>최근 게임</h2></div><a href="#">전체 전적 보기 →</a></div>
       <div class="game-list">
+        <p class="empty-history" th:if="${#lists.isEmpty(recentGames)}">아직 저장된 게임 기록이 없습니다.</p>
         <article class="game-row" th:each="game : ${recentGames}">
           <span class="result-dot" th:classappend="${game.result == '승리'} ? ' win' : ' loss'"></span>
           <div class="game-info"><h3 th:text="${game.roomTitle}">달빛 아래의 마피아</h3><p><span th:text="${game.role}">시민</span> · <span th:text="${game.status}">생존</span></p></div>

@@ -8,7 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import kr.or.oti.mafiagame.dao.RoomMapper;
 import kr.or.oti.mafiagame.domain.Room;
-import kr.or.oti.mafiagame.domain.RoomList;
+import kr.or.oti.mafiagame.dto.RoomSummary;
+import kr.or.oti.mafiagame.dto.RoomView;
 
 @Service
 public class RoomService {
@@ -21,13 +22,21 @@ public class RoomService {
     }
 
     @Transactional(readOnly = true)
-    public List<RoomList> getRooms() {
-        return roomMapper.findAll();
+    public List<RoomView> getRooms() {
+        return roomMapper.findAll().stream()
+                .map(RoomView::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public RoomList getRoom(long roomId) {
+    public RoomSummary getRoom(long roomId) {
         return roomMapper.findById(roomId);
+    }
+
+    @Transactional(readOnly = true)
+    public RoomView getRoomView(long roomId) {
+        RoomSummary room = roomMapper.findById(roomId);
+        return room == null ? null : RoomView.from(room);
     }
 
     @Transactional(readOnly = true)
@@ -40,6 +49,12 @@ public class RoomService {
         if (roomMapper.updateHostUserId(roomId, hostUserId) != 1) {
             throw new IllegalStateException("방장 정보를 변경하지 못했어요.");
         }
+    }
+
+    @Transactional
+    public void deleteRoom(long roomId) {
+        roomMapper.deleteMembersByRoomId(roomId);
+        roomMapper.deleteById(roomId);
     }
 
     @Transactional

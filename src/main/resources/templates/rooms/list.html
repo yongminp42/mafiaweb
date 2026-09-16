@@ -51,7 +51,8 @@
     </div>
 
     <div class="room-list" id="roomList">
-      <article class="room-card" th:each="room, roomStat : ${rooms}" th:data-status="${room.status}" th:data-title="${room.title}">
+      <article class="room-card" th:each="room, roomStat : ${rooms}"
+               th:data-room-id="${room.roomId}" th:data-status="${room.status}" th:data-title="${room.title}">
         <div class="room-number" th:text="${'0' + (roomStat.index + 1)}">01</div>
         <div class="room-main">
           <div class="room-title-line">
@@ -61,7 +62,7 @@
           </div>
           <p><span th:text="${room.hostName}">방장</span>님의 게임</p>
         </div>
-        <div class="players"><span>♟</span> <strong th:text="${room.currentPlayers}">6</strong><em>/</em><span th:text="${room.maxPlayers}">8</span></div>
+        <div class="players"><span>♟</span> <strong data-room-player-count th:text="${room.currentPlayers}">6</strong><em>/</em><span th:text="${room.maxPlayers}">8</span></div>
         <a class="join" th:href="@{/rooms/{id}(id=${room.roomId})}" th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
       </article>
     </div>
@@ -73,7 +74,7 @@
 <script>
   const search = document.querySelector('#roomSearch');
   const filter = document.querySelector('#roomFilter');
-  const cards = [...document.querySelectorAll('.room-card')];
+  let cards = [...document.querySelectorAll('.room-card')];
   const empty = document.querySelector('#emptyState');
   function updateRooms() {
     const query = search.value.trim().toLowerCase();
@@ -88,11 +89,17 @@
   }
   search.addEventListener('input', updateRooms);
   filter.addEventListener('change', updateRooms);
+  document.addEventListener('room:removed', event => {
+    const roomId = Number(event.detail?.roomId);
+    cards = cards.filter(card => Number(card.dataset.roomId) !== roomId);
+    updateRooms();
+  });
   const toast = document.querySelector('#toast');
   document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => {
     toast.textContent = '게임 입장을 준비하고 있어요.';
     toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200);
   }));
 </script>
+<script th:src="@{/js/room-list.js}"></script>
 </body>
 </html>

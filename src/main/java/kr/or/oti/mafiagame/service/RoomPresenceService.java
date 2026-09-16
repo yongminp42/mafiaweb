@@ -14,16 +14,18 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import kr.or.oti.mafiagame.domain.RoomList;
 import kr.or.oti.mafiagame.dto.RoomParticipant;
+import kr.or.oti.mafiagame.dto.RoomPresenceCount;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
+import kr.or.oti.mafiagame.dto.RoomSummary;
 import kr.or.oti.mafiagame.exception.RoomWebSocketException;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
 
 @Service
 public class RoomPresenceService {
     private static final String PRESENCE_DESTINATION = "/topic/rooms/%d/presence";
+    private static final String LOBBY_PRESENCE_DESTINATION = "/topic/rooms/presence";
 
     private final SimpMessagingTemplate messagingTemplate;
     private final RoomService roomService;
@@ -42,12 +44,12 @@ public class RoomPresenceService {
             throw new RoomWebSocketException("게임방 연결 정보를 확인할 수 없습니다.");
         }
 
-        RoomList room = requireRoom(roomId);
         UserIdentity identity = resolveIdentity(principal);
         RoomPresenceState currentState;
         RoomPresenceState previousState = null;
 
         synchronized (monitor) {
+            RoomSummary room = requireRoom(roomId);
             Long previousRoomId = roomBySession.put(sessionId, roomId);
             if (previousRoomId != null && previousRoomId != roomId) {
                 previousState = removeSession(previousRoomId, sessionId);
@@ -71,6 +73,17 @@ public class RoomPresenceService {
             broadcast(previousState);
         }
         broadcast(currentState);
+    }
+
+    public void broadcastRoomCounts() {
+        List<RoomPresenceCount> counts;
+        synchronized (monitor) {
+            counts = participantsByRoom.entrySet().stream()
+                    .map(entry -> new RoomPresenceCount(entry.getKey(), entry.getValue().size()))
+                    .toList();
+        }
+
+        messagingTemplate.convertAndSend(LOBBY_PRESENCE_DESTINATION, counts);
     }
 
     public void updateReady(long roomId, String sessionId, RoomReadyRequest request) {
@@ -102,6 +115,17 @@ public class RoomPresenceService {
         broadcast(currentState);
     }
 
+    public boolean isParticipant(long roomId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+
+        synchronized (monitor) {
+            Map<String, RoomParticipant> participants = participantsByRoom.get(roomId);
+            return participants != null && participants.containsKey(sessionId);
+        }
+    }
+
     @EventListener
     public void handleDisconnect(SessionDisconnectEvent event) {
         leave(event.getSessionId());
@@ -126,8 +150,8 @@ public class RoomPresenceService {
         }
     }
 
-    private RoomList requireRoom(long roomId) {
-        RoomList room = roomService.getRoom(roomId);
+    private RoomSummary requireRoom(long roomId) {
+        RoomSummary room = roomService.getRoom(roomId);
         if (room == null) {
             throw new RoomWebSocketException("존재하지 않는 게임방입니다.");
         }
@@ -144,7 +168,8 @@ public class RoomPresenceService {
         if (participants.isEmpty()) {
             participantsByRoom.remove(roomId);
             hostUserByRoom.remove(roomId);
-            return null;
+            roomService.deleteRoom(roomId);
+            return new RoomPresenceState(roomId, List.of());
         }
         assignHostIfNeeded(roomId, participants);
         return snapshot(roomId);
@@ -188,6 +213,9 @@ public class RoomPresenceService {
         messagingTemplate.convertAndSend(
                 PRESENCE_DESTINATION.formatted(state.roomId()),
                 state);
+        messagingTemplate.convertAndSend(
+                LOBBY_PRESENCE_DESTINATION,
+                new RoomPresenceCount(state.roomId(), state.participants().size()));
     }
 
     private UserIdentity resolveIdentity(Principal principal) {

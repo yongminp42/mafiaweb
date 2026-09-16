@@ -38,6 +38,11 @@ public class RoomPresenceController {
         roomPresenceService.updateReady(roomId, headers.getSessionId(), request);
     }
 
+    @MessageMapping("/rooms/presence")
+    public void sendRoomCounts() {
+        roomPresenceService.broadcastRoomCounts();
+    }
+
     @MessageExceptionHandler(RoomWebSocketException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
     public ChatError handlePresenceException(RoomWebSocketException exception) {

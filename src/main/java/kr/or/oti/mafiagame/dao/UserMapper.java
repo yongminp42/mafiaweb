@@ -6,12 +6,17 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import kr.or.oti.mafiagame.domain.User;
+import kr.or.oti.mafiagame.domain.UserStats;
 
 @Mapper
 public interface UserMapper {
     int insert(User user);
 
+    int insertStats(@Param("userId") long userId);
+
     Optional<User> findById(@Param("userId") Long userId);
+
+    UserStats findStatsByUserId(@Param("userId") long userId);
 
     Optional<User> findByEmail(@Param("email") String email);
 

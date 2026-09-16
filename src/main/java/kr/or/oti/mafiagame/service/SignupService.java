@@ -50,12 +50,16 @@ public class SignupService {
         }
 
         try {
-            userMapper.insert(User.builder()
+            User user = User.builder()
                     .userName(normalizedNickname)
                     .email(normalizedEmail)
                     .password(passwordEncoder.encode(password))
                     .user_level(1)
-                    .build());
+                    .build();
+            userMapper.insert(user);
+            if (userMapper.insertStats(user.getUserId()) != 1) {
+                throw new SignupException("회원 통계를 초기화하지 못했습니다.");
+            }
         } catch (DataIntegrityViolationException exception) {
             throw new SignupException("이미 사용 중인 이메일입니다.");
         }
