@@ -17,8 +17,6 @@ import kr.or.oti.mafiagame.service.ChatService;
 
 @Controller
 public class ChatController {
-    private static final String ERROR_TYPE = "ERROR";
-
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatService chatService;
 
@@ -45,6 +43,6 @@ public class ChatController {
     @MessageExceptionHandler(RoomWebSocketException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
     public ChatError handleRoomWebSocketException(RoomWebSocketException exception) {
-        return new ChatError(ERROR_TYPE, exception.getMessage());
+        return ChatError.of(exception.getMessage());
     }
 }

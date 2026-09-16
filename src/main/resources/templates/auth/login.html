@@ -2,34 +2,69 @@
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>로그인 | MAFIAGAME</title>
-  <link rel="stylesheet" th:href="@{/css/auth.css}">
+  <link rel="stylesheet" href="/webjars/bootstrap/5.3.8/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
-<body>
-<main class="auth-layout">
-  <section class="auth-art" aria-hidden="true">
-    <a class="brand light" href="/rooms"><span class="brand-mark">M</span> MAFIA<span>GAME</span></a>
-    <div class="art-copy"><p>TRUST NO ONE</p><h1>밤이 오면,<br>진실은 사라진다.</h1><span>♠</span></div>
-    <small>© 2026 MAFIAGAME</small>
-  </section>
-  <section class="auth-content">
-    <a class="mobile-brand brand" href="/rooms"><span class="brand-mark">M</span> MAFIA<span>GAME</span></a>
-    <div class="auth-card">
-      <p class="eyebrow">WELCOME BACK</p>
-      <h2>다시 만나서 반가워요</h2>
-      <p class="subtitle">계정으로 로그인하고 게임에 참여하세요.</p>
-      <p class="alert" th:if="${param.error}">이메일 또는 비밀번호를 확인해 주세요.</p>
-      <p class="success" th:if="${param.logout}">성공적으로 로그아웃되었습니다.</p>
-      <p class="success" th:if="${param.signup}">회원가입이 완료되었습니다. 로그인해 주세요.</p>
-      <form th:action="@{/login}" method="post">
-        <label>이메일<input type="email" name="email" placeholder="name@example.com" autocomplete="username" required></label>
-        <label>비밀번호<input type="password" name="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required></label>
-        <button class="primary" type="submit">로그인</button>
-      </form>
-      <p class="switch">아직 계정이 없으신가요? <a href="/signup">회원가입</a></p>
-    </div>
-  </section>
+<body class="auth-page bg-white">
+<main class="container-fluid">
+  <div class="row min-vh-100 g-0">
+    <section class="col-lg-5 d-none d-lg-flex flex-column p-5 auth-art" aria-hidden="true">
+      <a class="brand light d-inline-flex align-items-center gap-2" href="/rooms">
+        <span class="brand-mark">M</span>
+        <span>MAFIA<span class="brand-game">GAME</span></span>
+      </a>
+      <div class="art-copy">
+        <p class="mb-0">TRUST NO ONE</p>
+        <h1>밤이 오면,<br>진실은 사라진다.</h1>
+        <span>♠</span>
+      </div>
+      <small class="position-absolute bottom-0 start-0 m-5 text-secondary">© 2026 MAFIAGAME</small>
+    </section>
+
+    <section class="col-lg-7 d-flex align-items-center justify-content-center p-4">
+      <div class="auth-card">
+        <a class="brand d-lg-none d-inline-flex align-items-center gap-2 mb-5" href="/rooms">
+          <span class="brand-mark">M</span>
+          <span>MAFIA<span class="brand-game">GAME</span></span>
+        </a>
+        <p class="eyebrow text-coral">WELCOME BACK</p>
+        <h1 class="h2 fw-bold mb-2">다시 만나서 반가워요</h1>
+        <p class="text-secondary mb-4">계정으로 로그인하고 게임에 참여하세요.</p>
+
+        <div class="alert alert-danger py-2 small" role="alert" th:if="${param.error}">
+          이메일 또는 비밀번호를 확인해 주세요.
+        </div>
+        <div class="alert alert-success py-2 small" role="alert" th:if="${param.logout}">
+          성공적으로 로그아웃되었습니다.
+        </div>
+        <div class="alert alert-success py-2 small" role="alert" th:if="${param.signup}">
+          회원가입이 완료되었습니다. 로그인해 주세요.
+        </div>
+
+        <form th:action="@{/login}" method="post" class="vstack gap-3">
+          <div>
+            <label class="form-label fw-semibold" for="email">이메일</label>
+            <input class="form-control" id="email" type="email" name="email"
+                   placeholder="name@example.com" autocomplete="username" required>
+          </div>
+          <div>
+            <label class="form-label fw-semibold" for="password">비밀번호</label>
+            <input class="form-control" id="password" type="password" name="password"
+                   placeholder="비밀번호를 입력하세요" autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-coral w-100 py-2 fw-bold" type="submit">로그인</button>
+        </form>
+
+        <p class="text-center text-secondary small mt-4 mb-0">
+          아직 계정이 없으신가요?
+          <a class="text-coral fw-bold" href="/signup">회원가입</a>
+        </p>
+      </div>
+    </section>
+  </div>
 </main>
+<script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

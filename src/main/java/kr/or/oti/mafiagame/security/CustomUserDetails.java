@@ -8,14 +8,18 @@ public class CustomUserDetails extends org.springframework.security.core.userdet
     private static final long serialVersionUID = 1L;
     private final long userId;
     private final String nickname;
+    private final int level;
 
     public CustomUserDetails(User user) {
         super(user.getEmail(), user.getPassword(), List.of(new SimpleGrantedAuthority("ROLE_USER")));
         this.userId = user.getUserId();
         this.nickname = user.getUserName();
+        this.level = user.getUser_level();
     }
 
     public long getUserId() { return userId; }
 
     public String getNickname() { return nickname; }
+
+    public int getLevel() { return level; }
 }
