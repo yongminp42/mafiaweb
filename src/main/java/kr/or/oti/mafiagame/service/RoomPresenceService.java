@@ -10,7 +10,6 @@ import java.util.Objects;
 
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
@@ -20,7 +19,7 @@ import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
 import kr.or.oti.mafiagame.dto.RoomSummary;
 import kr.or.oti.mafiagame.exception.RoomWebSocketException;
-import kr.or.oti.mafiagame.security.CustomUserDetails;
+import kr.or.oti.mafiagame.security.PrincipalIdentity;
 
 @Service
 public class RoomPresenceService {
@@ -44,7 +43,7 @@ public class RoomPresenceService {
             throw new RoomWebSocketException("게임방 연결 정보를 확인할 수 없습니다.");
         }
 
-        UserIdentity identity = resolveIdentity(principal);
+        PrincipalIdentity identity = PrincipalIdentity.from(principal);
         RoomPresenceState currentState;
         RoomPresenceState previousState = null;
 
@@ -60,11 +59,7 @@ public class RoomPresenceService {
             hostUserByRoom.putIfAbsent(roomId, room.getHostUserId());
             RoomParticipant previous = participants.get(sessionId);
             boolean ready = previous != null && previous.ready();
-            participants.put(sessionId, new RoomParticipant(
-                    identity.userId(),
-                    identity.nickname(),
-                    Objects.equals(hostUserByRoom.get(roomId), identity.userId()),
-                    ready));
+            participants.put(sessionId, createParticipant(roomId, identity.userId(), identity.nickname(), ready));
             assignHostIfNeeded(roomId, participants);
             currentState = snapshot(roomId);
         }
@@ -104,10 +99,10 @@ public class RoomPresenceService {
                 throw new RoomWebSocketException("게임방 참가자 정보를 찾을 수 없습니다.");
             }
 
-            participants.put(sessionId, new RoomParticipant(
+            participants.put(sessionId, createParticipant(
+                    roomId,
                     participant.userId(),
                     participant.nickname(),
-                    Objects.equals(hostUserByRoom.get(roomId), participant.userId()),
                     request.ready()));
             currentState = snapshot(roomId);
         }
@@ -177,16 +172,19 @@ public class RoomPresenceService {
 
     private RoomPresenceState snapshot(long roomId) {
         Map<String, RoomParticipant> currentParticipants = participantsByRoom.get(roomId);
-        Long hostUserId = hostUserByRoom.get(roomId);
         List<RoomParticipant> participants = new ArrayList<>(currentParticipants.size());
         for (RoomParticipant participant : currentParticipants.values()) {
-            participants.add(new RoomParticipant(
+            participants.add(createParticipant(
+                    roomId,
                     participant.userId(),
                     participant.nickname(),
-                    Objects.equals(hostUserId, participant.userId()),
                     participant.ready()));
         }
         return new RoomPresenceState(roomId, List.copyOf(participants));
+    }
+
+    private RoomParticipant createParticipant(long roomId, long userId, String nickname, boolean ready) {
+        return new RoomParticipant(userId, nickname, Objects.equals(hostUserByRoom.get(roomId), userId), ready);
     }
 
     private void assignHostIfNeeded(long roomId, Map<String, RoomParticipant> participants) {
@@ -218,14 +216,4 @@ public class RoomPresenceService {
                 new RoomPresenceCount(state.roomId(), state.participants().size()));
     }
 
-    private UserIdentity resolveIdentity(Principal principal) {
-        if (principal instanceof Authentication authentication
-                && authentication.getPrincipal() instanceof CustomUserDetails user) {
-            return new UserIdentity(user.getUserId(), user.getNickname());
-        }
-        return new UserIdentity(-1L, principal.getName());
-    }
-
-    private record UserIdentity(long userId, String nickname) {
-    }
 }

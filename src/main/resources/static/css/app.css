@@ -1,0 +1,678 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --mafia-ink: #1a1e28;
+  --mafia-muted: #7b8290;
+  --mafia-line: #e6e8ed;
+  --mafia-coral: #f45d4d;
+  --mafia-navy: #252b3c;
+  --mafia-mint: #31b596;
+  --mafia-purple: #8165b7;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--mafia-ink);
+  background: #f6f7f9;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+
+a {
+  text-decoration: none;
+}
+
+.brand {
+  color: var(--mafia-ink);
+  font: 700 17px 'DM Mono', monospace;
+  letter-spacing: -1px;
+}
+
+.brand:hover {
+  color: var(--mafia-ink);
+}
+
+.brand-game {
+  color: var(--mafia-coral);
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--mafia-coral);
+  font-size: 16px;
+}
+
+.user-menu-toggle {
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--mafia-ink);
+  text-align: left;
+  white-space: nowrap;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+
+.user-menu-toggle:hover,
+.user-menu-toggle:focus-visible,
+.user-menu-toggle.show {
+  border-color: var(--mafia-line);
+  background: #fff;
+  color: var(--mafia-ink);
+}
+
+.user-avatar-sm {
+  display: grid;
+  flex: 0 0 34px;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--mafia-coral);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.user-menu-name {
+  max-width: 120px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-level {
+  color: var(--mafia-coral);
+  font: 10px 'DM Mono', monospace;
+  letter-spacing: .4px;
+}
+
+.user-menu-dropdown {
+  min-width: 220px;
+  margin-top: .5rem !important;
+  border: 1px solid var(--mafia-line);
+  border-radius: 14px;
+  box-shadow: 0 14px 35px rgba(26, 30, 40, .13);
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  border-radius: 9px;
+  color: var(--mafia-ink);
+  font-size: 13px;
+}
+
+.user-menu-item:hover,
+.user-menu-item:focus {
+  color: var(--mafia-ink);
+  background: #fff3f1;
+}
+
+.user-menu-icon {
+  display: inline-grid;
+  flex: 0 0 22px;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  color: var(--mafia-coral);
+  background: #fff0ee;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.user-menu-logout {
+  color: #9a4d45;
+}
+
+.user-menu-logout:hover,
+.user-menu-logout:focus {
+  color: #9a4d45;
+  background: #fff0ee;
+}
+
+.user-menu {
+  flex-shrink: 0;
+}
+
+.navbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: .5rem;
+}
+
+.online-status {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.online-status-dot {
+  color: var(--mafia-mint);
+  font-size: 9px;
+}
+
+@media (max-width: 575.98px) {
+  .navbar-actions {
+    gap: .5rem !important;
+  }
+
+  .online-status {
+    font-size: 11px !important;
+  }
+
+  .online-status-prefix {
+    display: none;
+  }
+
+  .user-menu-toggle {
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    padding-inline: .3rem !important;
+  }
+
+  .user-menu-toggle::after {
+    margin-left: 0;
+  }
+
+  .user-menu-dropdown {
+    min-width: 205px;
+  }
+}
+
+.brand.light,
+.brand.light:hover {
+  color: #fff;
+}
+
+.text-coral {
+  color: var(--mafia-coral) !important;
+}
+
+.btn-coral {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: var(--mafia-coral);
+  --bs-btn-border-color: var(--mafia-coral);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: #df4d40;
+  --bs-btn-hover-border-color: #df4d40;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: #cf4438;
+  --bs-btn-active-border-color: #cf4438;
+}
+
+.bg-mafia {
+  background: var(--mafia-navy);
+}
+
+.app-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-hero::after {
+  position: absolute;
+  top: -55px;
+  right: 20%;
+  color: #fff;
+  content: '♠';
+  font-size: 240px;
+  opacity: .04;
+}
+
+.app-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.eyebrow {
+  margin-bottom: .5rem;
+  color: #f98b7e;
+  font: 11px 'DM Mono', monospace;
+  letter-spacing: 1.5px;
+}
+
+.app-room-header,
+.app-profile-hero {
+  color: #fff;
+  background: linear-gradient(120deg, #252b3c, #394159);
+}
+
+.app-room-header {
+  min-height: 170px;
+}
+
+.app-profile-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-profile-hero::after {
+  position: absolute;
+  top: -90px;
+  right: 45px;
+  color: #fff;
+  content: '♠';
+  font-size: 280px;
+  opacity: .04;
+}
+
+.app-profile-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.avatar-large {
+  display: grid;
+  flex: 0 0 88px;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border: 4px solid rgba(255, 255, 255, .3);
+  border-radius: 50%;
+  color: #a86348;
+  background: #f4d7c9;
+  font-size: 31px;
+  font-weight: 800;
+}
+
+.online-badge {
+  color: #a6e5d5;
+  background: rgba(74, 204, 169, .14);
+}
+
+.online-badge i,
+#chatStatusDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mafia-mint);
+}
+
+#chatStatusDot.offline {
+  background: #c5c8cf;
+}
+
+.stat-icon {
+  display: grid;
+  place-items: center;
+  width: 39px;
+  height: 39px;
+  border-radius: 10px;
+  font-size: 19px;
+}
+
+.stat-icon.coral {
+  color: #df6255;
+  background: #fff0ee;
+}
+
+.stat-icon.mint {
+  color: #299d83;
+  background: #e6f7f2;
+}
+
+.stat-icon.purple {
+  color: #7356a6;
+  background: #f0ecf8;
+}
+
+.member {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #e6e8ec;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.member.host {
+  border-color: #ffc9c2;
+  background: #fffafa;
+}
+
+.member.participant-ready {
+  border-color: #bce9dc;
+  background: #f7fffc;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 39px;
+  height: 39px;
+  border-radius: 50%;
+  color: #606875;
+  background: #e7eaef;
+  font-weight: 700;
+}
+
+.avatar.a1 {
+  color: #a35e44;
+  background: #f6d6c9;
+}
+
+.member small {
+  color: var(--mafia-coral);
+  font-size: 10px;
+}
+
+.member.participant-ready small {
+  color: var(--mafia-mint);
+}
+
+.ready.is-ready {
+  border-color: var(--mafia-mint);
+  background: var(--mafia-mint);
+}
+
+.ready:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.empty-seat {
+  border-style: dashed;
+  color: #a3a9b3;
+}
+
+.empty-seat .avatar {
+  color: #8b929d;
+  background: #f5f6f8;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.chat-panel {
+  min-height: 400px;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  min-height: 260px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.chat-message {
+  display: flex;
+  align-items: flex-end;
+  gap: .5rem;
+  max-width: 100%;
+  margin: 0;
+}
+
+.chat-message.own {
+  flex-direction: row-reverse;
+  align-self: flex-end;
+}
+
+.chat-avatar {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chat-avatar-0 {
+  background: #6d5cae;
+}
+
+.chat-avatar-1 {
+  background: #2e9e88;
+}
+
+.chat-avatar-2 {
+  background: #e1785e;
+}
+
+.chat-avatar-3 {
+  background: #4f7bb5;
+}
+
+.chat-avatar-4 {
+  background: #b26b98;
+}
+
+.chat-avatar-5 {
+  background: #8b8f4f;
+}
+
+.chat-message-body {
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 38px);
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.chat-message.own .chat-message-body {
+  align-items: flex-end;
+}
+
+.chat-message-meta {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .25rem;
+  max-width: 100%;
+}
+
+.chat-message-sender {
+  overflow: hidden;
+  max-width: 150px;
+  color: #4f5663;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-message.own .chat-message-sender {
+  color: var(--mafia-coral);
+}
+
+.chat-message-bubble {
+  max-width: 100%;
+  padding: .55rem .7rem;
+  border-radius: 1rem 1rem 1rem .3rem;
+  background: #f0f2f5;
+  color: #454c58;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-message time {
+  flex: 0 0 auto;
+  color: #a3a9b3;
+  font-size: 10px;
+}
+
+.chat-message.own .chat-message-bubble {
+  border-radius: 1rem 1rem .3rem 1rem;
+  color: #fff;
+  background: var(--mafia-coral);
+}
+
+#chatNotice {
+  margin-bottom: 0;
+}
+
+.game-row {
+  min-height: 73px;
+}
+
+.result-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #b7bdc6;
+}
+
+.result-dot.win {
+  background: var(--mafia-mint);
+}
+
+.win-text {
+  color: #168b70;
+  background: #e5f7f1;
+}
+
+.loss-text {
+  color: #777f8d;
+  background: #f0f1f3;
+}
+
+.friend-button.added {
+  color: #a6e6d5;
+  border-color: #48c4a8;
+}
+
+.auth-art {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(145deg, #202536, #363d55);
+}
+
+.auth-art.signup-art {
+  background: linear-gradient(145deg, #253344, #294958);
+}
+
+.auth-art::after {
+  position: absolute;
+  right: -270px;
+  bottom: -250px;
+  width: 580px;
+  height: 580px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 50%;
+  box-shadow: 0 0 0 60px rgba(255, 255, 255, .025), 0 0 0 120px rgba(255, 255, 255, .02);
+  content: '';
+}
+
+.art-copy {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-47%);
+}
+
+.art-copy p {
+  color: #fb8478;
+  font: 12px 'DM Mono', monospace;
+  letter-spacing: 1.8px;
+}
+
+.art-copy h1 {
+  margin: 13px 0;
+  font-size: clamp(30px, 3vw, 46px);
+  line-height: 1.35;
+  letter-spacing: -2px;
+}
+
+.art-copy span {
+  display: block;
+  margin-top: 26px;
+  color: #fff;
+  font-size: 118px;
+  line-height: 1;
+  opacity: .14;
+}
+
+.auth-card {
+  width: min(390px, 100%);
+}
+
+.form-control:focus {
+  border-color: #f37a6e;
+  box-shadow: 0 0 0 3px #fff0ee;
+}
+
+.room-card:hover {
+  background: #fffafa;
+}
+
+.room-card .room-number {
+  width: 28px;
+  color: #a7acb5;
+  font: 12px 'DM Mono', monospace;
+}
+
+.room-card .lock {
+  color: #7f8793;
+  font-size: 11px;
+}
+
+.room-card .room-main {
+  min-width: 0;
+}
+
+.room-card .room-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card .players {
+  min-width: 61px;
+}
+
+.room-card .join {
+  min-width: 78px;
+}
+
+.toast {
+  z-index: 1080;
+}
+
+.password-field {
+  transition: opacity .15s ease;
+}
+
+@media (max-width: 767.98px) {
+  .avatar-large {
+    flex-basis: 65px;
+    width: 65px;
+    height: 65px;
+    font-size: 24px;
+  }
+
+  .room-card .room-number {
+    display: none;
+  }
+
+  .room-card .players {
+    min-width: 43px;
+  }
+
+  .room-card .join {
+    min-width: 61px;
+    padding-inline: .35rem;
+    font-size: 11px;
+  }
+
+  .game-row time {
+    display: none;
+  }
+}

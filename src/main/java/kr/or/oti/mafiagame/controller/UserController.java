@@ -24,7 +24,6 @@ public class UserController {
         }
 
         model.addAttribute("user", profile);
-        model.addAttribute("recentGames", profile.recentGames());
         return "users/detail";
     }
 }

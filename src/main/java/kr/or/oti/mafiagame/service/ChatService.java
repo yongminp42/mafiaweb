@@ -3,14 +3,13 @@ package kr.or.oti.mafiagame.service;
 import java.security.Principal;
 import java.time.Instant;
 
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
 import kr.or.oti.mafiagame.dto.ChatMessage;
 import kr.or.oti.mafiagame.dto.ChatMessageRequest;
 import kr.or.oti.mafiagame.dto.RoomSummary;
 import kr.or.oti.mafiagame.exception.RoomWebSocketException;
-import kr.or.oti.mafiagame.security.CustomUserDetails;
+import kr.or.oti.mafiagame.security.PrincipalIdentity;
 
 @Service
 public class ChatService {
@@ -43,7 +42,7 @@ public class ChatService {
         }
 
         String content = normalizeContent(request);
-        return new ChatMessage(roomId, CHAT_TYPE, resolveNickname(principal), content, Instant.now());
+        return new ChatMessage(roomId, CHAT_TYPE, PrincipalIdentity.from(principal).nickname(), content, Instant.now());
     }
 
     private String normalizeContent(ChatMessageRequest request) {
@@ -60,11 +59,4 @@ public class ChatService {
         return content;
     }
 
-    private String resolveNickname(Principal principal) {
-        if (principal instanceof Authentication authentication
-                && authentication.getPrincipal() instanceof CustomUserDetails user) {
-            return user.getNickname();
-        }
-        return principal.getName();
-    }
 }

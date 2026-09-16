@@ -4,6 +4,7 @@
   const userId = document.body.dataset.userId ? Number(document.body.dataset.userId) : null;
   const capacity = Number(document.body.dataset.capacity || 0);
   const socketUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  const { createFrame, createFrameParser } = window.MafiaStomp;
   const form = document.querySelector('#chatForm');
   const input = form?.querySelector('input[name="content"]');
   const readyButton = document.querySelector('#ready');
@@ -24,7 +25,6 @@
   }
 
   let socket;
-  let frameBuffer = '';
   let reconnectTimer;
   let connected = false;
   let shouldReconnect = true;
@@ -57,53 +57,6 @@
 
   function setNotice(message) {
     notice.textContent = message;
-  }
-
-  function escapeHeader(value) {
-    return String(value)
-      .replaceAll('\\', '\\\\')
-      .replaceAll(':', '\\c')
-      .replaceAll('\n', '\\n')
-      .replaceAll('\r', '\\r');
-  }
-
-  function unescapeHeader(value) {
-    return value
-      .replaceAll('\\r', '\r')
-      .replaceAll('\\n', '\n')
-      .replaceAll('\\c', ':')
-      .replaceAll('\\\\', '\\');
-  }
-
-  function createFrame(command, headers = {}, body = '') {
-    const headerLines = Object.entries(headers)
-      .map(([key, value]) => `${escapeHeader(key)}:${escapeHeader(value)}`)
-      .join('\n');
-    const headerBlock = headerLines ? `${headerLines}\n` : '';
-    return `${command}\n${headerBlock}\n${body}\0`;
-  }
-
-  function parseFrame(rawFrame) {
-    const frame = rawFrame.replace(/^\n+/, '');
-    if (!frame.trim()) {
-      return null;
-    }
-
-    const separator = frame.indexOf('\n\n');
-    const headerPart = separator < 0 ? frame : frame.slice(0, separator);
-    const body = separator < 0 ? '' : frame.slice(separator + 2);
-    const lines = headerPart.split('\n');
-    const command = lines.shift()?.trim();
-    const headers = {};
-
-    lines.forEach(line => {
-      const index = line.indexOf(':');
-      if (index > 0) {
-        headers[unescapeHeader(line.slice(0, index))] = unescapeHeader(line.slice(index + 1));
-      }
-    });
-
-    return { command, headers, body };
   }
 
   function handleFrame(frame) {
@@ -151,33 +104,53 @@
     }
   }
 
-  function consumeFrames(chunk) {
-    frameBuffer += chunk;
-    let endIndex = frameBuffer.indexOf('\0');
-    while (endIndex >= 0) {
-      const rawFrame = frameBuffer.slice(0, endIndex);
-      frameBuffer = frameBuffer.slice(endIndex + 1);
-      handleFrame(parseFrame(rawFrame));
-      endIndex = frameBuffer.indexOf('\0');
-    }
-  }
-
   function appendMessage(message) {
-    const item = document.createElement('p');
-    item.className = `chat-message${message.sender === nickname ? ' own' : ''}`;
+    const senderName = String(message.sender || '알 수 없음').trim() || '알 수 없음';
+    const isOwnMessage = senderName === nickname;
+    const item = document.createElement('article');
+    item.className = `chat-message ${isOwnMessage ? 'own' : 'other'}`;
+    item.dataset.sender = senderName;
 
-    const sender = document.createElement('b');
-    sender.textContent = message.sender || '알 수 없음';
-    const content = document.createElement('span');
-    content.textContent = message.content || '';
+    const avatar = document.createElement('div');
+    avatar.className = `chat-avatar chat-avatar-${getSenderColor(senderName)}`;
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = getSenderInitial(senderName);
+
+    const messageBody = document.createElement('div');
+    messageBody.className = 'chat-message-body';
+
+    const meta = document.createElement('div');
+    meta.className = 'chat-message-meta';
+
+    const sender = document.createElement('strong');
+    sender.className = 'chat-message-sender';
+    sender.textContent = isOwnMessage ? `나 · ${senderName}` : senderName;
+
     const time = document.createElement('time');
     time.textContent = message.sentAt
       ? new Date(message.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '';
 
-    item.append(sender, content, time);
+    const content = document.createElement('div');
+    content.className = 'chat-message-bubble';
+    content.textContent = message.content || '';
+
+    meta.append(sender, time);
+    messageBody.append(meta, content);
+    item.append(avatar, messageBody);
     messages.append(item);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function getSenderInitial(senderName) {
+    return Array.from(senderName)[0] || '?';
+  }
+
+  function getSenderColor(senderName) {
+    return Array.from(senderName).reduce(
+      (hash, character) => (hash * 31 + character.codePointAt(0)) % 6,
+      0
+    );
   }
 
   function renderReadyButton(isReady) {
@@ -205,11 +178,11 @@
 
     participants.forEach(participant => {
       const article = document.createElement('article');
-      article.className = `member${participant.host ? ' host' : ''}${participant.ready ? ' participant-ready' : ''}`;
+      article.className = `col member${participant.host ? ' host' : ''}${participant.ready ? ' participant-ready' : ''}`;
 
       const avatar = document.createElement('div');
       avatar.className = `avatar${participant.host ? ' a1' : ''}`;
-      avatar.textContent = Array.from(participant.nickname || '?')[0] || '?';
+      avatar.textContent = getSenderInitial(participant.nickname || '?');
 
       const name = document.createElement('b');
       name.textContent = participant.nickname || '알 수 없음';
@@ -236,7 +209,7 @@
     const emptySeats = Math.max(capacity - participants.length, 0);
     for (let index = 0; index < emptySeats; index += 1) {
       const emptySeat = document.createElement('article');
-      emptySeat.className = 'member empty-seat';
+      emptySeat.className = 'col member empty-seat';
       emptySeat.innerHTML = '<div class="avatar">+</div><b>빈 자리</b>';
       fragment.append(emptySeat);
     }
@@ -258,7 +231,6 @@
       return;
     }
 
-    frameBuffer = '';
     setConnectionStatus('연결 중', false);
     socket = new WebSocket(socketUrl);
 
@@ -270,7 +242,7 @@
       }));
     });
 
-    socket.addEventListener('message', event => consumeFrames(event.data));
+    socket.addEventListener('message', event => frameParser(event.data));
     socket.addEventListener('error', () => {
       setConnectionStatus('오류', false);
       setNotice('채팅 연결에 문제가 있습니다.');
@@ -285,6 +257,8 @@
       }
     });
   }
+
+  const frameParser = createFrameParser(handleFrame);
 
   form.addEventListener('submit', event => {
     event.preventDefault();

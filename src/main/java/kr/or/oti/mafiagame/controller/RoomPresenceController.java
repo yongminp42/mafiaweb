@@ -46,6 +46,6 @@ public class RoomPresenceController {
     @MessageExceptionHandler(RoomWebSocketException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
     public ChatError handlePresenceException(RoomWebSocketException exception) {
-        return new ChatError("ERROR", exception.getMessage());
+        return ChatError.of(exception.getMessage());
     }
 }
