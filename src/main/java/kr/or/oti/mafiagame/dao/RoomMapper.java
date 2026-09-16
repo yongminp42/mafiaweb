@@ -21,4 +21,8 @@ public interface RoomMapper {
     int insertMember(@Param("roomId") long roomId, @Param("userId") long userId);
 
     int updateHostUserId(@Param("roomId") long roomId, @Param("hostUserId") long hostUserId);
+
+    int deleteMembersByRoomId(@Param("roomId") long roomId);
+
+    int deleteById(@Param("roomId") long roomId);
 }

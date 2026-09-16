@@ -43,6 +43,12 @@ public class RoomService {
     }
 
     @Transactional
+    public void deleteRoom(long roomId) {
+        roomMapper.deleteMembersByRoomId(roomId);
+        roomMapper.deleteById(roomId);
+    }
+
+    @Transactional
     public long createRoom(long hostUserId, String title, Integer maxPlayers, String password) {
         String normalizedTitle = title == null ? "" : title.trim();
         if (normalizedTitle.length() < 2 || normalizedTitle.length() > 100) {

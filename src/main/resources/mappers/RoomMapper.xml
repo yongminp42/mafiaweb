@@ -85,4 +85,14 @@
         SET host_user_id = #{hostUserId}
         WHERE room_id = #{roomId}
     </update>
+
+    <delete id="deleteMembersByRoomId">
+        DELETE FROM room_members
+        WHERE room_id = #{roomId}
+    </delete>
+
+    <delete id="deleteById">
+        DELETE FROM game_room
+        WHERE room_id = #{roomId}
+    </delete>
 </mapper>
