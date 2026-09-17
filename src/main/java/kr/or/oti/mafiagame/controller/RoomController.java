@@ -1,6 +1,7 @@
 package kr.or.oti.mafiagame.controller;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
@@ -10,22 +11,36 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import kr.or.oti.mafiagame.domain.RoomList;
+import jakarta.servlet.http.HttpSession;
+
+import kr.or.oti.mafiagame.dto.RoomPresenceState;
+import kr.or.oti.mafiagame.dto.RoomView;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
+import kr.or.oti.mafiagame.security.RoomAccess;
+import kr.or.oti.mafiagame.service.RoomPresenceService;
 import kr.or.oti.mafiagame.service.RoomService;
 import kr.or.oti.mafiagame.service.RoomService.RoomCreationException;
 
 @Controller
 public class RoomController {
     private final RoomService roomService;
+    private final RoomPresenceService roomPresenceService;
 
-    public RoomController(RoomService roomService) {
+    public RoomController(RoomService roomService, RoomPresenceService roomPresenceService) {
         this.roomService = roomService;
+        this.roomPresenceService = roomPresenceService;
     }
 
     @GetMapping({"/", "/rooms"})
     public String roomList(Model model) {
-        model.addAttribute("rooms", roomService.getRooms());
+        Map<Long, Integer> liveCounts = roomPresenceService.currentCounts();
+        List<RoomView> rooms = roomService.getRooms().stream()
+                .map(room -> room.withPlayerCount(liveCounts.getOrDefault(room.roomId(), 0)))
+                .toList();
+        model.addAttribute("rooms", rooms);
+        model.addAttribute("onlinePlayerCount", liveCounts.values().stream()
+                .mapToInt(Integer::intValue)
+                .sum());
         return "rooms/list";
     }
 
@@ -42,9 +57,13 @@ public class RoomController {
             @RequestParam(name = "maxPlayers", required = false) Integer maxPlayers,
             @RequestParam(name = "password", required = false) String password,
             @AuthenticationPrincipal CustomUserDetails user,
+            HttpSession session,
             Model model) {
         try {
             long roomId = roomService.createRoom(user.getUserId(), title, maxPlayers, password);
+            if (password != null && !password.trim().isEmpty()) {
+                RoomAccess.grant(session, roomId);
+            }
             return "redirect:/rooms/" + roomId;
         } catch (RoomCreationException exception) {
             model.addAttribute("roomError", exception.getMessage());
@@ -59,29 +78,58 @@ public class RoomController {
     public String roomDetail(
             @PathVariable("roomId") long roomId,
             @AuthenticationPrincipal CustomUserDetails user,
+            HttpSession session,
             Model model) {
         model.addAttribute("roomId", roomId);
         model.addAttribute("nickname", user == null ? "" : user.getNickname());
         model.addAttribute("userId", user == null ? "" : user.getUserId());
-        RoomList room = roomService.getRoom(roomId);
+        RoomView room = roomService.getRoomView(roomId);
         if (room == null) {
-            model.addAttribute("room", new RoomView(
-                    "Moonlight Mafia", "Beginner friendly · quick game", 6, 8, "WAITING", false));
-            model.addAttribute("members", List.of("Yujin", "Minsu", "Soyeon", "Dohyun", "Haneul", "Jihu"));
-        } else {
-            model.addAttribute("room", new RoomView(
-                    room.getTitle(),
-                    room.getHostName() + "님이 만든 대기방 · 인원이 모이면 시작해요",
-                    room.getCurrentPlayers(),
-                    room.getMaxPlayers(),
-                    room.getStatus(),
-                    room.isLocked()));
-            model.addAttribute("members", roomService.getMemberNames(roomId));
+            return "redirect:/rooms";
         }
+        if (room.locked() && !RoomAccess.isGranted(session, roomId)) {
+            model.addAttribute("room", room);
+            return "rooms/access";
+        }
+
+        RoomPresenceState livePresence = roomPresenceService.currentState(roomId);
+        model.addAttribute("livePresence", livePresence);
+        List<String> members;
+        if (livePresence != null) {
+            room = room.withPlayerCount(livePresence.participants().size());
+            members = livePresence.participants().stream()
+                    .map(participant -> participant.nickname())
+                    .toList();
+        } else {
+            // room_members는 WebSocket 세션 종료 후 stale 상태가 될 수 있으므로
+            // 현재 접속자가 확인되기 전에는 실제 참가자로 표시하지 않는다.
+            room = room.withPlayerCount(0);
+            members = List.of();
+        }
+
+        model.addAttribute("room", room);
+        model.addAttribute("members", members);
         return "rooms/detail";
     }
 
-    public record RoomView(String title, String description, int players, int capacity,
-                           String status, boolean locked) {
+    @PostMapping("/rooms/{roomId}/access")
+    public String accessRoom(
+            @PathVariable("roomId") long roomId,
+            @RequestParam(name = "password", required = false) String password,
+            HttpSession session,
+            Model model) {
+        RoomView room = roomService.getRoomView(roomId);
+        if (room == null) {
+            return "redirect:/rooms";
+        }
+        if (!room.locked() || roomService.verifyRoomPassword(roomId, password)) {
+            RoomAccess.grant(session, roomId);
+            return "redirect:/rooms/" + roomId;
+        }
+
+        model.addAttribute("roomId", roomId);
+        model.addAttribute("room", room);
+        model.addAttribute("accessError", "방 비밀번호가 올바르지 않습니다.");
+        return "rooms/access";
     }
 }

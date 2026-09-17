@@ -12,6 +12,7 @@
         <result property="password" column="password"/>
         <result property="user_level" column="user_level"/>
         <result property="bio" column="bio"/>
+        <result property="createdAt" column="created_at"/>
     </resultMap>
 
     <insert id="insert"
@@ -34,6 +35,11 @@
         )
     </insert>
 
+    <insert id="insertStats">
+        INSERT INTO user_stats (user_id)
+        VALUES (#{userId})
+    </insert>
+
     <select id="findById" resultMap="userResultMap">
         SELECT
             user_id,
@@ -41,7 +47,8 @@
             password,
             user_name,
             user_level,
-            bio
+            bio,
+            created_at
         FROM `user`
         WHERE user_id = #{userId}
     </select>
@@ -53,9 +60,16 @@
             password,
             user_name,
             user_level,
-            bio
+            bio,
+            created_at
         FROM `user`
         WHERE email = #{email}
+    </select>
+
+    <select id="findStatsByUserId" resultType="kr.or.oti.mafiagame.domain.UserStats">
+        SELECT total_games, wins
+        FROM user_stats
+        WHERE user_id = #{userId}
     </select>
 
     <select id="existsByEmail" resultType="boolean">

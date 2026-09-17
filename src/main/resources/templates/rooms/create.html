@@ -2,79 +2,90 @@
 <html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>새 방 만들기 | MAFIAGAME</title>
-  <link rel="stylesheet" th:href="@{/css/rooms.css}">
+  <link rel="stylesheet" href="/webjars/bootstrap/5.3.8/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
-<body class="detail-body">
-<main class="lobby-shell">
-  <header class="topbar">
-    <a class="brand" href="/rooms" aria-label="마피아 게임 로비 홈">
-      <span class="brand-mark">M</span>
-      <span>MAFIA<span>GAME</span></span>
-    </a>
-    <nav class="auth-links" aria-label="계정 메뉴">
-      <a sec:authorize="isAnonymous()" href="/login">로그인</a>
-      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
-      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
-      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
-        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-        <button class="logout-button" type="submit">로그아웃</button>
-      </form>
+<body>
+<main class="container-xl py-3 py-lg-4">
+  <header>
+    <nav class="navbar py-2" aria-label="주 메뉴">
+      <a class="navbar-brand brand d-inline-flex align-items-center gap-2" href="/rooms" aria-label="마피아 게임 로비 홈">
+        <span class="brand-mark">M</span>
+        <span>MAFIA<span class="brand-game">GAME</span></span>
+      </a>
+      <div class="navbar-actions d-flex align-items-center gap-3 ms-auto">
+        <th:block th:replace="~{fragments/user-menu :: userMenu}"></th:block>
+      </div>
     </nav>
   </header>
 
-  <a class="back" href="/rooms">← 게임 목록으로</a>
-  <section class="room-create-shell">
-    <div class="room-create-copy">
-      <p class="eyebrow">CREATE ROOM</p>
-      <h1>새로운 게임방을<br>만들어 보세요.</h1>
-      <p>방을 만든 뒤 친구를 초대하고, 모두 준비되면 게임을 시작할 수 있어요.</p>
+  <a class="btn btn-link text-secondary ps-0 mb-3" href="/rooms">← 게임 목록으로</a>
+
+  <section class="row align-items-center g-4 mb-5">
+    <div class="col-lg-5">
+      <p class="eyebrow text-coral">CREATE ROOM</p>
+      <h1 class="display-6 fw-bold mb-3">새로운 게임방을<br>만들어 보세요.</h1>
+      <p class="text-secondary lh-lg mb-0">방을 만든 뒤 친구를 초대하고, 모두 준비되면 게임을 시작할 수 있어요.</p>
     </div>
-    <form class="room-form" th:action="@{/rooms}" method="post">
-      <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-      <p class="alert" th:if="${roomError}" th:text="${roomError}">입력값을 확인해 주세요.</p>
 
-      <label for="title">방 제목
-        <input id="title" type="text" name="title" th:value="${title}"
-               placeholder="예: 초보 환영 달빛 마피아" minlength="2" maxlength="100" required autofocus>
-      </label>
+    <div class="col-lg-7">
+      <form class="card border-0 shadow-sm rounded-4 p-4 p-lg-5" th:action="@{/rooms}" method="post"
+            autocomplete="off">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+        <div class="alert alert-danger py-2 small" role="alert"
+             th:if="${roomError}" th:text="${roomError}">입력값을 확인해 주세요.</div>
 
-      <fieldset>
-        <legend>최대 인원</legend>
-        <div class="capacity-options">
-          <label th:each="capacity : ${#numbers.sequence(4, 8)}">
-            <input type="radio" name="maxPlayers" th:value="${capacity}"
-                   th:checked="${maxPlayers == capacity}" required>
-            <span th:text="${capacity + '명'}">8명</span>
-          </label>
+        <div class="mb-4">
+          <input type="text" style="display:none" aria-hidden="true">
+          <input type="password" style="display:none" aria-hidden="true">
+          <label class="form-label fw-semibold" for="title">방 제목</label>
+          <input class="form-control" id="title" type="text" name="title" th:value="${title}"
+                 placeholder="예: 초보 환영 달빛 마피아" minlength="2" maxlength="100" required autofocus autocomplete="off">
         </div>
-        <small class="field-help">마피아 게임은 4~8명으로 진행할 수 있어요.</small>
-      </fieldset>
 
-      <label class="private-toggle" for="privateRoom">
-        <input id="privateRoom" type="checkbox" th:checked="${hasPassword}">
-        <span>비밀번호로 방 보호하기</span>
-      </label>
-      <div class="password-field" id="passwordField" th:classappend="${hasPassword} ? ' is-visible' : ''">
-        <label for="password">방 비밀번호
-          <input id="password" type="password" name="password" minlength="4" maxlength="20"
-                 placeholder="4~20자" th:disabled="${!hasPassword}">
-        </label>
-      </div>
+        <fieldset class="mb-4">
+          <legend class="fs-6 fw-semibold mb-2">최대 인원</legend>
+          <div class="btn-group w-100" role="group" aria-label="최대 인원 선택">
+            <th:block th:each="capacity : ${#numbers.sequence(4, 8)}">
+              <input class="btn-check" type="radio" name="maxPlayers"
+                     th:id="${'capacity-' + capacity}" th:value="${capacity}"
+                     th:checked="${maxPlayers == capacity}" autocomplete="off" required>
+              <label class="btn btn-outline-secondary" th:for="${'capacity-' + capacity}"
+                     th:text="${capacity + '명'}">8명</label>
+            </th:block>
+          </div>
+          <div class="form-text">마피아 게임은 4~8명으로 진행할 수 있어요.</div>
+        </fieldset>
 
-      <button class="ready room-submit" type="submit">방 만들기</button>
-      <a class="cancel-room" href="/rooms">취소</a>
-    </form>
+        <div class="form-check mb-3">
+          <input class="form-check-input" id="privateRoom" type="checkbox" th:checked="${hasPassword}">
+          <label class="form-check-label" for="privateRoom">비밀번호로 방 보호하기</label>
+        </div>
+
+        <div id="passwordField" class="password-field mb-4" th:classappend="${hasPassword} ? '' : ' d-none'">
+          <label class="form-label fw-semibold" for="password">방 비밀번호</label>
+          <input class="form-control" id="password" type="password" name="password"
+                 minlength="4" maxlength="20" placeholder="4~20자" autocomplete="new-password"
+                 th:disabled="${!hasPassword}">
+        </div>
+
+        <button class="btn btn-coral w-100 py-2 fw-bold" type="submit">방 만들기</button>
+        <a class="btn btn-link text-secondary w-100 mt-2" href="/rooms">취소</a>
+      </form>
+    </div>
   </section>
 </main>
+
+<script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   const privateRoom = document.querySelector('#privateRoom');
   const passwordField = document.querySelector('#passwordField');
   const password = document.querySelector('#password');
   function updatePasswordField() {
     const enabled = privateRoom.checked;
-    passwordField.classList.toggle('is-visible', enabled);
+    passwordField.classList.toggle('d-none', !enabled);
     password.disabled = !enabled;
     password.required = enabled;
     if (!enabled) password.value = '';

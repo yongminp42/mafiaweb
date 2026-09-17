@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<th:block th:fragment="userMenu">
+  <div sec:authorize="isAnonymous()" class="dropdown user-menu">
+    <button class="user-menu-toggle btn btn-sm dropdown-toggle d-flex align-items-center gap-2 px-2 py-1"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="게스트 계정 메뉴">
+      <span class="user-avatar-sm">G</span>
+      <span class="d-none d-sm-block text-start">
+        <span class="d-block user-menu-name">게스트 계정</span>
+        <span class="d-block user-menu-level">GUEST</span>
+      </span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end user-menu-dropdown p-2">
+      <li class="px-3 py-2">
+        <span class="d-block text-secondary small">GUEST ACCOUNT</span>
+        <strong class="d-block mt-1">게스트 계정</strong>
+        <span class="user-menu-level">로그인이 필요합니다</span>
+      </li>
+      <li><hr class="dropdown-divider my-2"></li>
+      <li>
+        <a class="dropdown-item user-menu-item" th:href="@{/login}">
+          <span class="user-menu-icon" aria-hidden="true">↪</span>로그인
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item user-menu-item" th:href="@{/signup}">
+          <span class="user-menu-icon" aria-hidden="true">＋</span>회원가입
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <div sec:authorize="isAuthenticated()" class="dropdown user-menu">
+    <button class="user-menu-toggle btn btn-sm dropdown-toggle d-flex align-items-center gap-2 px-2 py-1"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="사용자 메뉴">
+      <span class="user-avatar-sm" th:text="${#strings.substring(#authentication.principal.nickname, 0, 1)}">U</span>
+      <span class="d-none d-sm-block text-start">
+        <span class="d-block user-menu-name" sec:authentication="principal.nickname">사용자</span>
+        <span class="d-block user-menu-level">Lv. <span sec:authentication="principal.level">1</span></span>
+      </span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end user-menu-dropdown p-2">
+      <li class="px-3 py-2">
+        <span class="d-block text-secondary small">PLAYER ACCOUNT</span>
+        <strong class="d-block mt-1" sec:authentication="principal.nickname">사용자</strong>
+        <span class="user-menu-level">Lv. <span sec:authentication="principal.level">1</span></span>
+      </li>
+      <li><hr class="dropdown-divider my-2"></li>
+      <li>
+        <a class="dropdown-item user-menu-item" th:href="@{/users/{userId}(userId=${#authentication.principal.userId})}">
+          <span class="user-menu-icon" aria-hidden="true">◎</span>마이페이지
+        </a>
+      </li>
+      <li>
+        <form th:action="@{/logout}" method="post" class="m-0">
+          <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+          <button class="dropdown-item user-menu-item user-menu-logout" type="submit">
+            <span class="user-menu-icon" aria-hidden="true">↪</span>로그아웃
+          </button>
+        </form>
+      </li>
+    </ul>
+  </div>
+</th:block>
+</body>
+</html>

@@ -3,7 +3,6 @@ HELP.md
 .gradle/
 .gradle-test/
 build/
-/src/test/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
@@ -40,6 +39,7 @@ out/
 .vscode/
 
 ### Local environment and generated files ###
+.docx_work/
 .env
 .env.*
 !.env.example
@@ -53,3 +53,15 @@ Thumbs.db
 .gitignore
 .gitattributes
 settings.gradle
+AGENTS.md
+
+### Node.js test dependencies ###
+node_modules/
+.npm-cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+### Temporary and generated documents ###
+tmp/
+output/

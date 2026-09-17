@@ -2,79 +2,102 @@
 <html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>마피아 게임 | 게임 로비</title>
-  <link rel="stylesheet" th:href="@{/css/rooms.css}">
+  <link rel="stylesheet" href="/webjars/bootstrap/5.3.8/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
 <body>
-<main class="lobby-shell">
-  <header class="topbar">
-    <a class="brand" href="/rooms" aria-label="마피아 게임 로비 홈">
-      <span class="brand-mark">M</span>
-      <span>MAFIA<span>GAME</span></span>
-    </a>
-    <div class="online"><i></i> 현재 <strong>128</strong>명 접속 중</div>
-    <nav class="auth-links" aria-label="계정 메뉴">
-      <a sec:authorize="isAnonymous()" href="/login">로그인</a>
-      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
-      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
-      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
-        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-        <button class="logout-button" type="submit">로그아웃</button>
-      </form>
+<main class="container-xl py-3 py-lg-4">
+  <header>
+    <nav class="navbar py-2" aria-label="주 메뉴">
+      <a class="navbar-brand brand d-inline-flex align-items-center gap-2" href="/rooms" aria-label="마피아 게임 로비 홈">
+        <span class="brand-mark">M</span>
+        <span>MAFIA<span class="brand-game">GAME</span></span>
+      </a>
+      <div class="navbar-actions d-flex align-items-center gap-3 ms-auto">
+        <span class="online-status d-flex align-items-center gap-1 small text-secondary" aria-label="현재 접속인원">
+          <span class="online-status-dot" aria-hidden="true">●</span>
+          <span class="online-status-prefix">현재 </span>
+          <strong class="text-dark" id="onlinePlayerCount" th:text="${onlinePlayerCount}">0</strong>
+          <span class="online-status-suffix">명 접속 중</span>
+        </span>
+        <th:block th:replace="~{fragments/user-menu :: userMenu}"></th:block>
+      </div>
     </nav>
   </header>
 
-  <section class="hero">
+  <section class="app-hero bg-mafia rounded-4 p-4 p-lg-5 text-white d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-4">
     <div>
       <p class="eyebrow">GAME LOBBY</p>
-      <h1>누구를 믿을 것인가.</h1>
-      <p>방에 입장해 시민과 마피아의 치열한 심리전을 시작하세요.</p>
+      <h1 class="display-6 fw-bold mb-2">누구를 믿을 것인가.</h1>
+      <p class="text-white-50 mb-0">방에 입장해 시민과 마피아의 치열한 심리전을 시작하세요.</p>
     </div>
-    <a class="create-room" id="createRoom" href="/rooms/new"><span>＋</span> 새 게임 만들기</a>
+    <a class="btn btn-coral fw-bold align-self-start align-self-md-center" id="createRoom" href="/rooms/new">
+      <span class="fs-5 me-1">＋</span> 새 게임 만들기
+    </a>
   </section>
 
-  <section class="room-panel" aria-labelledby="room-title">
-    <div class="panel-head">
-      <div>
-        <h2 id="room-title">진행 중인 게임</h2>
-        <p><strong th:text="${#lists.size(rooms)}">6</strong>개의 방을 찾았어요</p>
-      </div>
-      <div class="controls">
-        <label class="search"><span>⌕</span><input id="roomSearch" type="search" placeholder="방 제목 검색"></label>
-        <select id="roomFilter" aria-label="방 상태 필터">
-          <option value="all">모든 게임</option>
-          <option value="WAITING">대기 중</option>
-          <option value="PLAYING">게임 중</option>
-        </select>
+  <section class="card border-0 shadow-sm rounded-4 mt-4 overflow-hidden" aria-labelledby="room-title">
+    <div class="card-body p-4 pb-3">
+      <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
+        <div>
+          <h2 id="room-title" class="h5 mb-1">진행 중인 게임</h2>
+          <p class="text-secondary small mb-0"><strong class="text-coral" id="roomCount" th:text="${#lists.size(rooms)}">6</strong>개의 방을 찾았어요</p>
+        </div>
+        <div class="d-flex gap-2">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-white">⌕</span>
+            <input class="form-control" id="roomSearch" type="search" placeholder="방 제목 검색" aria-label="방 제목 검색">
+          </div>
+          <select class="form-select form-select-sm" id="roomFilter" aria-label="방 상태 필터">
+            <option value="all">모든 게임</option>
+            <option value="WAITING">대기 중</option>
+            <option value="PLAYING">게임 중</option>
+          </select>
+        </div>
       </div>
     </div>
 
-    <div class="room-list" id="roomList">
-      <article class="room-card" th:each="room, roomStat : ${rooms}" th:data-status="${room.status}" th:data-title="${room.title}">
+    <div class="list-group list-group-flush px-4" id="roomList">
+      <article class="room-card list-group-item d-flex align-items-center gap-3 px-0 py-3"
+               th:each="room, roomStat : ${rooms}"
+               th:data-room-id="${room.roomId}" th:data-status="${room.status}" th:data-title="${room.title}">
         <div class="room-number" th:text="${'0' + (roomStat.index + 1)}">01</div>
-        <div class="room-main">
-          <div class="room-title-line">
+        <div class="room-main flex-grow-1">
+          <div class="d-flex align-items-center gap-2">
             <span class="lock" th:if="${room.locked}">▣</span>
-            <h3 th:text="${room.title}">달빛 아래의 마피아</h3>
-            <span class="badge" th:classappend="${room.status == 'PLAYING'} ? ' playing' : ''" th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
+            <h3 class="room-title h6 mb-0" th:text="${room.title}">달빛 아래의 마피아</h3>
+            <span class="badge rounded-pill bg-success-subtle text-success-emphasis"
+                  th:classappend="${room.status == 'PLAYING'} ? ' bg-secondary-subtle text-secondary-emphasis' : ''"
+                  th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
           </div>
-          <p><span th:text="${room.hostName}">방장</span>님의 게임</p>
+          <p class="text-secondary small mb-0 mt-1"><span th:text="${room.hostName}">방장</span>님의 게임</p>
         </div>
-        <div class="players"><span>♟</span> <strong th:text="${room.currentPlayers}">6</strong><em>/</em><span th:text="${room.maxPlayers}">8</span></div>
-        <a class="join" th:href="@{/rooms/{id}(id=${room.roomId})}" th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
+        <div class="players text-secondary small text-nowrap">
+          <span>♟</span> <strong class="text-dark" data-room-player-count th:text="${room.currentPlayers}">6</strong>
+          <em class="fst-normal text-body-tertiary">/</em> <span th:text="${room.maxPlayers}">8</span>
+        </div>
+        <a class="join btn btn-sm btn-outline-secondary" th:href="@{/rooms/{id}(id=${room.roomId})}"
+           th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
       </article>
     </div>
-    <p class="empty" id="emptyState" th:hidden="${!#lists.isEmpty(rooms)}">조건에 맞는 게임이 없습니다.</p>
+    <p class="empty text-center text-secondary py-4 mb-0" id="emptyState"
+       th:hidden="${!#lists.isEmpty(rooms)}">조건에 맞는 게임이 없습니다.</p>
   </section>
 </main>
 
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="toast position-fixed bottom-0 start-50 translate-middle-x mb-4 text-bg-dark border-0" id="toast"
+     role="status" aria-live="polite" aria-atomic="true"></div>
+
+<script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script th:src="@{/js/stomp-client.js}"></script>
 <script>
   const search = document.querySelector('#roomSearch');
   const filter = document.querySelector('#roomFilter');
-  const cards = [...document.querySelectorAll('.room-card')];
+  let cards = [...document.querySelectorAll('.room-card')];
   const empty = document.querySelector('#emptyState');
+  const roomCount = document.querySelector('#roomCount');
   function updateRooms() {
     const query = search.value.trim().toLowerCase();
     let visible = 0;
@@ -88,11 +111,19 @@
   }
   search.addEventListener('input', updateRooms);
   filter.addEventListener('change', updateRooms);
+  document.addEventListener('room:removed', event => {
+    const roomId = Number(event.detail?.roomId);
+    cards = cards.filter(card => Number(card.dataset.roomId) !== roomId);
+    roomCount.textContent = cards.length;
+    updateRooms();
+  });
   const toast = document.querySelector('#toast');
   document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => {
     toast.textContent = '게임 입장을 준비하고 있어요.';
-    toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200);
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
   }));
 </script>
+<script th:src="@{/js/room-list.js}"></script>
 </body>
 </html>

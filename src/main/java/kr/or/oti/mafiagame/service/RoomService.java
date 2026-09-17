@@ -8,7 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import kr.or.oti.mafiagame.dao.RoomMapper;
 import kr.or.oti.mafiagame.domain.Room;
-import kr.or.oti.mafiagame.domain.RoomList;
+import kr.or.oti.mafiagame.dto.RoomSummary;
+import kr.or.oti.mafiagame.dto.RoomView;
 
 @Service
 public class RoomService {
@@ -21,18 +22,50 @@ public class RoomService {
     }
 
     @Transactional(readOnly = true)
-    public List<RoomList> getRooms() {
-        return roomMapper.findAll();
+    public List<RoomView> getRooms() {
+        return roomMapper.findAll().stream()
+                .map(RoomView::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public RoomList getRoom(long roomId) {
+    public RoomSummary getRoom(long roomId) {
         return roomMapper.findById(roomId);
+    }
+
+    @Transactional(readOnly = true)
+    public RoomView getRoomView(long roomId) {
+        RoomSummary room = roomMapper.findById(roomId);
+        return room == null ? null : RoomView.from(room);
     }
 
     @Transactional(readOnly = true)
     public List<String> getMemberNames(long roomId) {
         return roomMapper.findMemberNames(roomId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean verifyRoomPassword(long roomId, String password) {
+        String normalizedPassword = password == null ? "" : password.trim();
+        if (normalizedPassword.isEmpty()) {
+            return false;
+        }
+
+        String passwordHash = roomMapper.findPasswordHash(roomId);
+        return passwordHash != null && passwordEncoder.matches(normalizedPassword, passwordHash);
+    }
+
+    @Transactional
+    public void transferHost(long roomId, long hostUserId) {
+        if (roomMapper.updateHostUserId(roomId, hostUserId) != 1) {
+            throw new IllegalStateException("방장 정보를 변경하지 못했어요.");
+        }
+    }
+
+    @Transactional
+    public void deleteRoom(long roomId) {
+        roomMapper.deleteMembersByRoomId(roomId);
+        roomMapper.deleteById(roomId);
     }
 
     @Transactional

@@ -4,6 +4,12 @@
   const userId = document.body.dataset.userId ? Number(document.body.dataset.userId) : null;
   const capacity = Number(document.body.dataset.capacity || 0);
   const socketUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  const {
+    createFrame,
+    createFrameParser,
+    startHeartbeat,
+    createReconnectController
+  } = window.MafiaStomp;
   const form = document.querySelector('#chatForm');
   const input = form?.querySelector('input[name="content"]');
   const readyButton = document.querySelector('#ready');
@@ -18,18 +24,25 @@
   const topicDestination = `/topic/rooms/${roomId}/chat`;
   const presenceDestination = `/topic/rooms/${roomId}/presence`;
   const errorDestination = '/user/queue/errors';
+  const joinedDestination = '/user/queue/room-joined';
+  const MAX_RENDERED_MESSAGES = 200;
 
   if (!roomId || !form || !input || !messages) {
     return;
   }
 
   let socket;
-  let frameBuffer = '';
-  let reconnectTimer;
   let connected = false;
   let shouldReconnect = true;
   let currentReady = false;
   let presenceReady = false;
+  let joinedRoom = false;
+  let forcedLeave = false;
+  let roomTopicsSubscribed = false;
+  let stopHeartbeat = () => {};
+  let renderedMessageCount = 0;
+  const senderColorCache = new Map();
+  const reconnectController = createReconnectController(connect);
 
   if (readyButton) {
     readyButton.disabled = true;
@@ -46,9 +59,13 @@
   }
 
   function setConnectionStatus(label, isOnline) {
-    connectionStatus.textContent = label;
-    statusDot.classList.toggle('offline', !isOnline);
-    submitButton.disabled = !isOnline;
+    if (connectionStatus) {
+      connectionStatus.textContent = label;
+    }
+    if (statusDot) {
+      statusDot.classList.toggle('offline', !isOnline);
+    }
+    updateChatAvailability(isOnline);
     if (!isOnline) {
       presenceReady = false;
     }
@@ -56,69 +73,86 @@
   }
 
   function setNotice(message) {
-    notice.textContent = message;
+    if (notice) {
+      notice.textContent = message;
+    }
   }
 
-  function escapeHeader(value) {
-    return String(value)
-      .replaceAll('\\', '\\\\')
-      .replaceAll(':', '\\c')
-      .replaceAll('\n', '\\n')
-      .replaceAll('\r', '\\r');
-  }
-
-  function unescapeHeader(value) {
-    return value
-      .replaceAll('\\r', '\r')
-      .replaceAll('\\n', '\n')
-      .replaceAll('\\c', ':')
-      .replaceAll('\\\\', '\\');
-  }
-
-  function createFrame(command, headers = {}, body = '') {
-    const headerLines = Object.entries(headers)
-      .map(([key, value]) => `${escapeHeader(key)}:${escapeHeader(value)}`)
-      .join('\n');
-    const headerBlock = headerLines ? `${headerLines}\n` : '';
-    return `${command}\n${headerBlock}\n${body}\0`;
-  }
-
-  function parseFrame(rawFrame) {
-    const frame = rawFrame.replace(/^\n+/, '');
-    if (!frame.trim()) {
-      return null;
+  function forceLeaveRoom() {
+    if (forcedLeave) {
+      return;
     }
 
-    const separator = frame.indexOf('\n\n');
-    const headerPart = separator < 0 ? frame : frame.slice(0, separator);
-    const body = separator < 0 ? '' : frame.slice(separator + 2);
-    const lines = headerPart.split('\n');
-    const command = lines.shift()?.trim();
-    const headers = {};
+    forcedLeave = true;
+    shouldReconnect = false;
+    connected = false;
+    joinedRoom = false;
+    presenceReady = false;
+    reconnectController.cancel();
+    stopHeartbeat();
+    setConnectionStatus('퇴장됨', false);
+    setNotice('다른 게임방에 입장하여 이 방에서 퇴장했습니다.');
+    showToast('다른 게임방에 입장하여 이 방에서 퇴장했습니다.');
 
-    lines.forEach(line => {
-      const index = line.indexOf(':');
-      if (index > 0) {
-        headers[unescapeHeader(line.slice(0, index))] = unescapeHeader(line.slice(index + 1));
-      }
-    });
-
-    return { command, headers, body };
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close();
+    }
+    window.setTimeout(() => window.location.replace('/rooms'), 700);
   }
 
-  function handleFrame(frame) {
+  function rejectRoomEntry(message) {
+    if (forcedLeave) {
+      return;
+    }
+
+    forcedLeave = true;
+    shouldReconnect = false;
+    connected = false;
+    joinedRoom = false;
+    presenceReady = false;
+    reconnectController.cancel();
+    stopHeartbeat();
+    setConnectionStatus('입장 불가', false);
+    setNotice(message);
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close();
+    }
+    window.setTimeout(() => window.location.replace('/rooms'), 1200);
+  }
+
+  function subscribeRoomTopics(connection) {
+    if (roomTopicsSubscribed) {
+      return;
+    }
+    roomTopicsSubscribed = true;
+    connection.send(createFrame('SUBSCRIBE', {
+      id: 'room-presence',
+      destination: presenceDestination,
+      ack: 'auto'
+    }));
+    connection.send(createFrame('SUBSCRIBE', {
+      id: 'room-chat',
+      destination: topicDestination,
+      ack: 'auto'
+    }));
+  }
+
+  function handleFrame(frame, connection) {
     if (!frame) {
       return;
     }
 
     if (frame.command === 'CONNECTED') {
+      reconnectController.reset();
       connected = true;
+      stopHeartbeat();
+      stopHeartbeat = startHeartbeat(connection, frame);
       setConnectionStatus('실시간', true);
       setNotice('실시간 채팅에 연결되었습니다.');
-      socket.send(createFrame('SUBSCRIBE', { id: 'room-presence', destination: presenceDestination, ack: 'auto' }));
-      socket.send(createFrame('SUBSCRIBE', { id: 'room-chat', destination: topicDestination, ack: 'auto' }));
-      socket.send(createFrame('SUBSCRIBE', { id: 'chat-errors', destination: errorDestination, ack: 'auto' }));
-      socket.send(createFrame('SEND', {
+      connection.send(createFrame('SUBSCRIBE', { id: 'chat-errors', destination: errorDestination, ack: 'auto' }));
+      connection.send(createFrame('SUBSCRIBE', { id: 'room-joined', destination: joinedDestination, ack: 'auto' }));
+      connection.send(createFrame('SEND', {
         destination: `/app/rooms/${roomId}/join`,
         'content-type': 'application/json'
       }, '{}'));
@@ -128,8 +162,29 @@
     if (frame.command === 'MESSAGE') {
       try {
         const message = JSON.parse(frame.body);
-        if (message.type === 'ERROR' || frame.headers.destination === errorDestination) {
-          showToast(message.message || '채팅 메시지를 처리하지 못했습니다.');
+        if (!message || typeof message !== 'object') {
+          return;
+        }
+        const isErrorMessage = message.type === 'ERROR'
+          || frame.headers.destination === errorDestination
+          || frame.headers.subscription === 'chat-errors';
+        if (isErrorMessage) {
+          const errorMessage = message.message || '요청을 처리하지 못했습니다.';
+          showToast(errorMessage);
+          if (!joinedRoom) {
+            rejectRoomEntry(errorMessage);
+          }
+          return;
+        }
+        const isJoinedMessage = frame.headers.destination === joinedDestination
+          || frame.headers.subscription === 'room-joined';
+        if (isJoinedMessage) {
+          renderParticipants(message.participants);
+          if (joinedRoom) {
+            subscribeRoomTopics(connection);
+          } else {
+            rejectRoomEntry('게임방 입장 정보를 확인하지 못했습니다.');
+          }
           return;
         }
         if (frame.headers.destination === presenceDestination || Array.isArray(message.participants)) {
@@ -146,38 +201,69 @@
     }
 
     if (frame.command === 'ERROR') {
-      setNotice('채팅 연결에 문제가 있습니다.');
-      showToast(frame.body || '채팅 연결에 문제가 있습니다.');
-    }
-  }
-
-  function consumeFrames(chunk) {
-    frameBuffer += chunk;
-    let endIndex = frameBuffer.indexOf('\0');
-    while (endIndex >= 0) {
-      const rawFrame = frameBuffer.slice(0, endIndex);
-      frameBuffer = frameBuffer.slice(endIndex + 1);
-      handleFrame(parseFrame(rawFrame));
-      endIndex = frameBuffer.indexOf('\0');
+      rejectRoomEntry(frame.body || '채팅 연결에 문제가 있습니다.');
     }
   }
 
   function appendMessage(message) {
-    const item = document.createElement('p');
-    item.className = `chat-message${message.sender === nickname ? ' own' : ''}`;
+    const senderName = String(message.sender || '알 수 없음').trim() || '알 수 없음';
+    const isOwnMessage = senderName === nickname;
+    const item = document.createElement('article');
+    item.className = `chat-message ${isOwnMessage ? 'own' : 'other'}`;
+    item.dataset.sender = senderName;
 
-    const sender = document.createElement('b');
-    sender.textContent = message.sender || '알 수 없음';
-    const content = document.createElement('span');
-    content.textContent = message.content || '';
+    const avatar = document.createElement('div');
+    avatar.className = `chat-avatar chat-avatar-${getSenderColor(senderName)}`;
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = getSenderInitial(senderName);
+
+    const messageBody = document.createElement('div');
+    messageBody.className = 'chat-message-body';
+
+    const meta = document.createElement('div');
+    meta.className = 'chat-message-meta';
+
+    const sender = document.createElement('strong');
+    sender.className = 'chat-message-sender';
+    sender.textContent = isOwnMessage ? `나 · ${senderName}` : senderName;
+
     const time = document.createElement('time');
     time.textContent = message.sentAt
       ? new Date(message.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '';
 
-    item.append(sender, content, time);
+    const content = document.createElement('div');
+    content.className = 'chat-message-bubble';
+    content.textContent = message.content || '';
+
+    meta.append(sender, time);
+    messageBody.append(meta, content);
+    item.append(avatar, messageBody);
     messages.append(item);
+    renderedMessageCount += 1;
+    if (renderedMessageCount > MAX_RENDERED_MESSAGES) {
+      messages.querySelector('.chat-message')?.remove();
+      renderedMessageCount -= 1;
+    }
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function getSenderInitial(senderName) {
+    return Array.from(senderName)[0] || '?';
+  }
+
+  function getSenderColor(senderName) {
+    const cachedColor = senderColorCache.get(senderName);
+    if (cachedColor !== undefined) {
+      return cachedColor;
+    }
+
+    const color = Array.from(senderName).reduce(
+      (hash, character) => (hash * 31 + character.codePointAt(0)) % 6,
+      0
+    );
+    senderColorCache.set(senderName, color);
+    return color;
   }
 
   function renderReadyButton(isReady) {
@@ -195,21 +281,28 @@
     }
   }
 
+  function updateChatAvailability(isOnline = connected) {
+    if (submitButton) {
+      submitButton.disabled = !isOnline || !joinedRoom;
+    }
+  }
+
   function renderParticipants(participants) {
-    if (!memberGrid || !Array.isArray(participants)) {
+    if (forcedLeave || !memberGrid || !Array.isArray(participants)) {
       return;
     }
 
     const fragment = document.createDocumentFragment();
     let currentParticipant = null;
+    const wasJoined = joinedRoom;
 
     participants.forEach(participant => {
       const article = document.createElement('article');
-      article.className = `member${participant.host ? ' host' : ''}${participant.ready ? ' participant-ready' : ''}`;
+      article.className = `col member${participant.host ? ' host' : ''}${participant.ready ? ' participant-ready' : ''}`;
 
       const avatar = document.createElement('div');
       avatar.className = `avatar${participant.host ? ' a1' : ''}`;
-      avatar.textContent = Array.from(participant.nickname || '?')[0] || '?';
+      avatar.textContent = getSenderInitial(participant.nickname || '?');
 
       const name = document.createElement('b');
       name.textContent = participant.nickname || '알 수 없음';
@@ -236,7 +329,7 @@
     const emptySeats = Math.max(capacity - participants.length, 0);
     for (let index = 0; index < emptySeats; index += 1) {
       const emptySeat = document.createElement('article');
-      emptySeat.className = 'member empty-seat';
+      emptySeat.className = 'col member empty-seat';
       emptySeat.innerHTML = '<div class="avatar">+</div><b>빈 자리</b>';
       fragment.append(emptySeat);
     }
@@ -248,9 +341,15 @@
     if (roomMemberCount) {
       roomMemberCount.textContent = participants.length;
     }
+    joinedRoom = currentParticipant !== null;
     presenceReady = currentParticipant !== null;
     renderReadyButton(currentParticipant?.ready || false);
     updateReadyAvailability();
+    updateChatAvailability();
+
+    if (wasJoined && currentParticipant === null) {
+      forceLeaveRoom();
+    }
   }
 
   function connect() {
@@ -258,30 +357,54 @@
       return;
     }
 
-    frameBuffer = '';
+    joinedRoom = false;
+    presenceReady = false;
+    currentReady = false;
+    renderReadyButton(false);
+    updateChatAvailability(false);
     setConnectionStatus('연결 중', false);
-    socket = new WebSocket(socketUrl);
+    const connection = new WebSocket(socketUrl);
+    const frameParser = createFrameParser(frame => handleFrame(frame, connection));
+    socket = connection;
+    roomTopicsSubscribed = false;
 
-    socket.addEventListener('open', () => {
-      socket.send(createFrame('CONNECT', {
+    connection.addEventListener('open', () => {
+      if (socket !== connection) {
+        return;
+      }
+      connection.send(createFrame('CONNECT', {
         'accept-version': '1.2',
         host: location.host,
-        'heart-beat': '0,0'
+        'heart-beat': '10000,10000'
       }));
     });
 
-    socket.addEventListener('message', event => consumeFrames(event.data));
-    socket.addEventListener('error', () => {
+    connection.addEventListener('message', event => {
+      if (socket === connection) {
+        frameParser(event.data);
+      }
+    });
+    connection.addEventListener('error', () => {
+      if (socket !== connection) {
+        return;
+      }
       setConnectionStatus('오류', false);
       setNotice('채팅 연결에 문제가 있습니다.');
     });
-    socket.addEventListener('close', () => {
+    connection.addEventListener('close', () => {
+      if (socket !== connection) {
+        return;
+      }
       connected = false;
+      stopHeartbeat();
+      stopHeartbeat = () => {};
+      if (forcedLeave) {
+        return;
+      }
       setConnectionStatus('재연결 중', false);
       setNotice('채팅 연결이 끊겼습니다. 다시 연결하는 중입니다.');
       if (shouldReconnect) {
-        window.clearTimeout(reconnectTimer);
-        reconnectTimer = window.setTimeout(connect, 3000);
+        reconnectController.schedule();
       }
     });
   }
@@ -292,7 +415,7 @@
     if (!content) {
       return;
     }
-    if (!connected || socket.readyState !== WebSocket.OPEN) {
+    if (!connected || !joinedRoom || !presenceReady || socket.readyState !== WebSocket.OPEN) {
       showToast('채팅 서버에 연결 중입니다.');
       return;
     }
@@ -306,7 +429,7 @@
   });
 
   readyButton?.addEventListener('click', () => {
-    if (!connected || socket.readyState !== WebSocket.OPEN) {
+    if (!connected || !joinedRoom || !presenceReady || socket.readyState !== WebSocket.OPEN) {
       showToast('게임방 연결 중입니다.');
       return;
     }
@@ -319,8 +442,9 @@
 
   window.addEventListener('beforeunload', () => {
     shouldReconnect = false;
-    window.clearTimeout(reconnectTimer);
-    if (connected && socket.readyState === WebSocket.OPEN) {
+    reconnectController.cancel();
+    stopHeartbeat();
+    if (connected && socket && socket.readyState === WebSocket.OPEN) {
       socket.send(createFrame('DISCONNECT'));
     }
   });

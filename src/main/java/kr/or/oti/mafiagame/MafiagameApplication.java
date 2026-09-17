@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.mybatis.spring.annotation.MapperScan;
 
 @SpringBootApplication
-@MapperScan("kr.or.oti.mafiagame")
+@MapperScan("kr.or.oti.mafiagame.dao")
 public class MafiagameApplication {
 
 	public static void main(String[] args) {

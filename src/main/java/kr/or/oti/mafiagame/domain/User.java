@@ -1,5 +1,7 @@
 package kr.or.oti.mafiagame.domain;
 
+import java.time.LocalDateTime;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -25,5 +27,6 @@ public class User {
     private int     user_level;
 
     private String  bio;
-    
+
+    private LocalDateTime createdAt;
 }

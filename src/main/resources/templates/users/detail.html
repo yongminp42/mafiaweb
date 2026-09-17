@@ -4,73 +4,122 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:text="${user.nickname} + ' | MAFIAGAME'">유저 프로필 | MAFIAGAME</title>
-  <link rel="stylesheet" th:href="@{/css/profile.css}">
+  <link rel="stylesheet" href="/webjars/bootstrap/5.3.8/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
 <body>
-<main class="profile-shell">
-  <header class="topbar">
-    <a class="brand" href="/rooms">
-      <span class="brand-mark">M</span>
-      <span>MAFIA<span>GAME</span></span>
-    </a>
-    <nav class="nav-links" aria-label="메인 메뉴">
-      <a href="/rooms">게임 로비</a>
-      <a sec:authorize="isAnonymous()" class="login-link" href="/login">로그인</a>
-      <a sec:authorize="isAnonymous()" class="signup-link" href="/signup">회원가입</a>
-      <span sec:authorize="isAuthenticated()"><span sec:authentication="principal.nickname"></span>님</span>
-      <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post">
-        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-        <button class="logout-button" type="submit">로그아웃</button>
-      </form>
+<main class="container-xl py-3 py-lg-4">
+  <header>
+    <nav class="navbar py-2" aria-label="주 메뉴">
+      <a class="navbar-brand brand d-inline-flex align-items-center gap-2" href="/rooms">
+        <span class="brand-mark">M</span>
+        <span>MAFIA<span class="brand-game">GAME</span></span>
+      </a>
+      <div class="navbar-actions d-flex align-items-center gap-3 ms-auto">
+        <div class="d-flex align-items-center gap-3">
+          <a class="text-secondary small" href="/rooms">게임 로비</a>
+          <th:block th:replace="~{fragments/user-menu :: userMenu}"></th:block>
+        </div>
+      </div>
     </nav>
   </header>
 
-  <a class="back" href="/rooms">← 게임 로비로</a>
+  <a class="btn btn-link text-secondary ps-0 mb-3" href="/rooms">← 게임 로비로</a>
 
-  <section class="profile-hero">
+  <section class="app-profile-hero rounded-4 p-4 p-lg-5 d-flex flex-column flex-md-row align-items-md-center gap-4">
     <div class="avatar-large" th:text="${#strings.substring(user.nickname, 0, 1)}">유</div>
-    <div class="profile-copy">
+    <div class="flex-grow-1">
       <p class="eyebrow">PLAYER PROFILE</p>
-      <div class="name-line">
-        <h1 th:text="${user.nickname}">유진</h1>
-        <span class="online-badge"><i></i> 온라인</span>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <h1 class="h2 fw-bold mb-0" th:text="${user.nickname}">유진</h1>
+        <span class="online-badge badge rounded-pill"><i></i> 온라인</span>
       </div>
-      <p th:text="${user.bio}">마을을 지키는 밤의 추리꾼</p>
-      <small th:text="${user.joinedAt} + '부터 함께했어요'">2026년 9월 가입부터 함께했어요</small>
+      <p class="text-white-50 mb-1 mt-2" th:text="${user.bio}">마을을 지키는 밤의 추리꾼</p>
+      <small class="text-white-50" th:text="${user.joinedAt} + '부터 함께했어요'">2026년 9월 가입부터 함께했어요</small>
     </div>
-    <button class="friend-button" type="button" id="friendButton">＋ 친구 추가</button>
+    <button class="friend-button btn btn-outline-light" type="button" id="friendButton">＋ 친구 추가</button>
   </section>
 
-  <section class="stats-grid" aria-label="게임 통계">
-    <article><span class="stat-icon coral">♠</span><div><small>플레이한 게임</small><strong th:text="${user.totalGames}">48</strong><em>판</em></div></article>
-    <article><span class="stat-icon mint">★</span><div><small>전체 승률</small><strong th:text="${user.winRate()} + '%'">65%</strong><em th:text="${user.wins} + '승'">31승</em></div></article>
-    <article><span class="stat-icon purple">♟</span><div><small>마피아 승률</small><strong th:text="${user.mafiaWinRate()} + '%'">71%</strong><em th:text="${user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">12승 / 17판</em></div></article>
+  <section class="row g-3 my-4" aria-label="게임 통계">
+    <article class="col-md-4">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body d-flex align-items-center gap-3 p-4">
+          <span class="stat-icon coral">♠</span>
+          <div><small class="d-block text-secondary">플레이한 게임</small><strong class="fs-4" th:text="${user.totalGames}">0</strong><em class="text-secondary small ms-1">판</em></div>
+        </div>
+      </div>
+    </article>
+    <article class="col-md-4">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body d-flex align-items-center gap-3 p-4">
+          <span class="stat-icon mint">★</span>
+          <div><small class="d-block text-secondary">전체 승률</small><strong class="fs-4" th:text="${user.winRate()} + '%'">0%</strong><em class="text-secondary small ms-1" th:text="${user.wins} + '승'">0승</em></div>
+        </div>
+      </div>
+    </article>
+    <article class="col-md-4">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body d-flex align-items-center gap-3 p-4">
+          <span class="stat-icon purple">♟</span>
+          <div><small class="d-block text-secondary">마피아 승률</small><strong class="fs-4" th:text="${user.mafiaGames == null ? '집계 준비 중' : user.mafiaWinRate() + '%'}">집계 준비 중</strong><em class="text-secondary small ms-1" th:text="${user.mafiaGames == null ? '게임 이력 없음' : user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">게임 이력 없음</em></div>
+        </div>
+      </div>
+    </article>
   </section>
 
-  <section class="profile-content">
-    <div class="history-panel">
-      <div class="section-head"><div><p class="eyebrow">GAME HISTORY</p><h2>최근 게임</h2></div><a href="#">전체 전적 보기 →</a></div>
-      <div class="game-list">
-        <article class="game-row" th:each="game : ${recentGames}">
-          <span class="result-dot" th:classappend="${game.result == '승리'} ? ' win' : ' loss'"></span>
-          <div class="game-info"><h3 th:text="${game.roomTitle}">달빛 아래의 마피아</h3><p><span th:text="${game.role}">시민</span> · <span th:text="${game.status}">생존</span></p></div>
-          <strong th:classappend="${game.result == '승리'} ? ' win-text' : ' loss-text'" th:text="${game.result}">승리</strong>
-          <time th:text="${game.playedAt}">12분 전</time>
-        </article>
+  <section class="row g-4 mb-5">
+    <div class="col-lg-8">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body p-4">
+          <div class="d-flex align-items-center justify-content-between">
+            <div><p class="eyebrow text-coral mb-1">GAME HISTORY</p><h2 class="h5 mb-0">최근 게임</h2></div>
+            <a class="small text-secondary" href="#">전체 전적 보기 →</a>
+          </div>
+          <div class="game-list list-group list-group-flush mt-3">
+            <p class="empty-history text-center text-secondary py-4 mb-0" th:if="${#lists.isEmpty(user.recentGames)}">아직 저장된 게임 기록이 없습니다.</p>
+            <article class="game-row list-group-item d-flex align-items-center gap-3 px-0 py-3" th:each="game : ${user.recentGames}">
+              <span class="result-dot flex-shrink-0" th:classappend="${game.result == '승리'} ? ' win' : ' loss'"></span>
+              <div class="game-info flex-grow-1">
+                <h3 class="h6 mb-1" th:text="${game.roomTitle}">달빛 아래의 마피아</h3>
+                <p class="text-secondary small mb-0"><span th:text="${game.role}">시민</span> · <span th:text="${game.status}">생존</span></p>
+              </div>
+              <strong class="px-2 py-1 rounded-2 small" th:classappend="${game.result == '승리'} ? ' win-text' : ' loss-text'" th:text="${game.result}">승리</strong>
+              <time class="text-secondary small text-nowrap" th:text="${game.playedAt}">12분 전</time>
+            </article>
+          </div>
+        </div>
       </div>
     </div>
-    <aside class="achievement-panel">
-      <p class="eyebrow">ACHIEVEMENTS</p>
-      <h2>획득한 배지</h2>
-      <div class="badges">
-        <article><span>♛</span><b>첫 승리</b><small>첫 게임 승리</small></article>
-        <article><span>☾</span><b>밤의 지배자</b><small>마피아 10회 승리</small></article>
-        <article class="locked"><span>?</span><b>완벽한 추리</b><small>경찰 5회 승리</small></article>
+
+    <aside class="col-lg-4">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body p-4">
+          <p class="eyebrow text-coral mb-1">ACHIEVEMENTS</p>
+          <h2 class="h5 mb-0">획득한 배지</h2>
+          <div class="list-group list-group-flush gap-2 mt-3">
+            <article class="list-group-item d-flex align-items-center gap-3 rounded-3 bg-light border-0 p-2">
+              <span class="badge rounded-3 fs-5 p-2 bg-warning-subtle text-warning-emphasis">★</span>
+              <span><b class="d-block small">첫 승리</b><small class="text-secondary">첫 게임 승리</small></span>
+            </article>
+            <article class="list-group-item d-flex align-items-center gap-3 rounded-3 bg-light border-0 p-2">
+              <span class="badge rounded-3 fs-5 p-2 bg-warning-subtle text-warning-emphasis">♠</span>
+              <span><b class="d-block small">밤의 지배자</b><small class="text-secondary">마피아 10회 승리</small></span>
+            </article>
+            <article class="list-group-item d-flex align-items-center gap-3 rounded-3 bg-light border-0 p-2 opacity-50">
+              <span class="badge rounded-3 fs-5 p-2 bg-secondary-subtle text-secondary">?</span>
+              <span><b class="d-block small">완벽한 추리</b><small class="text-secondary">경찰 5회 승리</small></span>
+            </article>
+          </div>
+        </div>
       </div>
     </aside>
   </section>
 </main>
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<div class="toast position-fixed bottom-0 start-50 translate-middle-x mb-4 text-bg-dark border-0" id="toast"
+     role="status" aria-live="polite" aria-atomic="true"></div>
+
+<script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   const friendButton = document.querySelector('#friendButton');
   const toast = document.querySelector('#toast');
