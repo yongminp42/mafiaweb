@@ -44,6 +44,17 @@ public class RoomService {
         return roomMapper.findMemberNames(roomId);
     }
 
+    @Transactional(readOnly = true)
+    public boolean verifyRoomPassword(long roomId, String password) {
+        String normalizedPassword = password == null ? "" : password.trim();
+        if (normalizedPassword.isEmpty()) {
+            return false;
+        }
+
+        String passwordHash = roomMapper.findPasswordHash(roomId);
+        return passwordHash != null && passwordEncoder.matches(normalizedPassword, passwordHash);
+    }
+
     @Transactional
     public void transferHost(long roomId, long hostUserId) {
         if (roomMapper.updateHostUserId(roomId, hostUserId) != 1) {

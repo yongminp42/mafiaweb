@@ -61,8 +61,61 @@
     };
   }
 
+  function getReconnectDelay(attempt) {
+    const normalizedAttempt = Number.isFinite(Number(attempt))
+      ? Math.max(0, Number(attempt))
+      : 0;
+    const exponentialDelay = Math.min(30000, 1000 * (2 ** Math.min(normalizedAttempt, 5)));
+    return exponentialDelay + Math.floor(Math.random() * 250);
+  }
+
+  function startHeartbeat(connection, connectedFrame) {
+    const heartbeat = String(connectedFrame.headers['heart-beat'] || '0,0')
+      .split(',')
+      .map(value => Number(value));
+    const serverRequestedInterval = Number.isFinite(heartbeat[1]) ? heartbeat[1] : 0;
+    const interval = serverRequestedInterval > 0
+      ? Math.max(10000, serverRequestedInterval)
+      : 0;
+    if (interval <= 0) {
+      return () => {};
+    }
+
+    const heartbeatTimer = window.setInterval(() => {
+      if (connection.readyState === WebSocket.OPEN) {
+        connection.send('\n');
+      }
+    }, interval);
+    return () => window.clearInterval(heartbeatTimer);
+  }
+
+  function createReconnectController(connect) {
+    let reconnectTimer;
+    let reconnectAttempts = 0;
+
+    return {
+      schedule() {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = undefined;
+          connect();
+        }, getReconnectDelay(reconnectAttempts++));
+      },
+      reset() {
+        reconnectAttempts = 0;
+      },
+      cancel() {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+      }
+    };
+  }
+
   window.MafiaStomp = Object.freeze({
     createFrame,
-    createFrameParser
+    createFrameParser,
+    getReconnectDelay,
+    startHeartbeat,
+    createReconnectController
   });
 })();

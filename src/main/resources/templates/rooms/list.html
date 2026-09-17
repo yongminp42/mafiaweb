@@ -19,7 +19,7 @@
         <span class="online-status d-flex align-items-center gap-1 small text-secondary" aria-label="현재 접속인원">
           <span class="online-status-dot" aria-hidden="true">●</span>
           <span class="online-status-prefix">현재 </span>
-          <strong class="text-dark">128</strong>
+          <strong class="text-dark" id="onlinePlayerCount" th:text="${onlinePlayerCount}">0</strong>
           <span class="online-status-suffix">명 접속 중</span>
         </span>
         <th:block th:replace="~{fragments/user-menu :: userMenu}"></th:block>
@@ -43,7 +43,7 @@
       <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
         <div>
           <h2 id="room-title" class="h5 mb-1">진행 중인 게임</h2>
-          <p class="text-secondary small mb-0"><strong class="text-coral" th:text="${#lists.size(rooms)}">6</strong>개의 방을 찾았어요</p>
+          <p class="text-secondary small mb-0"><strong class="text-coral" id="roomCount" th:text="${#lists.size(rooms)}">6</strong>개의 방을 찾았어요</p>
         </div>
         <div class="d-flex gap-2">
           <div class="input-group input-group-sm">
@@ -97,6 +97,7 @@
   const filter = document.querySelector('#roomFilter');
   let cards = [...document.querySelectorAll('.room-card')];
   const empty = document.querySelector('#emptyState');
+  const roomCount = document.querySelector('#roomCount');
   function updateRooms() {
     const query = search.value.trim().toLowerCase();
     let visible = 0;
@@ -113,6 +114,7 @@
   document.addEventListener('room:removed', event => {
     const roomId = Number(event.detail?.roomId);
     cards = cards.filter(card => Number(card.dataset.roomId) !== roomId);
+    roomCount.textContent = cards.length;
     updateRooms();
   });
   const toast = document.querySelector('#toast');

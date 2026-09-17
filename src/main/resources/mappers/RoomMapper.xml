@@ -69,6 +69,12 @@
         ORDER BY rm.joined_time, rm.user_id
     </select>
 
+    <select id="findPasswordHash" resultType="string">
+        SELECT room_password
+        FROM game_room
+        WHERE room_id = #{roomId}
+    </select>
+
     <insert id="insert" parameterType="kr.or.oti.mafiagame.domain.Room"
             useGeneratedKeys="true" keyProperty="roomId">
         INSERT INTO game_room (host_user_id, title, room_password, max_players, status)

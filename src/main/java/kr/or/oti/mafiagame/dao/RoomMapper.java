@@ -14,6 +14,8 @@ public interface RoomMapper {
 
     RoomSummary findById(@Param("roomId") long roomId);
 
+    String findPasswordHash(@Param("roomId") long roomId);
+
     List<String> findMemberNames(@Param("roomId") long roomId);
 
     int insert(Room room);

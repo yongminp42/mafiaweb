@@ -25,6 +25,18 @@ public record RoomView(
                 room.isLocked());
     }
 
+    public RoomView withPlayerCount(int playerCount) {
+        return new RoomView(
+                roomId,
+                title,
+                description,
+                hostName,
+                playerCount,
+                capacity,
+                status,
+                locked);
+    }
+
     public int currentPlayers() {
         return players;
     }

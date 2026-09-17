@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>잠금 방 입장 | MAFIAGAME</title>
+  <link rel="stylesheet" href="/webjars/bootstrap/5.3.8/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body class="bg-light">
+<main class="container py-5">
+  <section class="card border-0 shadow-sm rounded-4 p-4 p-lg-5 mx-auto" style="max-width: 32rem">
+    <p class="eyebrow text-coral mb-2">LOCKED ROOM</p>
+    <h1 class="h3 fw-bold" th:text="${room.title}">잠금 게임방</h1>
+    <p class="text-secondary mb-4">이 게임방에 입장하려면 비밀번호를 입력해 주세요.</p>
+
+    <form th:action="@{/rooms/{roomId}/access(roomId=${room.roomId})}" method="post">
+      <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+      <div class="alert alert-danger py-2 small" role="alert"
+           th:if="${accessError}" th:text="${accessError}">비밀번호를 확인해 주세요.</div>
+      <label class="form-label fw-semibold" for="roomPassword">방 비밀번호</label>
+      <input class="form-control" id="roomPassword" type="password" name="password"
+             minlength="4" maxlength="20" autocomplete="current-password" required autofocus>
+      <button class="btn btn-coral w-100 py-2 fw-bold mt-4" type="submit">입장하기</button>
+      <a class="btn btn-link text-secondary w-100 mt-2" href="/rooms">게임 목록으로</a>
+    </form>
+  </section>
+</main>
+</body>
+</html>

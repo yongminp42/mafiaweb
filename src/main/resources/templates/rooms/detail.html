@@ -54,13 +54,24 @@
           </div>
 
           <div class="row row-cols-2 row-cols-md-4 g-3 my-3" id="memberGrid">
-            <article class="col member" th:each="member, stat : ${members}"
-                     th:classappend="${stat.index == 0} ? ' host' : ''">
-              <div class="avatar" th:classappend="${stat.index == 0} ? ' a1' : ''"
-                   th:text="${#strings.substring(member, 0, 1)}">민</div>
-              <b th:text="${member}">민수</b>
-              <small th:if="${stat.index == 0}">방장</small>
-            </article>
+            <th:block th:if="${livePresence != null}">
+              <article class="col member" th:each="participant : ${livePresence.participants}"
+                       th:classappend="${participant.host} ? ' host' : ''">
+                <div class="avatar" th:classappend="${participant.host} ? ' a1' : ''"
+                     th:text="${#strings.substring(participant.nickname, 0, 1)}">민</div>
+                <b th:text="${participant.nickname}">민수</b>
+                <small th:text="${participant.host ? '방장' : (participant.ready ? '준비 완료' : '대기 중')}">방장</small>
+              </article>
+            </th:block>
+            <th:block th:unless="${livePresence != null}">
+              <article class="col member" th:each="member, stat : ${members}"
+                       th:classappend="${stat.index == 0} ? ' host' : ''">
+                <div class="avatar" th:classappend="${stat.index == 0} ? ' a1' : ''"
+                     th:text="${#strings.substring(member, 0, 1)}">민</div>
+                <b th:text="${member}">민수</b>
+                <small th:if="${stat.index == 0}">방장</small>
+              </article>
+            </th:block>
             <article class="col member empty-seat" th:if="${room.players < room.capacity}"
                      th:each="slot : ${#numbers.sequence(room.players + 1, room.capacity)}">
               <div class="avatar">+</div><b>빈 자리</b>

@@ -38,6 +38,16 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+def npmCommand = System.getProperty('os.name').toLowerCase().contains('windows') ? 'npm.cmd' : 'npm'
+
+tasks.register('jsTest', Exec) {
+	group = 'verification'
+	description = 'Runs the Node.js JavaScript tests.'
+	workingDir projectDir
+	commandLine npmCommand, 'run', 'test:js'
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
+	dependsOn tasks.named('jsTest')
 }

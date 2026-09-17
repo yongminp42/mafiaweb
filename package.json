@@ -1,0 +1,11 @@
+{
+  "name": "mafiagame-javascript-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:js": "node --test test/js/stomp-client.test.js test/js/room-list.test.js test/js/chat.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0"
+  }
+}
