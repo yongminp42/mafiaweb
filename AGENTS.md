@@ -1,0 +1,85 @@
+# MAFIAGAME Codex 작업 지침
+
+## 기본 작업 범위
+
+- 기본 작업 대상은 `src/main/**`의 애플리케이션 소스와 리소스다.
+- 기능 구현이나 버그 수정 시 관련된 파일만 확인하고 수정한다.
+- Gradle 빌드·실행에 필요한 경우에만 `build.gradle`과 `gradle/wrapper/**`를 확인한다.
+- 데이터베이스 작업이 명시된 경우에만 `mafiasql.sql`을 확인한다.
+
+## 문서 업데이트 원칙
+
+- 코딩 작업이나 버그 수정 시 `README.md`, `docs/**`, 변경 이력 등 문서 파일은 기본적으로 수정하지 않는다.
+- 문서 내용의 변경이 필요해 보여도 작업 결과에 문서 변경사항을 계속 반영하지 말고, 사용자가 문서 업데이트를 명시적으로 요청한 경우에만 수정한다.
+- 구현·수정 내용은 최종 응답에서 요약한다.
+
+## 기본적으로 무시할 파일과 폴더
+
+다음 항목은 사용자가 명시적으로 요청하지 않는 한 검색·분석·수정 대상에서 제외한다.
+
+### Gradle 캐시와 빌드 산출물
+
+- `HELP.md`
+- `.gradle/**`
+- `.gradle-test/**`
+- `build/**`
+- `src/test/**`
+
+### STS 및 IDE 설정
+
+- `.apt_generated/**`
+- `.classpath`
+- `.factorypath`
+- `.project`
+- `.settings/**`
+- `.springBeans`
+- `.sts4-cache/**`
+- `bin/**`
+- `.vscode/**`
+- `.idea/**`
+- `*.iws`
+- `*.iml`
+- `*.ipr`
+- `out/**`
+- `nbproject/private/**`
+- `nbbuild/**`
+- `dist/**`
+- `nbdist/**`
+- `.nb-gradle/**`
+
+### 로컬 환경·로그·문서 생성 작업 파일
+
+- `.docx_work/**`
+- `.env`
+- `.env.*`
+- `*.env`
+- `application-local.properties`
+- `application-local.yml`
+- `application-local.yaml`
+- `*.log`
+- `.DS_Store`
+- `Thumbs.db`
+
+### 저장소 관리 파일
+
+- `.gitignore`
+- `.gitattributes`
+- `settings.gradle`
+
+## 예외
+
+- `gradle/wrapper/gradle-wrapper.jar`는 Gradle 실행에 필요한 파일이므로 무시하지 않는다.
+- `src/test/**`는 테스트 작업을 명시적으로 요청받은 경우에만 확인한다.
+- `settings.gradle`은 Gradle 설정 문제를 해결하는 작업에서만 확인한다.
+- `.env.example`는 환경 변수 사용법을 확인할 때 읽을 수 있지만 비밀값을 추가하지 않는다.
+- 사용자가 특정 무시 대상의 분석이나 수정을 직접 요청하면 해당 요청을 우선한다.
+
+## 검증
+
+- Java 또는 JavaScript를 수정한 경우 관련 Gradle 테스트나 빌드 명령을 실행한다.
+- **문서(마크다운) 내용만 참고하여 정적 추측으로 테스트를 생략하거나 통과 처리하고 넘어가지 않는다.**
+- 검증 단계에서는 반드시 실제 명령(단위 테스트, 빌드, E2E 테스트 등)을 실행하고 콘솔 출력과 로그를 확인한다.
+- 테스트를 직접 실행하지 못했거나 환경 문제로 실행되지 않은 항목은 절대 임의로 성공(PASS) 처리하지 말고, 반드시 `BLOCKED` 또는 `NOT RUN`으로 표시하고 원인을 명시한다.
+- Playwright E2E 테스트는 사용자가 명시적으로 요청한 경우에만 실행한다.
+- 테스트·빌드 산출물과 IDE 설정 파일을 소스 변경으로 포함하지 않는다.
+- 데이터베이스 접속 정보, 비밀번호, 토큰 등 비밀값을 소스나 문서에 기록하지 않는다.

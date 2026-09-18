@@ -22,6 +22,16 @@
     }
   }
 
+  function replaceOnlinePlayerCount(count) {
+    const normalizedCount = Number(count);
+    if (!Number.isFinite(normalizedCount)) {
+      return;
+    }
+
+    onlinePlayerTotal = Math.max(0, Math.trunc(normalizedCount));
+    updateOnlinePlayerCount();
+  }
+
   function scheduleRoomListRefresh() {
     if (refreshTimer !== undefined) {
       return;
@@ -98,6 +108,12 @@
       updateOnlinePlayerCount();
       return;
     }
+
+    if (message && Number.isFinite(Number(message.onlinePlayers))) {
+      replaceOnlinePlayerCount(message.onlinePlayers);
+      return;
+    }
+
     updateRoomCount(message);
   }
 

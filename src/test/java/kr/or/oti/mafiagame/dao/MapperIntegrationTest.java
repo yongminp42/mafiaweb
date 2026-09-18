@@ -57,6 +57,10 @@ class MapperIntegrationTest {
         assertThat(roomMapper.findById(room.getRoomId()).getHostUserId()).isEqualTo(guest.getUserId());
         assertThat(roomMapper.findPasswordHash(room.getRoomId())).isEqualTo("encoded-room-password");
 
+        assertThat(roomMapper.updateStatus(room.getRoomId(), "PLAYING")).isEqualTo(1);
+        assertThat(roomMapper.resetStatusToWaiting(room.getRoomId())).isEqualTo(1);
+        assertThat(roomMapper.findById(room.getRoomId()).getStatus()).isEqualTo("WAITING");
+
         assertThat(roomMapper.deleteMembersByRoomId(room.getRoomId())).isEqualTo(2);
         assertThat(roomMapper.deleteById(room.getRoomId())).isEqualTo(1);
         assertThat(roomMapper.findById(room.getRoomId())).isNull();

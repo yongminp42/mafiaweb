@@ -92,6 +92,20 @@
         WHERE room_id = #{roomId}
     </update>
 
+    <update id="updateStatus">
+        UPDATE game_room
+        SET status = #{status}
+        WHERE room_id = #{roomId}
+          AND status = 'WAITING'
+    </update>
+
+    <update id="resetStatusToWaiting">
+        UPDATE game_room
+        SET status = 'WAITING'
+        WHERE room_id = #{roomId}
+          AND status = 'PLAYING'
+    </update>
+
     <delete id="deleteMembersByRoomId">
         DELETE FROM room_members
         WHERE room_id = #{roomId}

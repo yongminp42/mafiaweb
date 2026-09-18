@@ -301,6 +301,45 @@ class RoomPresenceServiceTest {
         assertThat(presenceService.isParticipant(4L, "locked-session")).isTrue();
     }
 
+    @Test
+    void returnsFinishedRoomToWaitingAndClearsReadyState() {
+        presenceService.join(1L, "host-session", principal(10L, "host"));
+        presenceService.join(1L, "guest-session", principal(11L, "guest"));
+        presenceService.join(1L, "third-session", principal(12L, "third"));
+        presenceService.join(1L, "fourth-session", principal(13L, "fourth"));
+        presenceService.updateReady(1L, "host-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "third-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "fourth-session", new RoomReadyRequest(true));
+        when(roomService.startGame(1L)).thenReturn(true);
+        when(roomService.resetGameToWaiting(1L)).thenReturn(true);
+
+        presenceService.startGame(1L, "host-session");
+        presenceService.resetAfterGame(1L);
+
+        RoomPresenceState state = presenceService.currentState(1L);
+        assertThat(state.status()).isEqualTo("WAITING");
+        assertThat(state.participants())
+                .hasSize(4)
+                .allSatisfy(participant -> assertThat(participant.ready()).isFalse());
+        verify(roomService).resetGameToWaiting(1L);
+    }
+
+    @Test
+    void rejectsStartingGameWithFewerThanFourPlayers() {
+        presenceService.join(1L, "host-session", principal(10L, "host"));
+        presenceService.join(1L, "guest-session", principal(11L, "guest"));
+        presenceService.join(1L, "third-session", principal(12L, "third"));
+        presenceService.updateReady(1L, "host-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "third-session", new RoomReadyRequest(true));
+
+        assertThatThrownBy(() -> presenceService.startGame(1L, "host-session"))
+                .isInstanceOf(RoomWebSocketException.class)
+                .hasMessage("게임 시작에는 최소 4명의 참가자가 필요합니다.");
+        verify(roomService, never()).startGame(1L);
+    }
+
     private static RoomSummary room(long roomId, long hostUserId) {
         return room(roomId, hostUserId, 8);
     }

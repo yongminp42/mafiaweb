@@ -63,6 +63,16 @@ public class RoomService {
     }
 
     @Transactional
+    public boolean startGame(long roomId) {
+        return roomMapper.updateStatus(roomId, "PLAYING") == 1;
+    }
+
+    @Transactional
+    public boolean resetGameToWaiting(long roomId) {
+        return roomMapper.resetStatusToWaiting(roomId) == 1;
+    }
+
+    @Transactional
     public void deleteRoom(long roomId) {
         roomMapper.deleteMembersByRoomId(roomId);
         roomMapper.deleteById(roomId);
