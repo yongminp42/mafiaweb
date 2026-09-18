@@ -59,6 +59,28 @@ test('room list subscribes to lobby presence and applies live counts', () => {
   }
 });
 
+test('room list applies the server online player count', () => {
+  const dom = createDom(roomListMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify({ onlinePlayers: 1 })
+    ));
+
+    assert.equal(dom.window.document.querySelector('#onlinePlayerCount').textContent, '1');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('room list removes a room when live count becomes zero', () => {
   const dom = createDom(roomListMarkup());
   try {

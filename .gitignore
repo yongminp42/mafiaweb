@@ -50,10 +50,6 @@ application-local.yaml
 *.log
 .DS_Store
 Thumbs.db
-.gitignore
-.gitattributes
-settings.gradle
-AGENTS.md
 
 ### Node.js test dependencies ###
 node_modules/

@@ -90,6 +90,15 @@ class RoomServiceTest {
     }
 
     @Test
+    void resetsPlayingRoomToWaiting() {
+        when(roomMapper.resetStatusToWaiting(1L)).thenReturn(1);
+
+        assertThat(roomService.resetGameToWaiting(1L)).isTrue();
+
+        verify(roomMapper).resetStatusToWaiting(1L);
+    }
+
+    @Test
     void verifiesNormalizedRoomPasswordAgainstStoredHash() {
         when(roomMapper.findPasswordHash(1L)).thenReturn("encoded");
         when(passwordEncoder.matches("secret", "encoded")).thenReturn(true);

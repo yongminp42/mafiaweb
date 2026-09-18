@@ -29,7 +29,7 @@
       <div class="d-flex flex-wrap align-items-center gap-2">
         <span class="lock" th:if="${room.locked}">▣</span>
         <h1 class="h3 fw-bold mb-0" th:text="${room.title}">달빛 아래의 마피아</h1>
-        <span class="badge rounded-pill bg-success-subtle text-success-emphasis"
+        <span id="roomStatus" class="badge rounded-pill bg-success-subtle text-success-emphasis"
               th:classappend="${room.status == 'PLAYING'} ? ' bg-secondary-subtle text-secondary-emphasis' : ''"
               th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
       </div>
@@ -80,10 +80,12 @@
 
           <div class="alert alert-light border small mb-3">
             <strong>기본 설정</strong>
-            <span class="text-secondary ms-2">마피아 2명 · 경찰 1명 · 의사 1명 · 낮 90초 / 밤 45초</span>
+            <span class="text-secondary ms-2">낮 60초 · 지목 투표 15초 · 처형 투표 15초 · 밤 30초</span>
           </div>
           <button class="ready btn btn-coral w-100 py-2 fw-bold" id="ready" type="button">준비 완료</button>
+          <button class="start-game btn btn-dark w-100 py-2 fw-bold mt-2" id="startGame" type="button" hidden>게임 시작</button>
           <p class="ready-note text-center text-secondary small mt-2 mb-0">모든 참가자가 준비되면 게임이 시작됩니다.</p>
+          <p class="start-game-note text-center text-secondary small mt-1 mb-0" id="startGameNotice" hidden></p>
         </div>
       </div>
     </section>
@@ -107,6 +109,74 @@
         </form>
       </div>
     </aside>
+  </section>
+
+  <section class="game-panel card border-0 shadow-sm rounded-4 mb-4" id="gamePanel" hidden aria-labelledby="gamePhaseTitle">
+    <div class="card-body p-4">
+      <div class="d-flex align-items-center justify-content-between gap-3">
+        <div>
+          <p class="eyebrow text-coral mb-1">GAME</p>
+          <h2 id="gamePhaseTitle" class="h5 mb-0">게임 준비 중</h2>
+        </div>
+        <div class="text-end">
+          <small class="text-secondary d-block">남은 시간</small>
+          <strong id="gameTimer" class="fs-4">--</strong>
+        </div>
+      </div>
+      <p id="gameMessage" class="text-secondary small mt-3 mb-3">게임이 시작되면 현재 페이즈가 표시됩니다.</p>
+
+      <div id="gameResultPanel" class="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-3" hidden>
+        <div>
+          <span class="small fw-semibold d-block">게임 결과</span>
+          <strong id="gameWinnerLabel" class="fs-5"></strong>
+        </div>
+        <div class="text-end">
+          <div class="small">내 역할: <strong id="gameResultRoleLabel">-</strong></div>
+          <div class="small">생존 여부: <strong id="gameResultAliveLabel">-</strong></div>
+          <small id="gameResultNotice" class="d-block mt-1">같은 게임방에서 다시 준비할 수 있습니다.</small>
+        </div>
+      </div>
+
+      <div id="gameRolePanel" class="alert alert-warning d-flex align-items-center justify-content-between gap-3 mb-3" hidden>
+        <span class="small fw-semibold">내 역할</span>
+        <strong id="gameRoleLabel" class="fs-5"></strong>
+      </div>
+
+      <div id="gameActions" hidden>
+        <div id="nominationAction" hidden>
+          <label class="form-label small fw-bold" for="nominationTarget">지목할 참가자</label>
+          <div class="d-flex flex-column flex-sm-row gap-2">
+            <select class="form-select" id="nominationTarget" aria-label="지목할 참가자">
+              <option value="">참가자를 선택하세요</option>
+            </select>
+            <button class="btn btn-coral text-nowrap" id="submitNomination" type="button">지목 투표</button>
+          </div>
+        </div>
+
+        <div id="executionAction" hidden>
+          <p class="small fw-bold mb-2">지목된 참가자를 처형할까요?</p>
+          <div class="d-flex gap-2">
+            <button class="btn btn-coral flex-fill" id="executePlayer" type="button">처형</button>
+            <button class="btn btn-outline-secondary flex-fill" id="sparePlayer" type="button">살려두기</button>
+          </div>
+        </div>
+
+        <div id="nightAction" hidden>
+          <label class="form-label small fw-bold" id="nightActionTitle" for="nightTarget">밤 행동 대상</label>
+          <div class="d-flex flex-column flex-sm-row gap-2">
+            <select class="form-select" id="nightTarget" aria-label="밤 행동 대상">
+              <option value="">참가자를 선택하세요</option>
+            </select>
+            <button class="btn btn-dark text-nowrap" id="submitNightAction" type="button">밤 행동 제출</button>
+          </div>
+        </div>
+      </div>
+      <div id="nightResultPanel" class="alert alert-info small mt-3 mb-0" hidden>
+        <strong>경찰 조사 결과</strong>
+        <span id="nightResultLabel"></span>
+      </div>
+      <p id="gameActionStatus" class="text-secondary small mt-3 mb-0"></p>
+    </div>
   </section>
 </main>
 

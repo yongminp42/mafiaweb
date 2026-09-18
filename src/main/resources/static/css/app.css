@@ -646,6 +646,12 @@ a {
   z-index: 1080;
 }
 
+/* Bootstrap's .d-flex uses !important and can override the native hidden attribute. */
+#gameResultPanel[hidden],
+#gameRolePanel[hidden] {
+  display: none !important;
+}
+
 .password-field {
   transition: opacity .15s ease;
 }

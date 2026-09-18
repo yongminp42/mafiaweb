@@ -37,6 +37,7 @@
              th:if="${signupError}" th:text="${signupError}">회원가입 정보를 확인해 주세요.</div>
 
         <form id="signupForm" th:action="@{/signup}" method="post" class="vstack gap-3">
+          <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
           <div>
             <label class="form-label fw-semibold" for="nickname">닉네임</label>
             <input class="form-control" id="nickname" type="text" name="nickname"

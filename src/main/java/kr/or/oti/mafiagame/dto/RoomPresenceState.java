@@ -4,5 +4,10 @@ import java.util.List;
 
 public record RoomPresenceState(
         long roomId,
-        List<RoomParticipant> participants) {
+        List<RoomParticipant> participants,
+        String status) {
+
+    public RoomPresenceState(long roomId, List<RoomParticipant> participants) {
+        this(roomId, participants, "WAITING");
+    }
 }

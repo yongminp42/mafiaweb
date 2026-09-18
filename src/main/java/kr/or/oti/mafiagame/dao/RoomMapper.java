@@ -24,6 +24,10 @@ public interface RoomMapper {
 
     int updateHostUserId(@Param("roomId") long roomId, @Param("hostUserId") long hostUserId);
 
+    int updateStatus(@Param("roomId") long roomId, @Param("status") String status);
+
+    int resetStatusToWaiting(@Param("roomId") long roomId);
+
     int deleteMembersByRoomId(@Param("roomId") long roomId);
 
     int deleteById(@Param("roomId") long roomId);
