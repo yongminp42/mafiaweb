@@ -12,6 +12,7 @@
   } = window.MafiaStomp;
   const form = document.querySelector('#chatForm');
   const input = form?.querySelector('input[name="content"]');
+  const chatChannel = document.querySelector('#chatChannel');
   const readyButton = document.querySelector('#ready');
   const startButton = document.querySelector('#startGame');
   const startGameNotice = document.querySelector('#startGameNotice');
@@ -25,6 +26,8 @@
   const statusDot = document.querySelector('#chatStatusDot');
   const submitButton = form?.querySelector('button[type="submit"]');
   const topicDestination = `/topic/rooms/${roomId}/chat`;
+  const mafiaChatDestination = '/user/queue/mafia-chat';
+  const deadChatDestination = '/user/queue/dead-chat';
   const presenceDestination = `/topic/rooms/${roomId}/presence`;
   const presenceSyncDestination = '/user/queue/presence-synced';
   const gameDestination = `/topic/rooms/${roomId}/game`;
@@ -40,6 +43,8 @@
   const gameResultRoleLabel = document.querySelector('#gameResultRoleLabel');
   const gameResultAliveLabel = document.querySelector('#gameResultAliveLabel');
   const gameResultNotice = document.querySelector('#gameResultNotice');
+  const gameRoleRevealPanel = document.querySelector('#gameRoleRevealPanel');
+  const gameRoleRevealList = document.querySelector('#gameRoleRevealList');
   const gamePhaseTitle = document.querySelector('#gamePhaseTitle');
   const gameTimerElement = document.querySelector('#gameTimer');
   const gameMessage = document.querySelector('#gameMessage');
@@ -73,6 +78,12 @@
   };
   const INVESTIGATION_FACTION_LABELS = {
     MAFIA: '마피아',
+    CITIZEN: '시민'
+  };
+  const GAME_ROLE_LABELS = {
+    MAFIA: '마피아',
+    DOCTOR: '의사',
+    POLICE: '경찰',
     CITIZEN: '시민'
   };
   const NIGHT_ACTIONS = {
@@ -246,6 +257,16 @@
       destination: nightResultDestination,
       ack: 'auto'
     }));
+    connection.send(createFrame('SUBSCRIBE', {
+      id: 'mafia-chat',
+      destination: mafiaChatDestination,
+      ack: 'auto'
+    }));
+    connection.send(createFrame('SUBSCRIBE', {
+      id: 'dead-chat',
+      destination: deadChatDestination,
+      ack: 'auto'
+    }));
     connection.send(createFrame('SEND', {
       destination: `/app/rooms/${roomId}/presence/sync`,
       'content-type': 'application/json'
@@ -359,6 +380,7 @@
     const item = document.createElement('article');
     item.className = `chat-message ${isOwnMessage ? 'own' : 'other'}`;
     item.dataset.sender = senderName;
+    item.dataset.channel = message.channel || 'PUBLIC';
 
     const avatar = document.createElement('div');
     avatar.className = `chat-avatar chat-avatar-${getSenderColor(senderName)}`;
@@ -468,8 +490,46 @@
   }
 
   function updateChatAvailability(isOnline = connected) {
+    const currentGamePlayer = Array.isArray(gameState?.players)
+      ? gameState.players.find(player => Number(player.userId) === userId)
+      : null;
+    const isNewWaitingParticipant = gameState?.phase === 'FINISHED' && !currentGamePlayer;
+    const alive = !gameState || currentGamePlayer?.alive === true || isNewWaitingParticipant;
+    const isNight = gameState?.phase === 'NIGHT';
+    const canUseDeadChat = Boolean(gameState) && !alive;
+    const canUsePublic = !isNight || canUseDeadChat;
+    const canUseMafia = currentRole === 'MAFIA' && alive;
+    const canChat = isOnline
+      && joinedRoom
+      && presenceReady
+      && (alive ? (!isNight || canUseMafia) : canUseDeadChat);
+
+    const publicOption = chatChannel?.querySelector('option[value="PUBLIC"]');
+    const mafiaOption = chatChannel?.querySelector('option[value="MAFIA"]');
+    if (publicOption) {
+      publicOption.disabled = !canUsePublic;
+      publicOption.textContent = canUseDeadChat ? '사망자 채널' : '전체 채널';
+    }
+    if (mafiaOption) {
+      mafiaOption.hidden = !canUseMafia;
+      mafiaOption.disabled = !canUseMafia;
+    }
+    if (chatChannel) {
+      if (isNight && canUseMafia) {
+        chatChannel.value = 'MAFIA';
+      } else if (chatChannel.value === 'MAFIA' && !canUseMafia) {
+        chatChannel.value = 'PUBLIC';
+      }
+      chatChannel.disabled = !isOnline
+        || !joinedRoom
+        || !presenceReady
+        || (!alive && !canUseDeadChat);
+    }
     if (submitButton) {
-      submitButton.disabled = !isOnline || !joinedRoom;
+      submitButton.disabled = !canChat;
+    }
+    if (input) {
+      input.disabled = !canChat;
     }
   }
 
@@ -515,6 +575,13 @@
     // 공개 상태가 갱신될 때마다 행동 버튼과 타이머도 함께 다시 계산한다.
     gameState = state;
     gamePanel.hidden = false;
+    const currentGamePlayer = Array.isArray(state.players)
+      ? state.players.find(player => Number(player.userId) === userId)
+      : null;
+    if (currentGamePlayer && !currentGamePlayer.alive) {
+      // Do not keep a private investigation result visible after the investigator dies.
+      clearNightResult();
+    }
     if (gamePhaseTitle) {
       gamePhaseTitle.textContent = GAME_PHASE_LABELS[state.phase] || state.phase;
     }
@@ -522,6 +589,7 @@
       gameMessage.textContent = state.message || '';
     }
     renderGameResult(state);
+    updateChatAvailability();
     updateGameActions();
     startGameTimer();
   }
@@ -534,6 +602,7 @@
     if (gameRoleLabel) {
       gameRoleLabel.textContent = '';
     }
+    updateChatAvailability();
   }
 
   function renderGameRole(roleAssignment) {
@@ -546,6 +615,7 @@
     gameRoleLabel.textContent = roleAssignment.roleLabel;
     currentRole = roleAssignment.role;
     gameRolePanel.hidden = false;
+    updateChatAvailability();
     updateGameActions();
   }
 
@@ -565,6 +635,12 @@
     if (gameResultNotice) {
       gameResultNotice.textContent = '같은 게임방에서 다시 준비할 수 있습니다.';
     }
+    if (gameRoleRevealPanel) {
+      gameRoleRevealPanel.hidden = true;
+    }
+    if (gameRoleRevealList) {
+      gameRoleRevealList.replaceChildren();
+    }
   }
 
   function renderGameResult(state) {
@@ -580,7 +656,31 @@
 
     gameWinnerLabel.textContent = winnerLabel;
     gameResultPanel.hidden = false;
+    renderGameRoleReveal(state);
     clearGameRole();
+  }
+
+  function renderGameRoleReveal(state) {
+    if (!gameRoleRevealPanel || !gameRoleRevealList || state.phase !== 'FINISHED') {
+      return;
+    }
+
+    const players = Array.isArray(state.players) ? state.players : [];
+    const revealedPlayers = players.filter(player => typeof player.role === 'string');
+    if (revealedPlayers.length === 0) {
+      gameRoleRevealPanel.hidden = true;
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    revealedPlayers.forEach(player => {
+      const item = document.createElement('li');
+      const roleLabel = GAME_ROLE_LABELS[player.role] || player.role;
+      item.textContent = `${player.nickname || '알 수 없음'} · ${roleLabel} · ${player.alive ? '생존' : '탈락'}`;
+      fragment.append(item);
+    });
+    gameRoleRevealList.replaceChildren(fragment);
+    gameRoleRevealPanel.hidden = false;
   }
 
   function renderGameResultDetails(result) {
@@ -932,13 +1032,16 @@
       return;
     }
 
+    const channel = chatChannel?.value === 'MAFIA' ? 'mafia-chat' : 'chat';
     socket.send(createFrame('SEND', {
-      destination: `/app/rooms/${roomId}/chat`,
+      destination: `/app/rooms/${roomId}/${channel}`,
       'content-type': 'application/json'
     }, JSON.stringify({ content })));
     input.value = '';
     input.focus();
   });
+
+  chatChannel?.addEventListener('change', () => updateChatAvailability());
 
   readyButton?.addEventListener('click', () => {
     if (!connected || !joinedRoom || !presenceReady || socket.readyState !== WebSocket.OPEN) {

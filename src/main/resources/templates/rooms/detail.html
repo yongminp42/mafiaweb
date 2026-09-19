@@ -116,6 +116,13 @@
           <p class="notice alert alert-light text-center small" id="chatNotice">채팅 서버에 연결 중입니다.</p>
         </div>
         <form class="chat-input card-footer bg-white border-top p-3" id="chatForm">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <label class="small text-secondary" for="chatChannel">채널</label>
+            <select class="form-select form-select-sm" id="chatChannel" aria-label="채팅 채널">
+              <option value="PUBLIC">전체 채널</option>
+              <option value="MAFIA" hidden disabled>마피아 채널</option>
+            </select>
+          </div>
           <div class="input-group input-group-sm">
             <input class="form-control" name="content" maxlength="300" placeholder="메시지 입력"
                    aria-label="채팅 메시지" autocomplete="off">
@@ -146,7 +153,7 @@
 
       <div
           id="gameResultPanel"
-          class="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-3"
+          class="alert alert-success d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"
           hidden>
         <div>
           <span class="small fw-semibold d-block">게임 결과</span>
@@ -156,6 +163,10 @@
           <div class="small">내 역할: <strong id="gameResultRoleLabel">-</strong></div>
           <div class="small">생존 여부: <strong id="gameResultAliveLabel">-</strong></div>
           <small id="gameResultNotice" class="d-block mt-1">같은 게임방에서 다시 준비할 수 있습니다.</small>
+        </div>
+        <div id="gameRoleRevealPanel" class="w-100 mt-3" hidden>
+          <div class="small fw-semibold mb-1">게임 종료 직업 공개</div>
+          <ul id="gameRoleRevealList" class="small mb-0 ps-3"></ul>
         </div>
       </div>
 

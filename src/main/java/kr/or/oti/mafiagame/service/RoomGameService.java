@@ -23,6 +23,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import kr.or.oti.mafiagame.dto.GameActionRequest;
+import kr.or.oti.mafiagame.dto.ChatChannel;
+import kr.or.oti.mafiagame.dto.ChatMessage;
 import kr.or.oti.mafiagame.dto.GameFaction;
 import kr.or.oti.mafiagame.dto.GameInvestigationResult;
 import kr.or.oti.mafiagame.dto.GameNightAction;
@@ -42,6 +44,8 @@ public class RoomGameService {
     private static final String ROLE_DESTINATION = "/queue/game-role";
     private static final String RESULT_DESTINATION = "/queue/game-result";
     private static final String NIGHT_RESULT_DESTINATION = "/queue/night-result";
+    private static final String MAFIA_CHAT_DESTINATION = "/queue/mafia-chat";
+    private static final String DEAD_CHAT_DESTINATION = "/queue/dead-chat";
 
     private final SimpMessagingTemplate messagingTemplate;
     private final RoomPresenceService roomPresenceService;
@@ -219,6 +223,157 @@ public class RoomGameService {
                     principal.getName(),
                     NIGHT_RESULT_DESTINATION,
                     investigationResult);
+        }
+    }
+
+    /**
+     * Chat permissions are checked against the authoritative game state so a client cannot
+     * bypass the channel selector by sending a different STOMP destination.
+     */
+    public void validateChat(long roomId, long userId, ChatChannel requestedChannel) {
+        ChatChannel channel = requestedChannel == null ? ChatChannel.PUBLIC : requestedChannel;
+        gameLock.lock();
+        try {
+            GameRoom game = gamesByRoom.get(roomId);
+            if (game == null) {
+                if (channel == ChatChannel.MAFIA) {
+                    throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
+                }
+                return;
+            }
+
+            GamePlayerState player = game.players.get(userId);
+            if (player == null) {
+                // A new participant may join the same room after the previous game finished.
+                // They can use the public waiting-room channel, but never inherit old roles.
+                if (game.phase == GamePhase.FINISHED && channel == ChatChannel.PUBLIC) {
+                    return;
+                }
+                throw new RoomWebSocketException("게임 참가자 정보를 찾을 수 없습니다.");
+            }
+            if (!player.alive) {
+                if (channel == ChatChannel.MAFIA) {
+                    throw new RoomWebSocketException("사망한 참가자는 마피아 채널을 사용할 수 없습니다.");
+                }
+                return;
+            }
+            if (channel == ChatChannel.MAFIA && player.role != GameRole.MAFIA) {
+                throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
+            }
+            if (game.phase == GamePhase.NIGHT && channel == ChatChannel.PUBLIC) {
+                throw new RoomWebSocketException("밤에는 마피아 채널만 사용할 수 있습니다.");
+            }
+            if (game.phase == GamePhase.FINISHED && channel == ChatChannel.MAFIA) {
+                throw new RoomWebSocketException("게임이 종료되어 마피아 채널을 사용할 수 없습니다.");
+            }
+        } finally {
+            gameLock.unlock();
+        }
+    }
+
+    /**
+     * The private channel is sent to current living mafia principals individually. This avoids
+     * stale topic subscriptions leaking a previous game's mafia messages during replay.
+     */
+    public void broadcastMafiaChat(ChatMessage message) {
+        if (message == null || message.channel() != ChatChannel.MAFIA) {
+            return;
+        }
+
+        List<String> recipients = new ArrayList<>();
+        gameLock.lock();
+        try {
+            GameRoom game = gamesByRoom.get(message.roomId());
+            if (game == null || game.phase == GamePhase.FINISHED) {
+                return;
+            }
+            for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
+                GamePlayerState player = game.players.get(entry.getKey());
+                if (player != null
+                        && player.alive
+                        && player.role == GameRole.MAFIA
+                        && entry.getValue() != null
+                        && !entry.getValue().isBlank()) {
+                    recipients.add(entry.getValue());
+                }
+            }
+        } finally {
+            gameLock.unlock();
+        }
+
+        for (String principalName : recipients) {
+            messagingTemplate.convertAndSendToUser(
+                    principalName,
+                    MAFIA_CHAT_DESTINATION,
+                    message);
+        }
+    }
+
+    /**
+     * Living players use the public topic. A dead sender is routed only to dead users so the
+     * public topic can never expose a dead player's message to living users.
+     */
+    public void broadcastPublicChat(ChatMessage message, long senderId) {
+        if (message == null || message.channel() != ChatChannel.PUBLIC) {
+            return;
+        }
+
+        List<String> deadRecipients = new ArrayList<>();
+        boolean deadSender = false;
+        gameLock.lock();
+        try {
+            GameRoom game = gamesByRoom.get(message.roomId());
+            if (game == null) {
+                messagingTemplate.convertAndSend(
+                        "/topic/rooms/" + message.roomId() + "/chat",
+                        message);
+                return;
+            }
+
+            GamePlayerState sender = game.players.get(senderId);
+            deadSender = sender != null && !sender.alive;
+            if (deadSender) {
+                for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
+                    GamePlayerState player = game.players.get(entry.getKey());
+                    if (player != null
+                            && !player.alive
+                            && entry.getValue() != null
+                            && !entry.getValue().isBlank()) {
+                        deadRecipients.add(entry.getValue());
+                    }
+                }
+            }
+        } finally {
+            gameLock.unlock();
+        }
+
+        if (!deadSender) {
+            messagingTemplate.convertAndSend(
+                    "/topic/rooms/" + message.roomId() + "/chat",
+                    message);
+            return;
+        }
+
+        for (String principalName : deadRecipients) {
+            messagingTemplate.convertAndSendToUser(
+                    principalName,
+                    DEAD_CHAT_DESTINATION,
+                    message);
+        }
+    }
+
+    public boolean canAccessMafiaChat(long roomId, long userId) {
+        gameLock.lock();
+        try {
+            GameRoom game = gamesByRoom.get(roomId);
+            GamePlayerState player = game == null ? null : game.players.get(userId);
+            return game != null
+                    && game.phase != GamePhase.FINISHED
+                    && player != null
+                    && player.alive
+                    && player.role == GameRole.MAFIA;
+        } finally {
+            gameLock.unlock();
         }
     }
 
@@ -516,8 +671,8 @@ public class RoomGameService {
         if (mafiaAlive == 0) {
             return GameFaction.CITIZEN;
         }
-        // 마피아 수가 시민 진영 생존자 수 이상이면 더 이상 시민이 역전할 수 없다.
-        return mafiaAlive >= citizenFactionAlive ? GameFaction.MAFIA : null;
+        // 마피아 수가 시민 진영 생존자 수보다 많을 때만 마피아가 즉시 승리한다.
+        return mafiaAlive > citizenFactionAlive ? GameFaction.MAFIA : null;
     }
 
     private void finishGame(GameRoom game, long now, GameFaction winner) {
@@ -610,7 +765,8 @@ public class RoomGameService {
         List<GamePlayer> players = new ArrayList<>(game.players.size());
         int eligibleVoters = 0;
         for (GamePlayerState player : game.players.values()) {
-            players.add(new GamePlayer(player.userId, player.nickname, player.alive));
+            GameRole publicRole = game.phase == GamePhase.FINISHED ? player.role : null;
+            players.add(new GamePlayer(player.userId, player.nickname, player.alive, publicRole));
             if (player.alive) {
                 eligibleVoters++;
             }

@@ -165,3 +165,35 @@ test('room list schedules a refresh when a live room is not in the current cards
     dom.window.close();
   }
 });
+
+test('room list cancels a pending refresh when the page starts navigating away', () => {
+  const dom = createDom(roomListMarkup());
+  const scheduledCallbacks = [];
+  const clearedTimers = [];
+  dom.window.setTimeout = callback => {
+    scheduledCallbacks.push(callback);
+    return scheduledCallbacks.length;
+  };
+  dom.window.clearTimeout = timerId => clearedTimers.push(timerId);
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify({ roomId: 99, currentPlayers: 1 })
+    ));
+
+    dom.window.dispatchEvent(new dom.window.Event('beforeunload'));
+
+    assert.deepEqual(clearedTimers.filter(timerId => timerId !== undefined), [1]);
+    assert.equal(scheduledCallbacks.length, 1);
+  } finally {
+    dom.window.close();
+  }
+});

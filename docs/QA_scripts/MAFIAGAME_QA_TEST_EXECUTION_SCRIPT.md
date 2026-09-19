@@ -13,7 +13,7 @@ Change only the values in this section before each run. Keep the rest of this do
 ```powershell
 $projectPath = 'C:\workspace\mafiaweb'
 $e2eEnabled = $true
-$playerCounts = '5,6'
+$playerCounts = '4,5,6,8'
 $workerCount = 2
 $baseUrl = 'http://127.0.0.1:8080'
 $serverPort = 8080
@@ -202,8 +202,10 @@ Verify:
 
 - Unique account creation
 - Unique room creation
+- 4-player minimum scenario
 - 5-player scenario
-- 6-player scenario
+- 6-player boundary scenario
+- 8-player maximum scenario
 - Real-time participant synchronization
 - Ready synchronization
 - Host-only game start permission
@@ -227,7 +229,13 @@ Verify:
 - Ready reset
 - Same-room replay
 - State restoration after refresh or reconnection
-- Mafia victory when alive mafia count equals the alive citizen-faction count
+- 4-player minimum flow and 8-player maximum flow in real browser sessions
+- Full role reveal only after `FINISHED`; no role reveal on death
+- Private investigation result is hidden when the investigator dies
+- Public/mafia channel selector and server-side mafia-channel isolation
+- Night chat restriction: living mafia use only the mafia channel, living non-mafia cannot chat, and dead-player messages remain in the dead channel
+- Mafia victory only when alive mafia count is greater than the alive citizen-faction count
+- Equality between alive mafia and alive citizen-faction counts must continue the game
 - Citizen victory immediately after the last mafia becomes dead
 - Mafia target aggregation when two mafia submit night actions concurrently
 - Nomination tie handling without selecting an execution target
@@ -236,6 +244,15 @@ Verify:
 - Reconnection restores the current game state without reviving a departed player
 - Player departure immediately before game start, with the current participant count used for role assignment
 - Vote requests that race with the phase deadline
+- Server-time deadline handling for requests received after `phaseEndsAt`
+- Duplicate requests from the same user count only once
+- No mafia action, no doctor action, and no police action behavior
+- Doctor self-protection and consecutive-night self-protection
+- Already-dead or post-departure targets are rejected
+- A submitted night action survives disconnect only during the 10-second reconnect grace period
+- A night action is removed when the player is absent after the 10-second grace period
+- Same-room replay at 4, 5, 6, and 8 players after `WAITING` reset
+- Actual elapsed 60/15/15/30 second phase durations, not only displayed timer values
 
 Do not retry failed tests automatically. Investigate the failure first.
 
@@ -362,22 +379,33 @@ Validate the following:
 24. Ready state reset
 25. Replay in the same room
 26. State restoration after refresh or reconnection
+27. Public and mafia chat channel separation
+28. Night chat and dead-channel isolation restrictions
+29. No-action behavior for mafia, doctor, and police
+30. Doctor self-protection, including consecutive nights
+31. No role/investigation disclosure on death
+32. Full role reveal after game completion
+33. Server-time deadline handling and duplicate-request idempotency
 
 ### 4.1 Extended Boundary and Resilience Checks
 
-The following checks are required when the QA request includes boundary, disconnect, or concurrency coverage. They are separate from the normal 5/6-player E2E boundary run and must be reported individually:
+The following checks are required when the QA request includes boundary, disconnect, or concurrency coverage. They are separate from the normal 4/5/6/8-player E2E boundary run and must be reported individually:
 
 1. Role-count boundaries: 4 players = 1 mafia, 1 police, 1 doctor, 1 citizen; 5 players = 1 mafia, 1 police, 1 doctor, 2 citizens; 6 players = 2 mafia, 1 police, 1 doctor, 2 citizens; 8 players = 2 mafia, 1 police, 1 doctor, 4 citizens.
 2. Citizen-count formula: `citizens = totalPlayers - (mafia + police + doctor)`, including `6 - (2 + 1 + 1) = 2`.
 3. Invalid start boundaries: fewer than 4 participants must keep start disabled or return a warning; more than 8 participants must be rejected by the server or prevented by room capacity.
-4. Mafia victory threshold: after resolution, `aliveMafia >= aliveCitizenFaction` must finish the game for the mafia.
+4. Mafia victory threshold: after resolution, `aliveMafia > aliveCitizenFaction` must finish the game for the mafia; equality must continue the game.
 5. Citizen victory precedence: `aliveMafia == 0` must finish the game for citizens even when the faction counts would otherwise be equal.
 6. A 6-player game must continue after only one mafia is executed and finish for citizens only after the second mafia is dead.
 7. If two mafia select different night targets, exactly one of the submitted highest-count targets is resolved; if they select the same target, that target is resolved unless protected.
 8. Nomination ties must not select an execution candidate and must move to the night phase without hanging.
-9. A last-session disconnect must remove that participant from alive counts after the configured reconnect grace period and re-evaluate victory; a reconnect within the grace period must restore the current state without marking the player dead.
+9. A last-session disconnect must remove that participant from alive counts after the configured 10-second reconnect grace period and re-evaluate victory; a reconnect within the grace period must restore the current state without marking the player dead.
 10. A pre-start departure must be reflected in the participant count before roles are assigned; a 6-to-5 transition must use the one-mafia role set or prevent start until the state is stable.
-11. Requests arriving at or immediately before a phase deadline must be serialized without duplicate votes or state corruption. Record this as `NOT RUN` when timing cannot be made deterministic.
+11. Requests arriving at or immediately before a phase deadline must be serialized against server `phaseEndsAt`; requests received after it are invalid and cannot enter the next phase. Record this as `NOT RUN` when timing cannot be made deterministic.
+12. A submitted night action survives a disconnect only while the player is within the 10-second reconnect grace period; after grace expiry it is removed before resolution.
+13. Public chat is delivered only to the public channel; mafia chat is delivered only to living mafia users; dead users can use only the dead channel, and their messages must not be visible to living users.
+14. The same room can be replayed after `FINISHED` at 4, 5, 6, and 8 players, with Ready reset and fresh role assignment.
+15. The measured phase transitions must be approximately 60 seconds, 15 seconds, 15 seconds, and 30 seconds; a client-side countdown alone is insufficient evidence.
 
 For each extended check, record the evidence source (`Java service test`, `Playwright E2E`, or `source inspection`) and classify it as `PASS`, `FAIL`, `BLOCKED`, or `NOT RUN`. Source inspection alone cannot be reported as an executed test `PASS`.
 
@@ -386,10 +414,12 @@ For each extended check, record the evidence source (`Java service test`, `Playw
 When source inspection is used to explain a result, inspect these contracts directly and include the file and line number in the report:
 
 - `RoomGameService.createRoles`: mafia count is `1` for 4–5 players and `2` for 6–8 players; doctor and police remain one each; citizens fill the remainder.
-- `RoomGameService.determineWinner`: citizen victory is checked first when `aliveMafia == 0`; mafia victory is checked when `aliveMafia >= aliveCitizenFaction`.
+- `RoomGameService.determineWinner`: citizen victory is checked first when `aliveMafia == 0`; mafia victory is checked only when `aliveMafia > aliveCitizenFaction`.
 - `RoomGameService.handlePlayerDeparture`: after the reconnect grace period, a player whose last room session disconnects becomes non-alive, pending actions are removed, and victory is re-evaluated.
-- `RoomPresenceService`: the last session schedules game departure, reconnect cancels it within the configured grace period, and game start accepts only 4–8 current participants.
+- `RoomPresenceService`: the last session retains a playing participant for 10 seconds, reconnect cancels the departure, expiry removes the participant and notifies the game service, and game start accepts only 4–8 current participants.
 - `chat.js`: the host start button is disabled below four participants, and the current presence snapshot drives the displayed participant count and readiness state.
+- `ChatService`/`RoomGameService`: public and mafia channel permissions are checked from the authoritative alive/role/phase state.
+- `RoomGameService.snapshot`: roles are null before `FINISHED` and included for all players only after game completion.
 
 Do not infer a runtime result from these contracts. Use them only to identify implementation evidence, expected behavior, or the root cause of a failed or unexecuted test.
 
@@ -459,7 +489,7 @@ Write the report in the following order:
 5. JavaScript test summary and details
 6. Server startup and health-check result
 7. Playwright E2E summary and details
-8. Separate 5-player and 6-player boundary results
+8. Separate 4-player, 5-player, 6-player, and 8-player boundary results
 9. MVP validation table
 10. Failed and blocked items
 11. Reproduction steps
