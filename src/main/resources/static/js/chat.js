@@ -71,6 +71,10 @@
     MAFIA: '마피아 진영 승리',
     CITIZEN: '시민 진영 승리'
   };
+  const INVESTIGATION_FACTION_LABELS = {
+    MAFIA: '마피아',
+    CITIZEN: '시민'
+  };
   const NIGHT_ACTIONS = {
     MAFIA: { action: 'MAFIA_KILL', title: '제거할 참가자' },
     DOCTOR: { action: 'DOCTOR_PROTECT', title: '보호할 참가자' },
@@ -203,6 +207,9 @@
     if (roomTopicsSubscribed) {
       return;
     }
+
+    // 입장 확인을 받은 뒤에만 방 토픽을 구독한다. 이후 현재 참가자/게임 상태를
+    // 다시 요청하므로 새로고침이나 재접속 후에도 화면을 서버 상태로 복원할 수 있다.
     roomTopicsSubscribed = true;
     connection.send(createFrame('SUBSCRIBE', {
       id: 'room-presence-sync',
@@ -255,6 +262,8 @@
     }
 
     if (frame.command === 'CONNECTED') {
+      // STOMP 연결이 열리면 먼저 에러·입장 확인 큐를 구독하고 방 입장을 요청한다.
+      // 입장 성공 응답을 받은 뒤 subscribeRoomTopics가 나머지 방 토픽을 등록한다.
       reconnectController.reset();
       connected = true;
       stopHeartbeat();
@@ -294,6 +303,7 @@
         const isJoinedMessage = frame.headers.destination === joinedDestination
           || frame.headers.subscription === 'room-joined';
         if (isJoinedMessage) {
+          // 서버가 참가자 목록을 반환한 시점부터만 채팅·게임 화면을 활성화한다.
           renderParticipants(message.participants, message.status);
           if (joinedRoom) {
             subscribeRoomTopics(connection);
@@ -501,6 +511,8 @@
       lastGamePhase = state.phase;
       clearNightResult();
     }
+    // 역할 정보는 개인 큐로, 페이즈·타이머·생존자 목록은 공개 토픽으로 받는다.
+    // 공개 상태가 갱신될 때마다 행동 버튼과 타이머도 함께 다시 계산한다.
     gameState = state;
     gamePanel.hidden = false;
     if (gamePhaseTitle) {
@@ -616,7 +628,9 @@
       return;
     }
 
-    const factionLabel = result.factionLabel || GAME_WINNER_LABELS[result.faction] || result.faction;
+    const factionLabel = INVESTIGATION_FACTION_LABELS[result.faction]
+      || result.factionLabel
+      || result.faction;
     nightResultLabel.textContent = ` ${result.targetNickname || '대상'}님은 ${factionLabel}입니다.`;
     nightResultPanel.hidden = false;
   }
@@ -754,6 +768,8 @@
       return;
     }
 
+    // 서버가 보낸 참가자 목록을 기준으로 화면과 현재 사용자 상태를 함께 갱신한다.
+    // 현재 사용자가 목록에서 사라지면 다른 방으로 이동한 것으로 보고 방을 나간다.
     currentParticipants = participants;
     if (typeof status === 'string') {
       gameStarted = status === 'PLAYING';
@@ -772,7 +788,11 @@
 
     participants.forEach(participant => {
       const article = document.createElement('article');
-      article.className = `col member${participant.host ? ' host' : ''}${participant.ready ? ' participant-ready' : ''}`;
+      article.className = [
+        'col member',
+        participant.host ? 'host' : '',
+        participant.ready ? 'participant-ready' : ''
+      ].filter(Boolean).join(' ');
 
       const avatar = document.createElement('div');
       avatar.className = `avatar${participant.host ? ' a1' : ''}`;
@@ -832,6 +852,8 @@
       return;
     }
 
+    // 재접속 시 이전 연결의 구독·게임 상태를 초기화한 뒤 새 STOMP 세션을 만든다.
+    // 서버가 입장 확인과 상태 동기화를 다시 보내므로 클라이언트 상태를 직접 추정하지 않는다.
     joinedRoom = false;
     presenceReady = false;
     currentReady = false;
@@ -981,6 +1003,8 @@
       return;
     }
 
+    // 모든 투표와 밤 행동은 하나의 게임 엔드포인트로 보내며, 제출 직후 버튼을 잠근다.
+    // 서버가 오류를 반환하면 handleFrame에서 다시 행동할 수 있도록 상태를 되돌린다.
     socket.send(createFrame('SEND', {
       destination: `/app/rooms/${roomId}/game`,
       'content-type': 'application/json'

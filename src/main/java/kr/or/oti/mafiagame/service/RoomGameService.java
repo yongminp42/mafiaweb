@@ -84,6 +84,7 @@ public class RoomGameService {
         List<RoleDelivery> roleDeliveries;
         gameLock.lock();
         try {
+            // 같은 방에서 이전 게임의 타이머가 남아 있을 수 있으므로 먼저 취소한다.
             cancelPhaseTask(roomId);
             GameRoom game = new GameRoom(roomId);
             for (RoomParticipant participant : participants) {
@@ -94,6 +95,8 @@ public class RoomGameService {
             if (principalNames != null) {
                 game.principalNames.putAll(principalNames);
             }
+            // 역할 배정부터 첫 페이즈 예약까지를 하나의 잠금 안에서 처리한다.
+            // 타이머 콜백이 초기화 중인 게임을 관찰하거나 덮어쓰지 못하게 한다.
             assignRoles(game);
             gamesByRoom.put(roomId, game);
             moveTo(game, GamePhase.DAY_DISCUSSION, System.currentTimeMillis(), "낮 토론이 시작되었습니다.");
@@ -119,6 +122,8 @@ public class RoomGameService {
         String principalName = principal == null ? null : principal.getName();
         gameLock.lock();
         try {
+            // 새로고침한 클라이언트에는 공개 상태를 재전송하고, 인증된 사용자에게만
+            // 자신의 역할과 종료 결과를 복원한다.
             GameRoom game = gamesByRoom.get(roomId);
             state = game == null ? null : snapshot(game, System.currentTimeMillis());
             if (game != null && principal != null) {
@@ -171,6 +176,7 @@ public class RoomGameService {
         GameInvestigationResult investigationResult = null;
         gameLock.lock();
         try {
+            // 행동 검증과 기록을 같은 잠금 안에서 수행해 중복 제출과 타이머 경계의 경쟁 상태를 막는다.
             GameRoom game = gamesByRoom.get(roomId);
             if (game == null) {
                 throw new RoomWebSocketException("아직 게임이 시작되지 않았습니다.");
@@ -191,10 +197,13 @@ public class RoomGameService {
             }
 
             if (game.phase == GamePhase.NOMINATION_VOTE) {
+                // 낮 지목 투표는 대상 ID를 기록하고, 페이즈 종료 시 단독 최다 득표를 확정한다.
                 submitNomination(game, userId, request.targetUserId());
             } else if (game.phase == GamePhase.EXECUTION_VOTE) {
+                // 처형 투표는 찬반만 저장하며, 실제 처형 여부는 타이머 종료 시 과반으로 결정한다.
                 submitExecutionVote(game, userId, request.execute());
             } else if (game.phase == GamePhase.NIGHT) {
+                // 밤 행동은 역할별로 한 번만 허용한다. 경찰 조사 결과는 제출 즉시 개인 큐로 반환한다.
                 investigationResult = submitNightAction(game, userId, request);
             } else {
                 throw new RoomWebSocketException("현재는 투표할 수 있는 시간이 아닙니다.");
@@ -210,6 +219,45 @@ public class RoomGameService {
                     principal.getName(),
                     NIGHT_RESULT_DESTINATION,
                     investigationResult);
+        }
+    }
+
+    /**
+     * 재접속 유예 시간이 지난 뒤에도 돌아오지 않은 참가자를 게임에서 탈락시킨다.
+     * 방 세션이 하나라도 남아 있거나 재접속한 참가자는 생존 상태를 유지한다.
+     */
+    public void handlePlayerDeparture(long roomId, long userId) {
+        RoomGameState state = null;
+        List<GameResultDelivery> resultDeliveries = List.of();
+        gameLock.lock();
+        try {
+            GameRoom game = gamesByRoom.get(roomId);
+            GamePlayerState player = game == null ? null : game.players.get(userId);
+            if (player == null || game.phase == GamePhase.FINISHED || !player.alive) {
+                return;
+            }
+
+            // 이탈자는 투표와 밤 행동에서도 즉시 제외한다.
+            player.alive = false;
+            game.nominationVotes.remove(userId);
+            game.executionVotes.remove(userId);
+            game.nightActions.remove(userId);
+
+            // 탈주로 생존자 수가 바뀌었으므로 처형과 동일하게 승리 조건을 다시 계산한다.
+            GameFaction winner = determineWinner(game);
+            if (winner != null) {
+                finishGame(game, System.currentTimeMillis(), winner);
+                resultDeliveries = gameResultDeliveries(game);
+            }
+            state = snapshot(game, System.currentTimeMillis());
+        } finally {
+            gameLock.unlock();
+        }
+
+        broadcast(state);
+        broadcastGameResults(resultDeliveries);
+        if (state.gameOver() && roomPresenceService != null) {
+            roomPresenceService.resetAfterGame(roomId);
         }
     }
 
@@ -278,6 +326,7 @@ public class RoomGameService {
             throw new RoomWebSocketException("마피아는 같은 마피아를 제거할 수 없습니다.");
         }
 
+        // 마피아 제거와 의사 보호는 밤 종료 시 함께 해석하고, 경찰 조사는 제출 즉시 결과를 반환한다.
         game.nightActions.put(actorId, new NightAction(actorId, action, target.userId));
         if (action != GameNightAction.POLICE_INVESTIGATE) {
             return null;
@@ -291,7 +340,7 @@ public class RoomGameService {
                 target.userId,
                 target.nickname,
                 faction.name(),
-                faction.label());
+            faction.investigationLabel());
     }
 
     private void advancePhase(long roomId) {
@@ -307,10 +356,12 @@ public class RoomGameService {
 
             long now = System.currentTimeMillis();
             if (now < game.phaseEndsAt) {
+                // 이전 예약이 조금 일찍 실행됐으면 남은 시간만큼 다시 예약한다.
                 scheduleNextPhase(game);
                 return;
             }
 
+            // 타이머 콜백은 현재 페이즈의 종료 시점에서 다음 페이즈와 결과를 확정한다.
             switch (game.phase) {
                 case DAY_DISCUSSION -> moveTo(
                         game,
@@ -321,7 +372,7 @@ public class RoomGameService {
                 case EXECUTION_VOTE -> moveAfterExecutionVote(game, now);
                 case NIGHT -> moveAfterNight(game, now);
                 case FINISHED -> {
-                    // Finished games do not advance any further.
+                    // 종료된 게임은 다음 페이즈로 진행하지 않는다.
                 }
             }
 
@@ -329,6 +380,7 @@ public class RoomGameService {
             if (game.phase != GamePhase.FINISHED) {
                 scheduleNextPhase(game);
             } else {
+                // 종료 상태에서는 더 이상 타이머를 예약하지 않고 개인별 결과를 전송한다.
                 resultDeliveries = gameResultDeliveries(game);
             }
         } finally {
@@ -348,6 +400,7 @@ public class RoomGameService {
         Long nominee = findNominee(game);
         game.nominatedUserId = nominee;
         if (nominee == null) {
+            // 최다 득표가 동률이거나 유효한 투표가 없으면 처형 없이 밤으로 넘어간다.
             moveTo(game, GamePhase.NIGHT, now, "지목 대상이 없어 밤으로 넘어갑니다.");
             return;
         }
@@ -363,9 +416,11 @@ public class RoomGameService {
                 : game.players.get(game.nominatedUserId);
         boolean executed = target != null && target.alive && hasExecutionMajority(game);
         if (executed) {
+            // 지목된 참가자 본인의 표는 제외한 찬성표가 반대표보다 많을 때만 처형한다.
             target.alive = false;
         }
 
+        // 사망 반영 후 승리를 판정한다. 마피아 전멸이면 시민 승리가 우선한다.
         GameFaction winner = determineWinner(game);
         if (winner != null) {
             finishGame(game, now, winner);
@@ -377,6 +432,7 @@ public class RoomGameService {
     }
 
     private void moveAfterNight(GameRoom game, long now) {
+        // 두 마피아의 공격과 의사의 보호를 합산해 밤 결과를 먼저 확정한다.
         NightResolution resolution = resolveNightActions(game);
         GameFaction winner = determineWinner(game);
         if (winner != null) {
@@ -406,6 +462,7 @@ public class RoomGameService {
             return new NightResolution(null, false);
         }
 
+        // 의사가 공격 대상과 같은 사람을 보호하면 사망 처리를 생략한다.
         boolean protectedTarget = game.nightActions.values().stream()
                 .anyMatch(action -> action.action == GameNightAction.DOCTOR_PROTECT
                         && action.targetUserId == mafiaTargetId);
@@ -418,6 +475,7 @@ public class RoomGameService {
     }
 
     private Long findMafiaTarget(GameRoom game) {
+        // 여러 마피아의 공격을 대상별로 합산한다. 최다 득표 대상이 여러 명이면 그중 하나를 무작위로 선택한다.
         Map<Long, Integer> targetCounts = new HashMap<>();
         for (NightAction action : game.nightActions.values()) {
             if (action.action != GameNightAction.MAFIA_KILL) {
@@ -454,10 +512,12 @@ public class RoomGameService {
             }
         }
 
+        // 마피아 전멸을 먼저 검사해 마지막 마피아 처형 직후 시민 승리를 보장한다.
         if (mafiaAlive == 0) {
             return GameFaction.CITIZEN;
         }
-        return mafiaAlive > citizenFactionAlive ? GameFaction.MAFIA : null;
+        // 마피아 수가 시민 진영 생존자 수 이상이면 더 이상 시민이 역전할 수 없다.
+        return mafiaAlive >= citizenFactionAlive ? GameFaction.MAFIA : null;
     }
 
     private void finishGame(GameRoom game, long now, GameFaction winner) {
@@ -505,6 +565,7 @@ public class RoomGameService {
     }
 
     private void moveTo(GameRoom game, GamePhase phase, long now, String message) {
+        // 페이즈 전환 시 새 페이즈에서만 유효한 투표와 행동을 초기화한다.
         game.phase = phase;
         game.phaseEndsAt = now + phase.durationSeconds() * 1_000L;
         game.message = message;
@@ -529,6 +590,7 @@ public class RoomGameService {
     }
 
     private void scheduleNextPhase(GameRoom game) {
+        // 방마다 하나의 타이머만 유지해 이전 페이즈 콜백이 중복 실행되지 않게 한다.
         cancelPhaseTask(game.roomId);
         long delay = Math.max(1L, game.phaseEndsAt - System.currentTimeMillis());
         phaseTasksByRoom.put(
@@ -544,6 +606,7 @@ public class RoomGameService {
     }
 
     private RoomGameState snapshot(GameRoom game, long now) {
+        // 공개 상태에는 역할을 포함하지 않는다. 역할과 결과는 개인 큐에서 별도로 전달한다.
         List<GamePlayer> players = new ArrayList<>(game.players.size());
         int eligibleVoters = 0;
         for (GamePlayerState player : game.players.values()) {
@@ -583,6 +646,7 @@ public class RoomGameService {
     }
 
     private void assignRoles(GameRoom game) {
+        // 역할 목록을 만든 뒤 플레이어 ID를 섞어 역할과 사용자를 무작위로 매칭한다.
         List<Long> playerIds = new ArrayList<>(game.players.keySet());
         List<GameRole> roles = createRoles(playerIds.size());
         Collections.shuffle(playerIds);
@@ -592,6 +656,8 @@ public class RoomGameService {
     }
 
     private static List<GameRole> createRoles(int playerCount) {
+        // 4~5명은 마피아 1명, 6~8명은 마피아 2명으로 구성하고 나머지는
+        // 의사 1명·경찰 1명·시민으로 채운다.
         List<GameRole> roles = new ArrayList<>(playerCount);
         int mafiaCount = playerCount >= 6 ? 2 : 1;
         for (int index = 0; index < mafiaCount && roles.size() < playerCount; index++) {

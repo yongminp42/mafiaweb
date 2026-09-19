@@ -42,17 +42,25 @@ class RoomPresenceServiceTest {
     private SimpMessagingTemplate messagingTemplate;
     @Mock
     private RoomService roomService;
+    @Mock
+    private RoomGameService roomGameService;
 
     private RoomPresenceService presenceService;
 
     @BeforeEach
     void setUp() {
-        presenceService = new RoomPresenceService(messagingTemplate, roomService, Duration.ZERO);
+        presenceService = new RoomPresenceService(
+                messagingTemplate,
+                roomService,
+                Duration.ZERO,
+                Duration.ZERO,
+                roomGameService);
         when(roomService.getRoom(anyLong())).thenAnswer(invocation -> switch (invocation.<Long>getArgument(0).intValue()) {
             case 1 -> room(1L, 10L);
             case 2 -> room(2L, 20L);
             case 3 -> room(3L, 30L, 2);
             case 4 -> lockedRoom(4L, 40L);
+            case 5 -> room(5L, 50L, 9);
             default -> null;
         });
     }
@@ -90,6 +98,36 @@ class RoomPresenceServiceTest {
         presenceService.leave("session-2");
         assertThat(presenceService.currentState(1L)).isNull();
         verify(roomService).deleteRoom(1L);
+    }
+
+    @Test
+    void notifiesTheGameWhenTheLastSessionOfAPlayerLeaves() {
+        presenceService.join(1L, "session-1", principal(10L, "host"));
+
+        presenceService.leave("session-1");
+
+        verify(roomGameService).handlePlayerDeparture(1L, 10L);
+    }
+
+    @Test
+    void cancelsGameDepartureWhenThePlayerReconnectsWithinTheGracePeriod() throws InterruptedException {
+        RoomPresenceService reconnectingService = new RoomPresenceService(
+                messagingTemplate,
+                roomService,
+                Duration.ZERO,
+                Duration.ofMillis(100),
+                roomGameService);
+        try {
+            reconnectingService.join(1L, "old-session", principal(10L, "host"));
+            reconnectingService.leave("old-session");
+            reconnectingService.join(1L, "new-session", principal(10L, "host"));
+
+            Thread.sleep(250L);
+
+            verify(roomGameService, never()).handlePlayerDeparture(1L, 10L);
+        } finally {
+            reconnectingService.shutdownCleanupExecutor();
+        }
     }
 
     @Test
@@ -243,6 +281,37 @@ class RoomPresenceServiceTest {
         assertThat(presenceService.isParticipant(1L, "old-session")).isTrue();
         assertThat(presenceService.currentState(3L).participants()).hasSize(2);
         assertThat(presenceService.isParticipant(3L, "new-session")).isFalse();
+        assertThat(presenceService.currentOnlinePlayerCount()).isEqualTo(3);
+    }
+
+    @Test
+    void rejectedJoinDoesNotRegisterAnOnlinePlayer() {
+        presenceService.join(3L, "full-1", principal(30L, "one"));
+        presenceService.join(3L, "full-2", principal(31L, "two"));
+
+        assertThatThrownBy(() -> presenceService.join(3L, "rejected", principal(32L, "three")))
+                .isInstanceOf(RoomWebSocketException.class);
+
+        assertThat(presenceService.currentOnlinePlayerCount()).isEqualTo(2);
+        assertThat(presenceService.currentState(3L).participants()).hasSize(2);
+    }
+
+    @Test
+    void ongoingGameAllowsRejoinButRejectsNewParticipantWithoutChangingPresence() {
+        Principal host = principal(10L, "host");
+        presenceService.join(1L, "host-session", host);
+        RoomSummary playingRoom = room(1L, 10L);
+        playingRoom.setStatus("PLAYING");
+        when(roomService.getRoom(1L)).thenReturn(playingRoom);
+
+        assertThatThrownBy(() -> presenceService.join(1L, "new-session", principal(11L, "new")))
+                .isInstanceOf(RoomWebSocketException.class);
+        assertThat(presenceService.currentState(1L).status()).isEqualTo("WAITING");
+        assertThat(presenceService.currentOnlinePlayerCount()).isEqualTo(1);
+
+        RoomPresenceState rejoined = presenceService.join(1L, "reconnected-session", host);
+        assertThat(rejoined.status()).isEqualTo("PLAYING");
+        assertThat(rejoined.participants()).hasSize(1);
     }
 
     @Test
@@ -338,6 +407,20 @@ class RoomPresenceServiceTest {
                 .isInstanceOf(RoomWebSocketException.class)
                 .hasMessage("게임 시작에는 최소 4명의 참가자가 필요합니다.");
         verify(roomService, never()).startGame(1L);
+    }
+
+    @Test
+    void rejectsStartingGameWithMoreThanEightPlayers() {
+        for (int index = 0; index < 9; index++) {
+            long userId = 50L + index;
+            presenceService.join(5L, "session-" + index, principal(userId, "user" + userId));
+            presenceService.updateReady(5L, "session-" + index, new RoomReadyRequest(true));
+        }
+
+        assertThatThrownBy(() -> presenceService.startGame(5L, "session-0"))
+                .isInstanceOf(RoomWebSocketException.class)
+                .hasMessage("게임 시작에는 최대 8명의 참가자만 허용됩니다.");
+        verify(roomService, never()).startGame(5L);
     }
 
     private static RoomSummary room(long roomId, long hostUserId) {

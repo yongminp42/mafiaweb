@@ -7,7 +7,9 @@
   <link rel="stylesheet" href="/webjars/bootstrap/5.3.8/dist/css/bootstrap.min.css">
   <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
-<body class="bg-light" th:attr="data-room-id=${roomId},data-nickname=${nickname},data-user-id=${userId},data-capacity=${room.capacity}">
+<body
+    class="bg-light"
+    th:attr="data-room-id=${roomId},data-nickname=${nickname},data-user-id=${userId},data-capacity=${room.capacity}">
 <main class="container-xl py-3 py-lg-4">
   <header>
     <nav class="navbar py-2" aria-label="주 메뉴">
@@ -36,7 +38,11 @@
       <p class="text-white-50 mb-0 mt-2" th:text="${room.description}">초보 환영 · 빠른 진행</p>
     </div>
     <div class="text-end text-white-50 d-none d-sm-block">
-      <div class="fs-4"><b id="roomPlayerCount" class="text-white" th:text="${room.players}">6</b> / <em class="fst-normal" th:text="${room.capacity}">8</em></div>
+      <div class="fs-4">
+        <b id="roomPlayerCount" class="text-white" th:text="${room.players}">6</b>
+        /
+        <em class="fst-normal" th:text="${room.capacity}">8</em>
+      </div>
       <small>참가 중</small>
     </div>
   </section>
@@ -48,7 +54,10 @@
           <div class="d-flex align-items-center justify-content-between">
             <div>
               <p class="eyebrow text-coral mb-1">PLAYERS</p>
-              <h2 id="players-title" class="h5 mb-0">참가자 <span id="roomMemberCount" class="text-coral" th:text="${room.players}">6</span>명</h2>
+              <h2 id="players-title" class="h5 mb-0">
+                참가자
+                <span id="roomMemberCount" class="text-coral" th:text="${room.players}">6</span>명
+              </h2>
             </div>
             <button class="btn btn-sm btn-outline-secondary" id="invite" type="button">친구 초대</button>
           </div>
@@ -83,7 +92,13 @@
             <span class="text-secondary ms-2">낮 60초 · 지목 투표 15초 · 처형 투표 15초 · 밤 30초</span>
           </div>
           <button class="ready btn btn-coral w-100 py-2 fw-bold" id="ready" type="button">준비 완료</button>
-          <button class="start-game btn btn-dark w-100 py-2 fw-bold mt-2" id="startGame" type="button" hidden>게임 시작</button>
+          <button
+              class="start-game btn btn-dark w-100 py-2 fw-bold mt-2"
+              id="startGame"
+              type="button"
+              hidden>
+            게임 시작
+          </button>
           <p class="ready-note text-center text-secondary small mt-2 mb-0">모든 참가자가 준비되면 게임이 시작됩니다.</p>
           <p class="start-game-note text-center text-secondary small mt-1 mb-0" id="startGameNotice" hidden></p>
         </div>
@@ -111,7 +126,11 @@
     </aside>
   </section>
 
-  <section class="game-panel card border-0 shadow-sm rounded-4 mb-4" id="gamePanel" hidden aria-labelledby="gamePhaseTitle">
+  <section
+      class="game-panel card border-0 shadow-sm rounded-4 mb-4"
+      id="gamePanel"
+      hidden
+      aria-labelledby="gamePhaseTitle">
     <div class="card-body p-4">
       <div class="d-flex align-items-center justify-content-between gap-3">
         <div>
@@ -125,7 +144,10 @@
       </div>
       <p id="gameMessage" class="text-secondary small mt-3 mb-3">게임이 시작되면 현재 페이즈가 표시됩니다.</p>
 
-      <div id="gameResultPanel" class="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-3" hidden>
+      <div
+          id="gameResultPanel"
+          class="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-3"
+          hidden>
         <div>
           <span class="small fw-semibold d-block">게임 결과</span>
           <strong id="gameWinnerLabel" class="fs-5"></strong>
@@ -137,7 +159,10 @@
         </div>
       </div>
 
-      <div id="gameRolePanel" class="alert alert-warning d-flex align-items-center justify-content-between gap-3 mb-3" hidden>
+      <div
+          id="gameRolePanel"
+          class="alert alert-warning d-flex align-items-center justify-content-between gap-3 mb-3"
+          hidden>
         <span class="small fw-semibold">내 역할</span>
         <strong id="gameRoleLabel" class="fs-5"></strong>
       </div>

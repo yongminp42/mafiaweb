@@ -48,7 +48,9 @@
       </li>
       <li><hr class="dropdown-divider my-2"></li>
       <li>
-        <a class="dropdown-item user-menu-item" th:href="@{/users/{userId}(userId=${#authentication.principal.userId})}">
+        <a
+            class="dropdown-item user-menu-item"
+            th:href="@{/users/{userId}(userId=${#authentication.principal.userId})}">
           <span class="user-menu-icon" aria-hidden="true">◎</span>마이페이지
         </a>
       </li>

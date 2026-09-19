@@ -11,9 +11,9 @@ Execute the project tests and validate the implementation against the MVP requir
 Change only the values in this section before each run. Keep the rest of this document unchanged so that it can be reused for future QA runs.
 
 ```powershell
-$projectPath = 'C:\workspace-sts-5.3.0\mafiagame'
+$projectPath = 'C:\workspace\mafiaweb'
 $e2eEnabled = $true
-$playerCounts = '4,6,8'
+$playerCounts = '5,6'
 $workerCount = 2
 $baseUrl = 'http://127.0.0.1:8080'
 $serverPort = 8080
@@ -21,6 +21,7 @@ $mvpDocument = 'docs/MAFIAGAME_MVP.md'
 $qaReportDirectory = 'docs/QA_report'
 $sourceModificationAllowed = $false
 $deleteExistingData = $false
+$deleteTestAccounts = $true
 ```
 
 Configuration rules:
@@ -45,6 +46,7 @@ Configuration rules:
 - E2E player counts: use `$playerCounts` from the run configuration.
 - Source code modification: use `$sourceModificationAllowed` from the run configuration.
 - Existing users, rooms, and database data: use `$deleteExistingData` from the run configuration.
+- Test-account cleanup: use `$deleteTestAccounts` from the run configuration. This must remain `$true` for a normal QA run.
 
 ## Initial Inspection
 
@@ -200,14 +202,21 @@ Verify:
 
 - Unique account creation
 - Unique room creation
-- 4-player scenario
+- 5-player scenario
 - 6-player scenario
-- 8-player scenario
 - Real-time participant synchronization
 - Ready synchronization
 - Host-only game start permission
 - Role assignment and private role display
+- Exact role counts for 4, 5, 6, and 8 players (service test evidence)
+- Boundary mafia count: 1 for 5 players and 2 for 6 players
+- Citizen count formula: total players - mafia - police - doctor
+- Start rejection or disabled start state for fewer than 4 players and more than 8 players
 - Day, nomination vote, execution vote, and night transitions
+- Execution of both mafia players in the 6-player boundary scenario
+- Actual `MAFIA_KILL`, `DOCTOR_PROTECT`, and `POLICE_INVESTIGATE` submissions
+- Doctor protection keeps the mafia target alive and police sees the private faction result
+- Citizen victory after the remaining mafia players are executed
 - Server timer synchronization
 - Self-vote prevention
 - Duplicate vote prevention
@@ -218,6 +227,15 @@ Verify:
 - Ready reset
 - Same-room replay
 - State restoration after refresh or reconnection
+- Mafia victory when alive mafia count equals the alive citizen-faction count
+- Citizen victory immediately after the last mafia becomes dead
+- Mafia target aggregation when two mafia submit night actions concurrently
+- Nomination tie handling without selecting an execution target
+- Last-session player departure/removal from alive counts after the reconnect grace period
+- Departure removes the player's pending nomination, execution, and night actions
+- Reconnection restores the current game state without reviving a departed player
+- Player departure immediately before game start, with the current participant count used for role assignment
+- Vote requests that race with the phase deadline
 
 Do not retry failed tests automatically. Investigate the failure first.
 
@@ -247,7 +265,61 @@ finally {
 
 Do not terminate an existing server that was running before this QA run.
 
-Do not delete generated test accounts, rooms, or database records.
+### 3.5 Delete Test Accounts After the Run
+
+After Playwright completes, delete every account created by this QA run. Do this before writing the final report, and record the number of accounts found and deleted.
+
+The E2E test account email format is:
+
+```text
+playwright.<E2E_RUN_ID>.<scenarioId>.<playerNumber>@example.com
+```
+
+Cleanup rules:
+
+- Run cleanup only when `$deleteTestAccounts -eq $true`.
+- Use the exact current `$env:E2E_RUN_ID` as the selector. Never delete by a broad `playwright.%` pattern.
+- First select and record the matching `user_id` and `email` values. Confirm that every match belongs to the current run.
+- Remove dependent `room_members` rows and test-created `game_room` rows before removing `user_stats` and `user` rows, because of foreign-key relationships.
+- Do not delete pre-existing users, rooms, or records. Do not delete a room or account that is still being used by another active session.
+- If the database cleanup cannot be executed or verification shows remaining matching accounts, report cleanup as `BLOCKED` and do not claim the QA run is fully complete.
+- If an existing server was used, leave that server running; account cleanup must not terminate it.
+
+Use the database client configured for the environment. The following SQL is a template; bind the exact generated email prefix from the current run rather than copying an untrusted value into the query:
+
+```sql
+START TRANSACTION;
+
+CREATE TEMPORARY TABLE qa_test_users AS
+SELECT user_id
+FROM `user`
+WHERE email LIKE CONCAT('playwright.', :e2e_run_id, '.%@example.com');
+
+DELETE rm
+FROM room_members rm
+JOIN qa_test_users qtu ON qtu.user_id = rm.user_id;
+
+DELETE gr
+FROM game_room gr
+JOIN qa_test_users qtu ON qtu.user_id = gr.host_user_id
+WHERE gr.title LIKE CONCAT('Playwright MVP %', :e2e_run_id, '%');
+
+DELETE us
+FROM user_stats us
+JOIN qa_test_users qtu ON qtu.user_id = us.user_id;
+
+DELETE u
+FROM `user` u
+JOIN qa_test_users qtu ON qtu.user_id = u.user_id;
+
+SELECT COUNT(*) AS remaining_test_accounts
+FROM `user`
+WHERE email LIKE CONCAT('playwright.', :e2e_run_id, '.%@example.com');
+
+COMMIT;
+```
+
+Require `remaining_test_accounts = 0` for cleanup `PASS`. If the transaction fails, roll it back and report the cleanup result separately from the application test result.
 
 ## 4. MVP Validation Scope
 
@@ -291,6 +363,36 @@ Validate the following:
 25. Replay in the same room
 26. State restoration after refresh or reconnection
 
+### 4.1 Extended Boundary and Resilience Checks
+
+The following checks are required when the QA request includes boundary, disconnect, or concurrency coverage. They are separate from the normal 5/6-player E2E boundary run and must be reported individually:
+
+1. Role-count boundaries: 4 players = 1 mafia, 1 police, 1 doctor, 1 citizen; 5 players = 1 mafia, 1 police, 1 doctor, 2 citizens; 6 players = 2 mafia, 1 police, 1 doctor, 2 citizens; 8 players = 2 mafia, 1 police, 1 doctor, 4 citizens.
+2. Citizen-count formula: `citizens = totalPlayers - (mafia + police + doctor)`, including `6 - (2 + 1 + 1) = 2`.
+3. Invalid start boundaries: fewer than 4 participants must keep start disabled or return a warning; more than 8 participants must be rejected by the server or prevented by room capacity.
+4. Mafia victory threshold: after resolution, `aliveMafia >= aliveCitizenFaction` must finish the game for the mafia.
+5. Citizen victory precedence: `aliveMafia == 0` must finish the game for citizens even when the faction counts would otherwise be equal.
+6. A 6-player game must continue after only one mafia is executed and finish for citizens only after the second mafia is dead.
+7. If two mafia select different night targets, exactly one of the submitted highest-count targets is resolved; if they select the same target, that target is resolved unless protected.
+8. Nomination ties must not select an execution candidate and must move to the night phase without hanging.
+9. A last-session disconnect must remove that participant from alive counts after the configured reconnect grace period and re-evaluate victory; a reconnect within the grace period must restore the current state without marking the player dead.
+10. A pre-start departure must be reflected in the participant count before roles are assigned; a 6-to-5 transition must use the one-mafia role set or prevent start until the state is stable.
+11. Requests arriving at or immediately before a phase deadline must be serialized without duplicate votes or state corruption. Record this as `NOT RUN` when timing cannot be made deterministic.
+
+For each extended check, record the evidence source (`Java service test`, `Playwright E2E`, or `source inspection`) and classify it as `PASS`, `FAIL`, `BLOCKED`, or `NOT RUN`. Source inspection alone cannot be reported as an executed test `PASS`.
+
+### 4.2 Implementation Contracts to Verify
+
+When source inspection is used to explain a result, inspect these contracts directly and include the file and line number in the report:
+
+- `RoomGameService.createRoles`: mafia count is `1` for 4–5 players and `2` for 6–8 players; doctor and police remain one each; citizens fill the remainder.
+- `RoomGameService.determineWinner`: citizen victory is checked first when `aliveMafia == 0`; mafia victory is checked when `aliveMafia >= aliveCitizenFaction`.
+- `RoomGameService.handlePlayerDeparture`: after the reconnect grace period, a player whose last room session disconnects becomes non-alive, pending actions are removed, and victory is re-evaluated.
+- `RoomPresenceService`: the last session schedules game departure, reconnect cancels it within the configured grace period, and game start accepts only 4–8 current participants.
+- `chat.js`: the host start button is disabled below four participants, and the current presence snapshot drives the displayed participant count and readiness state.
+
+Do not infer a runtime result from these contracts. Use them only to identify implementation evidence, expected behavior, or the root cause of a failed or unexecuted test.
+
 ## 5. Analysis Rules
 
 - Do not mark an unexecuted or unsupported item as `PASS`.
@@ -300,7 +402,7 @@ Validate the following:
 - Provide file names and line numbers for all relevant findings.
 - Do not modify source code during this QA run.
 - Do not delete or revert existing user changes.
-- Do not delete existing users, rooms, or database records.
+- Delete only the test accounts and dependent records created by the current QA run, as described in section 3.5. Preserve all pre-existing users, rooms, and database records.
 - Treat the 5.3 daytime skip-vote feature as excluded, not as a failure.
 
 ## 6. Required Report Format
@@ -357,7 +459,7 @@ Write the report in the following order:
 5. JavaScript test summary and details
 6. Server startup and health-check result
 7. Playwright E2E summary and details
-8. Separate 4-player, 6-player, and 8-player results
+8. Separate 5-player and 6-player boundary results
 9. MVP validation table
 10. Failed and blocked items
 11. Reproduction steps
@@ -367,7 +469,8 @@ Write the report in the following order:
 15. Recommended fixes, including code snippets where useful
 16. Generated test artifact paths
 17. Confirmation that existing data was preserved
-18. Final verdict: `PASS`, `FAIL`, or `BLOCKED`
+18. Test-account cleanup result and remaining-account count
+19. Final verdict: `PASS`, `FAIL`, or `BLOCKED`
 
 For every result, include:
 

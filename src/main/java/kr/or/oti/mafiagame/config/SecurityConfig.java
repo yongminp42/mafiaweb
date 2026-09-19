@@ -3,9 +3,9 @@ package kr.or.oti.mafiagame.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 public class SecurityConfig {
@@ -19,7 +19,10 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/", "/rooms", "/login", "/signup", "/css/**", "/js/**", "/webjars/**", "/error").permitAll()
+                        .requestMatchers(
+                                "/", "/rooms", "/login", "/signup",
+                                "/css/**", "/js/**", "/webjars/**", "/error")
+                        .permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .anyRequest().authenticated())
                 .formLogin(form -> form

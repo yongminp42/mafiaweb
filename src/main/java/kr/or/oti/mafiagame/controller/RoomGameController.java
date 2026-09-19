@@ -27,6 +27,8 @@ public class RoomGameController {
             @DestinationVariable("roomId") long roomId,
             GameActionRequest request,
             Principal principal) {
+        // 인증 주체와 행동 요청을 게임 서비스에 전달한다.
+        // 페이즈·역할·생존 여부 검증과 상태 변경은 서비스의 단일 잠금 안에서 처리한다.
         roomGameService.submitAction(roomId, principal, request);
     }
 
@@ -35,6 +37,7 @@ public class RoomGameController {
             @DestinationVariable("roomId") long roomId,
             SimpMessageHeaderAccessor headers,
             Principal principal) {
+        // 새로고침/재접속한 클라이언트가 공개 상태와 자신의 개인 역할 결과를 복원한다.
         roomGameService.broadcastCurrentState(roomId, principal);
     }
 

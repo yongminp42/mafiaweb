@@ -13,4 +13,8 @@ public enum GameFaction {
     public String label() {
         return label;
     }
+
+    public String investigationLabel() {
+        return this == MAFIA ? "마피아" : "시민";
+    }
 }

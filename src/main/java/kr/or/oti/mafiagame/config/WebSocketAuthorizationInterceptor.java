@@ -4,6 +4,7 @@ import java.security.Principal;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
@@ -11,7 +12,6 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import kr.or.oti.mafiagame.service.RoomPresenceService;
@@ -21,8 +21,10 @@ import kr.or.oti.mafiagame.service.RoomPresenceService;
  */
 @Component
 public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
-    private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile("^/topic/rooms/(\\d+)/(chat|presence|game)$");
-    private static final Pattern ROOM_SEND_PATTERN = Pattern.compile("^/app/rooms/(\\d+)/(join|ready|start|chat|presence/sync|game(?:/sync)?)$");
+    private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile(
+            "^/topic/rooms/(\\d+)/(chat|presence|game)$");
+    private static final Pattern ROOM_SEND_PATTERN = Pattern.compile(
+            "^/app/rooms/(\\d+)/(join|ready|start|chat|presence/sync|game(?:/sync)?)$");
     private static final String LOBBY_TOPIC = "/topic/rooms/presence";
     private static final String LOBBY_SEND = "/app/rooms/presence";
 
