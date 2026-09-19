@@ -12,6 +12,7 @@
   let socket;
   let onlinePlayerTotal = 0;
   let refreshTimer;
+  let navigatingAway = false;
   let shouldReconnect = true;
   let stopHeartbeat = () => {};
   const reconnectController = createReconnectController(connect);
@@ -33,12 +34,12 @@
   }
 
   function scheduleRoomListRefresh() {
-    if (refreshTimer !== undefined) {
+    if (refreshTimer !== undefined || navigatingAway || !shouldReconnect) {
       return;
     }
     refreshTimer = window.setTimeout(() => {
       refreshTimer = undefined;
-      if (shouldReconnect) {
+      if (shouldReconnect && !navigatingAway) {
         window.location.reload();
       }
     }, 150);
@@ -184,9 +185,13 @@
   }
 
   window.addEventListener('beforeunload', () => {
+    navigatingAway = true;
     shouldReconnect = false;
     reconnectController.cancel();
-    window.clearTimeout(refreshTimer);
+    if (refreshTimer !== undefined) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+    }
     stopHeartbeat();
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(createFrame('DISCONNECT'));

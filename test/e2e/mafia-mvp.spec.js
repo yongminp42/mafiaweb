@@ -5,16 +5,15 @@ import { expect, test } from '@playwright/test';
  *
  * 실행 예:
  *   npx playwright install chromium
- *   $env:PLAYER_COUNTS = '5,6'
+ *   $env:PLAYER_COUNTS = '4,5,6,8'
  *   npx playwright test test/e2e/mafia-mvp.spec.js
  *
  * ONLINE_BASELINE을 지정하지 않으면 첫 테스트 세션이 로비에 연결된 뒤
  * 확인한 온라인 인원에서 테스트 세션 1명을 제외해 기준 인원을 자동 계산한다.
  * 외부 접속자 수가 고정된 환경에서는 $env:ONLINE_BASELINE = '1'처럼 직접 지정할 수 있다.
  *
- * 이 스크립트는 다중 브라우저의 방 입장·게임 시작·낮/투표/밤 페이즈·재접속을 검증한다.
- * 역할별 개인 큐, 밤 행동 권한, 승패·결과 세부 검증은 Java 서비스 테스트와
- * JavaScript 테스트에서 별도로 검증한다.
+ * 이 스크립트는 다중 브라우저의 방 입장·게임 시작·낮/투표/밤 페이즈·재접속·재플레이를 검증한다.
+ * 실제 브라우저 세션에서 역할별 밤 행동과 채팅 채널 권한도 함께 확인한다.
  */
 
 const MIN_PLAYERS = 4;
@@ -27,7 +26,7 @@ const ONLINE_BASELINE = configuredOnlineBaseline
   ? Number(configuredOnlineBaseline)
   : null;
 const PLAYER_COUNTS = parsePlayerCounts(
-  process.env.PLAYER_COUNTS || process.env.PLAYER_COUNT || '5,6'
+  process.env.PLAYER_COUNTS || process.env.PLAYER_COUNT || '4,5,6,8'
 );
 
 if (ONLINE_BASELINE !== null
@@ -50,7 +49,7 @@ function parsePlayerCounts(value) {
       || count < MIN_PLAYERS
       || count > MAX_PLAYERS)) {
     throw new Error(
-      `PLAYER_COUNTS는 ${MIN_PLAYERS}~${MAX_PLAYERS} 범위의 숫자 목록이어야 합니다. 예: 5,6`
+      `PLAYER_COUNTS는 ${MIN_PLAYERS}~${MAX_PLAYERS} 범위의 숫자 목록이어야 합니다. 예: 4,5,6,8`
     );
   }
   return [...new Set(counts)];
@@ -568,6 +567,28 @@ for (const playerCount of PLAYER_COUNTS) {
         const mafiaUserIds = rolePages.MAFIA.map(player => player.userId);
         const citizenUserIds = rolePages.CITIZEN.map(player => player.userId);
 
+        const mafiaChatMessage = 'mafia-chat-' + scenarioId;
+        const mafiaPage = rolePages.MAFIA[0].page;
+        await expect(mafiaPage.locator('#chatChannel option[value="MAFIA"]')).toBeAttached();
+        await mafiaPage.locator('#chatChannel').selectOption('MAFIA');
+        await mafiaPage.locator('#chatForm input[name="content"]').fill(mafiaChatMessage);
+        await mafiaPage.locator('#chatForm button[type="submit"]').click();
+        await Promise.all(
+          rolePages.MAFIA.map(({ page }) =>
+            expect(page.locator('#messages')).toContainText(mafiaChatMessage, {
+              timeout: 10_000
+            })
+          )
+        );
+        await Promise.all(
+          [...rolePages.CITIZEN, ...rolePages.DOCTOR, ...rolePages.POLICE].map(({ page }) =>
+            expect(page.locator('#messages')).not.toContainText(mafiaChatMessage, {
+              timeout: 10_000
+            })
+          )
+        );
+        await mafiaPage.locator('#chatChannel').selectOption('PUBLIC');
+
         await waitForPhase(pages, PHASE_LABELS.DAY, 15_000);
         await expect
           .poll(() => readTimerSeconds(pages[0]), { timeout: 5_000 })
@@ -575,9 +596,12 @@ for (const playerCount of PLAYER_COUNTS) {
         await assertTimersAreSynchronized(pages);
         const dayState = await waitForGameState(traces[0], 'DAY_DISCUSSION');
         expect(dayState.phaseEndsAt - dayState.receivedAt).toBeGreaterThan(55_000);
+        expect(dayState.players.every(player => player.role == null)).toBeTruthy();
 
         await waitForPhase(pages, PHASE_LABELS.NOMINATION, 70_000);
         await assertTimersAreSynchronized(pages);
+        const nominationState = await waitForGameState(traces[0], 'NOMINATION_VOTE');
+        expect(nominationState.receivedAt - dayState.receivedAt).toBeGreaterThanOrEqual(55_000);
         await Promise.all(
           pages.map(page =>
             expect(page.locator('#nominationAction')).toBeVisible()
@@ -596,9 +620,9 @@ for (const playerCount of PLAYER_COUNTS) {
           userIds
         );
 
-        const nominationState = await waitForGameState(traces[0], 'NOMINATION_VOTE');
         await waitForPhase(pages, PHASE_LABELS.EXECUTION, 20_000);
         const executionState = await waitForGameState(traces[0], 'EXECUTION_VOTE');
+        expect(executionState.receivedAt - nominationState.receivedAt).toBeGreaterThanOrEqual(13_000);
         expect(executionState.nominatedUserId).toBe(initialExecutionTargetId);
         expect(executionState.phaseEndsAt - nominationState.phaseEndsAt)
           .toBeGreaterThanOrEqual(14_000);
@@ -618,6 +642,7 @@ for (const playerCount of PLAYER_COUNTS) {
         await waitForPhase(pages, PHASE_LABELS.NIGHT, 20_000);
         await assertTimersAreSynchronized(pages);
         const nightState = await waitForGameState(traces[0], 'NIGHT');
+        expect(nightState.receivedAt - executionState.receivedAt).toBeGreaterThanOrEqual(13_000);
         expect(nightState.phaseEndsAt - executionState.phaseEndsAt)
           .toBeGreaterThanOrEqual(29_000);
         expect(nightState.phaseEndsAt - executionState.phaseEndsAt)
@@ -628,6 +653,25 @@ for (const playerCount of PLAYER_COUNTS) {
           .filter(player => player.alive)
           .map(player => Number(player.userId));
         expect(aliveAfterExecutionIds).not.toContain(initialExecutionTargetId);
+
+        const deadPage = pages[userIds.indexOf(initialExecutionTargetId)];
+        const deadChatMessage = 'dead-chat-' + scenarioId;
+        await expect(deadPage.locator('#chatChannel option[value="PUBLIC"]')).toHaveText('사망자 채널');
+        await expect(deadPage.locator('#chatForm button[type="submit"]')).toBeEnabled();
+        await deadPage.locator('#chatForm input[name="content"]').fill(deadChatMessage);
+        await deadPage.locator('#chatForm button[type="submit"]').click();
+        await expect(deadPage.locator('#messages')).toContainText(deadChatMessage, {
+          timeout: 10_000
+        });
+        await Promise.all(
+          pages
+            .filter(page => page !== deadPage)
+            .map(page =>
+              expect(page.locator('#messages')).not.toContainText(deadChatMessage, {
+                timeout: 10_000
+              })
+            )
+        );
 
         const doctor = rolePages.DOCTOR[0];
         const police = rolePages.POLICE[0];
@@ -692,6 +736,7 @@ for (const playerCount of PLAYER_COUNTS) {
           .toBeGreaterThanOrEqual(59_000);
         expect(nextDayState.phaseEndsAt - nightState.phaseEndsAt)
           .toBeLessThanOrEqual(61_000);
+        expect(nextDayState.receivedAt - nightState.receivedAt).toBeGreaterThanOrEqual(28_000);
         expect(nextDayState.message).toContain('의사의 보호');
         expect(
           nextDayState.players.find(
@@ -737,6 +782,7 @@ for (const playerCount of PLAYER_COUNTS) {
         );
         expect(finishedState.gameOver).toBe(true);
         expect(finishedState.winningFaction).toBe('CITIZEN');
+        expect(finishedState.players.every(player => typeof player.role === 'string')).toBeTruthy();
 
         await Promise.all(
           pages.map(async page => {
@@ -754,6 +800,9 @@ for (const playerCount of PLAYER_COUNTS) {
               /생존|탈락/,
               { timeout: 15_000 }
             );
+            await expect(page.locator('#gameRoleRevealPanel')).toBeVisible({
+              timeout: 15_000
+            });
             await expect(page.locator('#roomStatus')).toHaveText('대기 중', {
               timeout: 15_000
             });
@@ -761,9 +810,7 @@ for (const playerCount of PLAYER_COUNTS) {
           })
         );
 
-        if (playerCount === 4) {
-          await startReplayGame(pages, traces);
-        }
+        await startReplayGame(pages, traces);
       } finally {
         if (lobbyPage) {
           await lobbyPage.close().catch(() => {});

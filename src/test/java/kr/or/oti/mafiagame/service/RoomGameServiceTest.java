@@ -299,7 +299,7 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void declaresMafiaVictoryWhenMafiaAndCitizenFactionAreEven() throws Exception {
+    void continuesWhenMafiaAndCitizenFactionAreEven() throws Exception {
         startExecutionVote(nightParticipants());
         setRole(1L, GameRole.MAFIA);
         setRole(2L, GameRole.CITIZEN);
@@ -311,9 +311,9 @@ class RoomGameServiceTest {
         advanceCurrentPhase();
 
         RoomGameState result = latestPublicState();
-        assertThat(result.phase()).isEqualTo("FINISHED");
-        assertThat(result.gameOver()).isTrue();
-        assertThat(result.winningFaction()).isEqualTo("MAFIA");
+        assertThat(result.phase()).isEqualTo("NIGHT");
+        assertThat(result.gameOver()).isFalse();
+        assertThat(result.winningFaction()).isNull();
     }
 
     @Test

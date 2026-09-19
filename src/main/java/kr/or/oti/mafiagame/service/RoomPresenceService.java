@@ -44,7 +44,7 @@ import kr.or.oti.mafiagame.security.PrincipalIdentity;
 public class RoomPresenceService {
     private static final int MIN_GAME_PLAYERS = 4;
     private static final int MAX_GAME_PLAYERS = 8;
-    private static final Duration DEFAULT_GAME_DEPARTURE_GRACE_PERIOD = Duration.ofSeconds(2);
+    private static final Duration DEFAULT_GAME_DEPARTURE_GRACE_PERIOD = Duration.ofSeconds(10);
     private static final Logger log = LoggerFactory.getLogger(RoomPresenceService.class);
     private static final String PRESENCE_DESTINATION = "/topic/rooms/%d/presence";
     private static final String LOBBY_PRESENCE_DESTINATION = "/topic/rooms/presence";
@@ -87,7 +87,7 @@ public class RoomPresenceService {
             SimpMessagingTemplate messagingTemplate,
             RoomService roomService,
             @Value("${mafiagame.room.empty-cleanup-delay:15s}") Duration emptyRoomCleanupDelay,
-            @Value("${mafiagame.room.game-departure-grace-period:2s}") Duration gameDepartureGracePeriod,
+            @Value("${mafiagame.room.game-departure-grace-period:10s}") Duration gameDepartureGracePeriod,
             @Lazy RoomGameService roomGameService) {
         this.messagingTemplate = messagingTemplate;
         this.roomService = roomService;
@@ -536,12 +536,15 @@ public class RoomPresenceService {
         ParticipantPresence participant = participantKey == null ? null : participants.get(participantKey);
         boolean participantLeaves = participant != null && participant.sessions.size() == 1;
         Long departedUserId = participantLeaves && participant != null ? participant.userId : null;
+        boolean retainForReconnect = participantLeaves
+                && "PLAYING".equals(roomStatusByRoom.getOrDefault(roomId, "WAITING"));
         boolean hostLeaves = participantLeaves
                 && Objects.equals(hostUserByRoom.get(roomId), participant.userId)
                 && participants.size() > 1;
         ParticipantPresence successor = hostLeaves
                 ? participants.values().stream()
-                        .filter(candidate -> !candidate.equals(participant))
+                        .filter(candidate -> !candidate.equals(participant)
+                                && !candidate.sessions.isEmpty())
                         .findFirst()
                         .orElse(null)
                 : null;
@@ -564,7 +567,7 @@ public class RoomPresenceService {
         }
         if (participant != null) {
             participant.sessions.remove(sessionId);
-            if (participant.sessions.isEmpty()) {
+            if (participant.sessions.isEmpty() && !retainForReconnect) {
                 participants.remove(participantKey);
             }
         }
@@ -762,7 +765,8 @@ public class RoomPresenceService {
             // 유예 시간 안에 같은 사용자가 다시 들어오지 않을 때만 게임 서비스에 알린다.
             Map<String, ParticipantPresence> participants = participantsByRoom.get(roomId);
             boolean reconnected = participants != null
-                    && participants.values().stream().anyMatch(participant -> participant.userId == userId);
+                    && participants.values().stream().anyMatch(participant -> participant.userId == userId
+                            && !participant.sessions.isEmpty());
             if (reconnected) {
                 return;
             }
@@ -787,22 +791,62 @@ public class RoomPresenceService {
         }
 
         if (notifyImmediately) {
-            notifyDeparture(roomId, userId);
+            completeScheduledDeparture(roomId, userId);
         }
     }
 
     private void completeScheduledDeparture(long roomId, long userId) {
-        boolean notify;
+        boolean notify = false;
+        RoomPresenceState state = null;
         writeLock.lock();
         try {
             gameDepartureTasks.remove(departureKey(roomId, userId));
             Map<String, ParticipantPresence> participants = participantsByRoom.get(roomId);
-            notify = participants == null
-                    || participants.values().stream().noneMatch(participant -> participant.userId == userId);
+            if (participants == null) {
+                notify = true;
+            } else {
+                String participantKey = participants.entrySet().stream()
+                        .filter(entry -> entry.getValue().userId == userId
+                                && entry.getValue().sessions.isEmpty())
+                        .map(Map.Entry::getKey)
+                        .findFirst()
+                        .orElse(null);
+                if (participantKey == null) {
+                    notify = participants.values().stream()
+                            .noneMatch(participant -> participant.userId == userId);
+                } else {
+                    participants.remove(participantKey);
+                    if (Objects.equals(hostUserByRoom.get(roomId), userId)) {
+                        ParticipantPresence successor = participants.values().stream()
+                                .filter(participant -> !participant.sessions.isEmpty())
+                                .findFirst()
+                                .orElse(null);
+                        if (successor == null) {
+                            hostUserByRoom.remove(roomId);
+                        } else {
+                            hostUserByRoom.put(roomId, successor.userId);
+                        }
+                    }
+                    notify = true;
+                    if (participants.isEmpty()) {
+                        participantsByRoom.remove(roomId);
+                        hostUserByRoom.remove(roomId);
+                        roomStatusByRoom.remove(roomId);
+                        emptyRoomsPendingCleanup.add(roomId);
+                        scheduleRoomCleanup(roomId);
+                        state = new RoomPresenceState(roomId, List.of());
+                    } else {
+                        state = snapshot(roomId);
+                    }
+                }
+            }
         } finally {
             writeLock.unlock();
         }
 
+        if (state != null) {
+            broadcast(state);
+        }
         if (notify) {
             notifyDeparture(roomId, userId);
         }

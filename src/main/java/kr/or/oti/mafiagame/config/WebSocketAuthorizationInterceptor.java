@@ -4,6 +4,7 @@ import java.security.Principal;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -14,6 +15,8 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
+import kr.or.oti.mafiagame.security.PrincipalIdentity;
+import kr.or.oti.mafiagame.service.RoomGameService;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 
 /**
@@ -24,14 +27,23 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
     private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile(
             "^/topic/rooms/(\\d+)/(chat|presence|game)$");
     private static final Pattern ROOM_SEND_PATTERN = Pattern.compile(
-            "^/app/rooms/(\\d+)/(join|ready|start|chat|presence/sync|game(?:/sync)?)$");
+            "^/app/rooms/(\\d+)/(join|ready|start|chat|mafia-chat|presence/sync|game(?:/sync)?)$");
     private static final String LOBBY_TOPIC = "/topic/rooms/presence";
     private static final String LOBBY_SEND = "/app/rooms/presence";
 
     private final RoomPresenceService roomPresenceService;
+    private final RoomGameService roomGameService;
 
     public WebSocketAuthorizationInterceptor(@Lazy RoomPresenceService roomPresenceService) {
+        this(roomPresenceService, null);
+    }
+
+    @Autowired
+    public WebSocketAuthorizationInterceptor(
+            @Lazy RoomPresenceService roomPresenceService,
+            @Lazy RoomGameService roomGameService) {
         this.roomPresenceService = roomPresenceService;
+        this.roomGameService = roomGameService;
     }
 
     @Override
@@ -72,6 +84,9 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
         if (!roomPresenceService.isParticipant(roomId, accessor.getSessionId())) {
             throw denied(message, "먼저 게임방에 입장해 주세요.");
         }
+        if (destination.endsWith("/mafia-chat") && !canAccessMafiaChat(roomId, accessor)) {
+            throw denied(message, "마피아 채팅을 사용할 수 없습니다.");
+        }
     }
 
     private void authorizeSend(
@@ -94,6 +109,18 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
                 && !roomPresenceService.isParticipant(roomId, accessor.getSessionId())) {
             throw denied(message, "먼저 게임방에 입장해 주세요.");
         }
+        if ("mafia-chat".equals(action) && !canAccessMafiaChat(roomId, accessor)) {
+            throw denied(message, "마피아 채팅을 사용할 수 없습니다.");
+        }
+    }
+
+    private boolean canAccessMafiaChat(long roomId, StompHeaderAccessor accessor) {
+        if (roomGameService == null || accessor.getUser() == null) {
+            return false;
+        }
+        return roomGameService.canAccessMafiaChat(
+                roomId,
+                PrincipalIdentity.from(accessor.getUser()).userId());
     }
 
     private void requirePrincipal(Message<?> message, StompHeaderAccessor accessor) {
