@@ -428,14 +428,14 @@ test('chat renders a police investigation result from the private night queue', 
         targetUserId: 11,
         targetNickname: 'bob',
         faction: 'MAFIA',
-        factionLabel: '마피아 진영'
+        factionLabel: '마피아'
       })
     ));
 
     assert.equal(dom.window.document.querySelector('#nightResultPanel').hidden, false);
     assert.equal(
       dom.window.document.querySelector('#nightResultLabel').textContent,
-      ' bob님은 마피아 진영입니다.'
+      ' bob님은 마피아입니다.'
     );
   } finally {
     dom.window.close();

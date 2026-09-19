@@ -291,7 +291,7 @@ public class RoomGameService {
                 target.userId,
                 target.nickname,
                 faction.name(),
-                faction.label());
+            faction.investigationLabel());
     }
 
     private void advancePhase(long roomId) {

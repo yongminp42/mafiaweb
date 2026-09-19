@@ -319,6 +319,65 @@ class RoomGameServiceTest {
                 investigationCaptor.capture());
         assertThat(investigationCaptor.getValue().targetUserId()).isEqualTo(1L);
         assertThat(investigationCaptor.getValue().faction()).isEqualTo("MAFIA");
+        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("마피아");
+    }
+
+    @Test
+    void endsSixPlayerGameAfterBothMafiaAreExecutedByMajorityVotes() throws Exception {
+        assertThatAllMafiaCanBeExecutedByMajority(6);
+    }
+
+    @Test
+    void endsEightPlayerGameAfterBothMafiaAreExecutedByMajorityVotes() throws Exception {
+        assertThatAllMafiaCanBeExecutedByMajority(8);
+    }
+
+    @Test
+    void sendsCitizenInvestigationResultOnlyToTheInvestigatingPolice() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.CITIZEN);
+        setRole(3L, GameRole.DOCTOR);
+        setRole(4L, GameRole.POLICE);
+        clearInvocations(messagingTemplate);
+
+        gameService.submitAction(ROOM_ID, principal(4L, "dave"),
+                new GameActionRequest(2L, null, "POLICE_INVESTIGATE"));
+
+        ArgumentCaptor<GameInvestigationResult> investigationCaptor =
+                ArgumentCaptor.forClass(GameInvestigationResult.class);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("dave@example.com"),
+                eq("/queue/night-result"),
+                investigationCaptor.capture());
+        assertThat(investigationCaptor.getValue().targetUserId()).isEqualTo(2L);
+        assertThat(investigationCaptor.getValue().faction()).isEqualTo("CITIZEN");
+        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("시민");
+        verify(messagingTemplate, times(1)).convertAndSendToUser(
+                anyString(), eq("/queue/night-result"), any(GameInvestigationResult.class));
+    }
+
+    @Test
+    void keepsMafiaTargetAliveAndReportsNoNightDeathWhenDoctorProtectsThatTarget() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.CITIZEN);
+        setRole(3L, GameRole.DOCTOR);
+        setRole(4L, GameRole.POLICE);
+
+        gameService.submitAction(ROOM_ID, principal(1L, "alice"),
+                new GameActionRequest(2L, null, "MAFIA_KILL"));
+        gameService.submitAction(ROOM_ID, principal(3L, "carol"),
+                new GameActionRequest(2L, null, "DOCTOR_PROTECT"));
+        advanceCurrentPhase();
+
+        RoomGameState result = latestPublicState();
+        assertThat(result.phase()).isEqualTo("DAY_DISCUSSION");
+        assertThat(result.message()).contains("의사의 보호");
+        assertThat(result.players())
+                .filteredOn(player -> player.userId() == 2L)
+                .singleElement()
+                .satisfies(player -> assertThat(player.alive()).isTrue());
     }
 
     @Test
@@ -422,6 +481,63 @@ class RoomGameServiceTest {
                 new GameActionRequest(null, false));
         advanceCurrentPhase();
     }
+
+        private void assertThatAllMafiaCanBeExecutedByMajority(int playerCount) throws Exception {
+                List<RoomParticipant> gameParticipants = participantsForCount(playerCount);
+                gameService.startGame(ROOM_ID, gameParticipants, principalNamesForCount(playerCount));
+                setRole(1L, GameRole.MAFIA);
+                setRole(2L, GameRole.MAFIA);
+                for (long userId = 3L; userId <= playerCount; userId++) {
+                        setRole(userId, userId == 3L ? GameRole.DOCTOR
+                                        : userId == 4L ? GameRole.POLICE : GameRole.CITIZEN);
+                }
+
+                advanceCurrentPhase();
+                submitNominationAndMajorityExecution(1L, 2L, playerCount);
+                advanceCurrentPhase();
+                advanceCurrentPhase();
+                assertThat(latestPublicState().phase()).isEqualTo("DAY_DISCUSSION");
+                assertThat(latestPublicState().gameOver()).isFalse();
+
+                advanceCurrentPhase();
+                submitNominationAndMajorityExecution(3L, 1L, playerCount);
+
+                RoomGameState result = latestPublicState();
+                assertThat(result.phase()).isEqualTo("FINISHED");
+                assertThat(result.gameOver()).isTrue();
+                assertThat(result.winningFaction()).isEqualTo("CITIZEN");
+        }
+
+        private void submitNominationAndMajorityExecution(
+                        long nominatorId, long nomineeId, int playerCount) throws Exception {
+                gameService.submitAction(ROOM_ID, principal(nominatorId, "user" + nominatorId),
+                                new GameActionRequest(nomineeId, null));
+                advanceCurrentPhase();
+
+                for (long userId = 1L; userId <= playerCount; userId++) {
+                        if (userId != nomineeId) {
+                                gameService.submitAction(ROOM_ID, principal(userId, "user" + userId),
+                                                new GameActionRequest(null, true));
+                        }
+                }
+                advanceCurrentPhase();
+        }
+
+        private static List<RoomParticipant> participantsForCount(int playerCount) {
+                List<RoomParticipant> participants = new java.util.ArrayList<>();
+                for (int index = 1; index <= playerCount; index++) {
+                        participants.add(new RoomParticipant(index, "user" + index, index == 1, true));
+                }
+                return participants;
+        }
+
+        private static Map<Long, String> principalNamesForCount(int playerCount) {
+                Map<Long, String> principalNames = new java.util.HashMap<>();
+                for (int index = 1; index <= playerCount; index++) {
+                        principalNames.put((long) index, "user" + index + "@example.com");
+                }
+                return principalNames;
+        }
 
     private void advanceCurrentPhase() throws Exception {
         Object game = gamesByRoom().get(ROOM_ID);

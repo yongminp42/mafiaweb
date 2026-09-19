@@ -71,6 +71,10 @@
     MAFIA: '마피아 진영 승리',
     CITIZEN: '시민 진영 승리'
   };
+  const INVESTIGATION_FACTION_LABELS = {
+    MAFIA: '마피아',
+    CITIZEN: '시민'
+  };
   const NIGHT_ACTIONS = {
     MAFIA: { action: 'MAFIA_KILL', title: '제거할 참가자' },
     DOCTOR: { action: 'DOCTOR_PROTECT', title: '보호할 참가자' },
@@ -616,7 +620,9 @@
       return;
     }
 
-    const factionLabel = result.factionLabel || GAME_WINNER_LABELS[result.faction] || result.faction;
+    const factionLabel = INVESTIGATION_FACTION_LABELS[result.faction]
+      || result.factionLabel
+      || result.faction;
     nightResultLabel.textContent = ` ${result.targetNickname || '대상'}님은 ${factionLabel}입니다.`;
     nightResultPanel.hidden = false;
   }
