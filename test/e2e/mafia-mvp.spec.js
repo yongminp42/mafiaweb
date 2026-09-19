@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
  *
  * 실행 예:
  *   npx playwright install chromium
- *   $env:PLAYER_COUNTS = '4,6,8'
+ *   $env:PLAYER_COUNTS = '5,6'
  *   npx playwright test test/e2e/mafia-mvp.spec.js
  *
  * ONLINE_BASELINE을 지정하지 않으면 첫 테스트 세션이 로비에 연결된 뒤
@@ -27,7 +27,7 @@ const ONLINE_BASELINE = configuredOnlineBaseline
   ? Number(configuredOnlineBaseline)
   : null;
 const PLAYER_COUNTS = parsePlayerCounts(
-  process.env.PLAYER_COUNTS || process.env.PLAYER_COUNT || '4'
+  process.env.PLAYER_COUNTS || process.env.PLAYER_COUNT || '5,6'
 );
 
 if (ONLINE_BASELINE !== null
@@ -50,7 +50,7 @@ function parsePlayerCounts(value) {
       || count < MIN_PLAYERS
       || count > MAX_PLAYERS)) {
     throw new Error(
-      `PLAYER_COUNTS는 ${MIN_PLAYERS}~${MAX_PLAYERS} 범위의 숫자 목록이어야 합니다. 예: 4,6,8`
+      `PLAYER_COUNTS는 ${MIN_PLAYERS}~${MAX_PLAYERS} 범위의 숫자 목록이어야 합니다. 예: 5,6`
     );
   }
   return [...new Set(counts)];
@@ -279,7 +279,111 @@ async function waitForRoomReady(pages, playerCount) {
   );
 }
 
+async function waitForMatchingGameState(trace, phase, predicate, timeout = 20_000) {
+  return waitUntil(
+    () => trace.gameStates.find(state =>
+      state.phase === phase && predicate(state)
+    ),
+    timeout,
+    phase + ' 조건부 게임 상태'
+  );
+}
+
+const ROLE_LABELS = {
+  MAFIA: '\uB9C8\uD53C\uC544',
+  DOCTOR: '\uC758\uC0AC',
+  POLICE: '\uACBD\uCC30',
+  CITIZEN: '\uC2DC\uBBFC'
+};
+
+const PHASE_LABELS = {
+  DAY: '\uB0AE',
+  NOMINATION: '\uC9C0\uBAA9 \uD22C\uD45C',
+  EXECUTION: '\uCC98\uD615 \uD22C\uD45C',
+  NIGHT: '\uBC24',
+  FINISHED: '\uAC8C\uC784 \uC885\uB8CC'
+};
+
+function expectedMafiaCount(playerCount) {
+  return playerCount >= 6 ? 2 : 1;
+}
+
+function assertRoleAssignments(roleLabels, playerCount) {
+  const expected = {
+    MAFIA: expectedMafiaCount(playerCount),
+    DOCTOR: 1,
+    POLICE: 1,
+    CITIZEN: playerCount - expectedMafiaCount(playerCount) - 2
+  };
+  const actual = Object.fromEntries(
+    Object.entries(ROLE_LABELS).map(([role, label]) => [
+      role,
+      roleLabels.filter(value => value === label).length
+    ])
+  );
+
+  expect(roleLabels).toHaveLength(playerCount);
+  expect(actual).toEqual(expected);
+}
+
+async function submitNominationVotes(pages, userIds, targetId, aliveUserIds) {
+  const alive = new Set(aliveUserIds);
+  const alternativeTargetId = aliveUserIds.find(userId => userId !== targetId);
+  expect(alternativeTargetId).toBeTruthy();
+
+  for (let index = 0; index < pages.length; index += 1) {
+    const page = pages[index];
+    const userId = userIds[index];
+    const submitButton = page.locator('#submitNomination');
+    if (!alive.has(userId)) {
+      await expect(submitButton).toBeDisabled();
+      continue;
+    }
+
+    const select = page.locator('#nominationTarget');
+    const selfOption = select.locator(`option[value="${userId}"]`);
+    if (await selfOption.count() > 0) {
+      await expect(selfOption).toBeDisabled();
+    }
+
+    const selectedTargetId = userId === targetId ? alternativeTargetId : targetId;
+    await select.selectOption(String(selectedTargetId));
+    await expect(submitButton).toBeEnabled();
+    await submitButton.click();
+    await expect(submitButton).toBeDisabled();
+  }
+}
+
+async function submitExecutionVotes(pages, userIds, targetId, aliveUserIds) {
+  const alive = new Set(aliveUserIds);
+
+  for (let index = 0; index < pages.length; index += 1) {
+    const page = pages[index];
+    const userId = userIds[index];
+    const executeButton = page.locator('#executePlayer');
+    if (!alive.has(userId) || userId === targetId) {
+      await expect(executeButton).toBeDisabled();
+      continue;
+    }
+
+    await executeButton.click();
+    await expect(executeButton).toBeDisabled();
+  }
+}
+
+async function submitNightActionForPage(page, targetId) {
+  await expect(page.locator('#nightAction')).toBeVisible();
+  await page.locator('#nightTarget').selectOption(String(targetId));
+  await expect(page.locator('#submitNightAction')).toBeEnabled();
+  await page.locator('#submitNightAction').click();
+  await expect(page.locator('#submitNightAction')).toBeDisabled();
+}
+
 async function startReplayGame(pages, traces) {
+  const nextDayOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'DAY_DISCUSSION')
+    .length;
+
   await Promise.all(
     pages.map(async page => {
       await expect(page.locator('#gameResultPanel')).toBeVisible();
@@ -303,7 +407,7 @@ async function startReplayGame(pages, traces) {
   const secondDayState = await waitForGameState(
     traces[0],
     'DAY_DISCUSSION',
-    1,
+    nextDayOccurrence,
     15_000
   );
   expect(secondDayState.phaseEndsAt - secondDayState.receivedAt)
@@ -439,17 +543,32 @@ for (const playerCount of PLAYER_COUNTS) {
           })
         );
 
-        const mafiaUserIds = [];
+        const rolePages = {
+          MAFIA: [],
+          DOCTOR: [],
+          POLICE: [],
+          CITIZEN: []
+        };
+        const roleLabels = [];
         for (let index = 0; index < pages.length; index += 1) {
           const roleLabel =
-            (await pages[index].locator('#gameRoleLabel').textContent()) || '';
-          if (roleLabel.includes('\uB9C8\uD53C\uC544')) {
-            mafiaUserIds.push(userIds[index]);
-          }
+            ((await pages[index].locator('#gameRoleLabel').textContent()) || '').trim();
+          roleLabels.push(roleLabel);
+          const role = Object.entries(ROLE_LABELS)
+            .find(([, label]) => roleLabel === label)?.[0];
+          expect(role).toBeTruthy();
+          rolePages[role].push({ page: pages[index], userId: userIds[index] });
         }
-        expect(mafiaUserIds.length).toBeGreaterThan(0);
+        assertRoleAssignments(roleLabels, playerCount);
+        expect(rolePages.MAFIA).toHaveLength(expectedMafiaCount(playerCount));
+        for (const role of ['DOCTOR', 'POLICE']) {
+          expect(rolePages[role]).toHaveLength(1);
+        }
 
-        await waitForPhase(pages, '낮', 15_000);
+        const mafiaUserIds = rolePages.MAFIA.map(player => player.userId);
+        const citizenUserIds = rolePages.CITIZEN.map(player => player.userId);
+
+        await waitForPhase(pages, PHASE_LABELS.DAY, 15_000);
         await expect
           .poll(() => readTimerSeconds(pages[0]), { timeout: 5_000 })
           .toBeGreaterThanOrEqual(50);
@@ -457,7 +576,7 @@ for (const playerCount of PLAYER_COUNTS) {
         const dayState = await waitForGameState(traces[0], 'DAY_DISCUSSION');
         expect(dayState.phaseEndsAt - dayState.receivedAt).toBeGreaterThan(55_000);
 
-        await waitForPhase(pages, '지목 투표', 70_000);
+        await waitForPhase(pages, PHASE_LABELS.NOMINATION, 70_000);
         await assertTimersAreSynchronized(pages);
         await Promise.all(
           pages.map(page =>
@@ -465,82 +584,38 @@ for (const playerCount of PLAYER_COUNTS) {
           )
         );
 
-        const nominationTargetId =
-          playerCount === 4 ? mafiaUserIds[0] : userIds[0];
-        const alternativeTargetId = userIds.find(userId => userId !== nominationTargetId);
-        expect(alternativeTargetId).toBeTruthy();
+        const initialExecutionTargetId = rolePages.MAFIA.length === 2
+          ? mafiaUserIds[0]
+          : citizenUserIds[0];
+        expect(initialExecutionTargetId).toBeTruthy();
 
-        for (let index = 0; index < pages.length; index += 1) {
-          const select = pages[index].locator('#nominationTarget');
-          const selfOption = select.locator(
-            `option[value="${userIds[index]}"]`
-          );
-          if (await selfOption.count() > 0) {
-            await expect(selfOption).toBeDisabled();
-          }
-
-          const targetId =
-            userIds[index] === nominationTargetId
-              ? alternativeTargetId
-              : nominationTargetId;
-          await select.selectOption(String(targetId));
-          await expect(pages[index].locator('#submitNomination')).toBeEnabled();
-          await pages[index].locator('#submitNomination').click();
-          await expect(pages[index].locator('#submitNomination')).toBeDisabled();
-        }
+        await submitNominationVotes(
+          pages,
+          userIds,
+          initialExecutionTargetId,
+          userIds
+        );
 
         const nominationState = await waitForGameState(traces[0], 'NOMINATION_VOTE');
-        await waitForPhase(pages, '처형 투표', 20_000);
+        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 20_000);
         const executionState = await waitForGameState(traces[0], 'EXECUTION_VOTE');
+        expect(executionState.nominatedUserId).toBe(initialExecutionTargetId);
         expect(executionState.phaseEndsAt - nominationState.phaseEndsAt)
           .toBeGreaterThanOrEqual(14_000);
         expect(executionState.phaseEndsAt - nominationState.phaseEndsAt)
           .toBeLessThanOrEqual(16_000);
 
-        await Promise.all(
-          pages.map(async (page, index) => {
-            await expect(page.locator('#executionAction')).toBeVisible();
-            if (userIds[index] === executionState.nominatedUserId) {
-              await expect(page.locator('#executePlayer')).toBeDisabled();
-              await expect(page.locator('#sparePlayer')).toBeDisabled();
-              return;
-            }
-            await page.locator('#executePlayer').click();
-            await expect(page.locator('#executePlayer')).toBeDisabled();
-          })
-        );
-
-        const phaseAfterExecution = await waitForOneOfPhases(
+        await Promise.all(pages.map(page =>
+          expect(page.locator('#executionAction')).toBeVisible()
+        ));
+        await submitExecutionVotes(
           pages,
-          ['밤', '게임 종료'],
-          20_000
+          userIds,
+          initialExecutionTargetId,
+          userIds
         );
-        if (phaseAfterExecution === '게임 종료') {
-          await Promise.all(
-            pages.map(async page => {
-              await expect(page.locator('#gameResultPanel')).toBeVisible({
-                timeout: 15_000
-              });
-              await expect(page.locator('#gameResultRoleLabel')).not.toHaveText('-', {
-                timeout: 15_000
-              });
-              await expect(page.locator('#gameResultAliveLabel')).toHaveText(
-                /생존|탈락/,
-                { timeout: 15_000 }
-              );
-              await expect(page.locator('#roomStatus')).toHaveText('대기 중', {
-                timeout: 15_000
-              });
-              await expect(page.locator('#ready')).toBeEnabled({ timeout: 15_000 });
-            })
-          );
-          await waitForGameState(traces[0], 'FINISHED', 0, 15_000);
-          if (playerCount === 4) {
-            await startReplayGame(pages, traces);
-          }
-          return;
-        }
 
+        await waitForPhase(pages, PHASE_LABELS.NIGHT, 20_000);
         await assertTimersAreSynchronized(pages);
         const nightState = await waitForGameState(traces[0], 'NIGHT');
         expect(nightState.phaseEndsAt - executionState.phaseEndsAt)
@@ -549,19 +624,40 @@ for (const playerCount of PLAYER_COUNTS) {
           .toBeLessThanOrEqual(31_000);
         await expect(pages[0].locator('#gameMessage')).toContainText('처형');
 
-        await waitUntil(
-          () =>
-            traces[0].gameStates.find(
-              state =>
-                state.phase === 'NIGHT' &&
-                state.players?.some(
-                  player =>
-                    Number(player.userId) === nominationTargetId &&
-                    player.alive === false
-                )
-            ),
-          10_000,
-          '처형 결과'
+        const aliveAfterExecutionIds = nightState.players
+          .filter(player => player.alive)
+          .map(player => Number(player.userId));
+        expect(aliveAfterExecutionIds).not.toContain(initialExecutionTargetId);
+
+        const doctor = rolePages.DOCTOR[0];
+        const police = rolePages.POLICE[0];
+        const survivingMafia = rolePages.MAFIA
+          .find(player => aliveAfterExecutionIds.includes(player.userId));
+        expect(survivingMafia).toBeTruthy();
+        expect(aliveAfterExecutionIds).toContain(doctor.userId);
+        expect(aliveAfterExecutionIds).toContain(police.userId);
+
+        const nightVictimId = citizenUserIds.find(userId =>
+          aliveAfterExecutionIds.includes(userId)
+        ) || police.userId;
+        expect(nightVictimId).not.toBe(survivingMafia.userId);
+
+        await Promise.all([
+          submitNightActionForPage(survivingMafia.page, nightVictimId),
+          submitNightActionForPage(doctor.page, nightVictimId),
+          submitNightActionForPage(police.page, survivingMafia.userId)
+        ]);
+
+        await expect(police.page.locator('#nightResultPanel')).toBeVisible({
+          timeout: 10_000
+        });
+        await expect(police.page.locator('#nightResultLabel')).toContainText(
+          ROLE_LABELS.MAFIA
+        );
+        await Promise.all(
+          pages
+            .filter(page => page !== police.page)
+            .map(page => expect(page.locator('#nightResultPanel')).toBeHidden())
         );
 
         const reconnectPage = pages[1];
@@ -584,7 +680,7 @@ for (const playerCount of PLAYER_COUNTS) {
           { timeout: 15_000 }
         );
 
-        await waitForPhase(pages, '낮', 70_000);
+        await waitForPhase(pages, PHASE_LABELS.DAY, 70_000);
         await assertTimersAreSynchronized(pages);
         await expect(pages[0].locator('#gameActions')).toBeHidden();
         const nextDayState = await waitForGameState(
@@ -596,11 +692,78 @@ for (const playerCount of PLAYER_COUNTS) {
           .toBeGreaterThanOrEqual(59_000);
         expect(nextDayState.phaseEndsAt - nightState.phaseEndsAt)
           .toBeLessThanOrEqual(61_000);
+        expect(nextDayState.message).toContain('의사의 보호');
         expect(
           nextDayState.players.find(
-            player => Number(player.userId) === nominationTargetId
+            player => Number(player.userId) === nightVictimId
           )?.alive
-        ).toBe(false);
+        ).toBe(true);
+
+        const aliveAfterNightIds = nextDayState.players
+          .filter(player => player.alive)
+          .map(player => Number(player.userId));
+        const finalMafiaUserId = mafiaUserIds.find(userId =>
+          aliveAfterNightIds.includes(userId)
+        );
+        expect(finalMafiaUserId).toBeTruthy();
+
+        await waitForPhase(pages, PHASE_LABELS.NOMINATION, 70_000);
+        await submitNominationVotes(
+          pages,
+          userIds,
+          finalMafiaUserId,
+          aliveAfterNightIds
+        );
+        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 20_000);
+        const finalExecutionState = await waitForMatchingGameState(
+          traces[0],
+          'EXECUTION_VOTE',
+          state => state.nominatedUserId === finalMafiaUserId
+        );
+        expect(finalExecutionState.nominatedUserId).toBe(finalMafiaUserId);
+        await submitExecutionVotes(
+          pages,
+          userIds,
+          finalMafiaUserId,
+          aliveAfterNightIds
+        );
+
+        await waitForPhase(pages, PHASE_LABELS.FINISHED, 20_000);
+        const finishedState = await waitForGameState(
+          traces[0],
+          'FINISHED',
+          0,
+          15_000
+        );
+        expect(finishedState.gameOver).toBe(true);
+        expect(finishedState.winningFaction).toBe('CITIZEN');
+
+        await Promise.all(
+          pages.map(async page => {
+            await expect(page.locator('#gameResultPanel')).toBeVisible({
+              timeout: 15_000
+            });
+            await expect(page.locator('#gameWinnerLabel')).toHaveText(
+              '\uC2DC\uBBFC \uC9C4\uC601',
+              { timeout: 15_000 }
+            );
+            await expect(page.locator('#gameResultRoleLabel')).not.toHaveText('-', {
+              timeout: 15_000
+            });
+            await expect(page.locator('#gameResultAliveLabel')).toHaveText(
+              /생존|탈락/,
+              { timeout: 15_000 }
+            );
+            await expect(page.locator('#roomStatus')).toHaveText('대기 중', {
+              timeout: 15_000
+            });
+            await expect(page.locator('#ready')).toBeEnabled({ timeout: 15_000 });
+          })
+        );
+
+        if (playerCount === 4) {
+          await startReplayGame(pages, traces);
+        }
       } finally {
         if (lobbyPage) {
           await lobbyPage.close().catch(() => {});

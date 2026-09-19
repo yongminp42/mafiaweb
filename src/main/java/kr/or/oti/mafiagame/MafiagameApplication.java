@@ -8,8 +8,8 @@ import org.mybatis.spring.annotation.MapperScan;
 @MapperScan("kr.or.oti.mafiagame.dao")
 public class MafiagameApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(MafiagameApplication.class, args);
-	}
+    public static void main(String[] args) {
+        SpringApplication.run(MafiagameApplication.class, args);
+    }
 
 }

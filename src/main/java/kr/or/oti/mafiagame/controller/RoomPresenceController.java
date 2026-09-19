@@ -2,7 +2,6 @@ package kr.or.oti.mafiagame.controller;
 
 import java.security.Principal;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -23,14 +22,9 @@ public class RoomPresenceController {
     private final RoomPresenceService roomPresenceService;
     private final RoomGameService roomGameService;
 
-    @Autowired
     public RoomPresenceController(RoomPresenceService roomPresenceService, RoomGameService roomGameService) {
         this.roomPresenceService = roomPresenceService;
         this.roomGameService = roomGameService;
-    }
-
-    public RoomPresenceController(RoomPresenceService roomPresenceService) {
-        this(roomPresenceService, null);
     }
 
     @MessageMapping("/rooms/{roomId}/join")
@@ -39,6 +33,8 @@ public class RoomPresenceController {
             @DestinationVariable("roomId") long roomId,
             SimpMessageHeaderAccessor headers,
             Principal principal) {
+        // 입장 검증과 현재 참가자 목록 생성은 서비스가 담당한다.
+        // 컨트롤러는 WebSocket 세션 정보와 HTTP 세션의 방 비밀번호 인증 여부만 전달한다.
         return roomPresenceService.join(
                 roomId,
                 headers.getSessionId(),
@@ -66,13 +62,14 @@ public class RoomPresenceController {
     public void startGame(
             @DestinationVariable("roomId") long roomId,
             SimpMessageHeaderAccessor headers) {
+        // 1단계: 방장 여부, 인원수, 모든 참가자의 준비 상태를 확인하고 방을 PLAYING으로 전환한다.
         RoomPresenceState state = roomPresenceService.startGame(roomId, headers.getSessionId());
-        if (roomGameService != null) {
-            roomGameService.startGame(
-                    roomId,
-                    state.participants(),
-                    roomPresenceService.currentPrincipalNames(roomId));
-        }
+
+        // 2단계: 위 전환이 성공한 참가자 목록으로 실제 게임 상태와 역할을 생성한다.
+        roomGameService.startGame(
+                roomId,
+                state.participants(),
+                roomPresenceService.currentPrincipalNames(roomId));
     }
 
     @MessageMapping("/rooms/presence")

@@ -45,7 +45,11 @@
       <div class="card border-0 shadow-sm rounded-4 h-100">
         <div class="card-body d-flex align-items-center gap-3 p-4">
           <span class="stat-icon coral">♠</span>
-          <div><small class="d-block text-secondary">플레이한 게임</small><strong class="fs-4" th:text="${user.totalGames}">0</strong><em class="text-secondary small ms-1">판</em></div>
+          <div>
+            <small class="d-block text-secondary">플레이한 게임</small>
+            <strong class="fs-4" th:text="${user.totalGames}">0</strong>
+            <em class="text-secondary small ms-1">판</em>
+          </div>
         </div>
       </div>
     </article>
@@ -53,7 +57,11 @@
       <div class="card border-0 shadow-sm rounded-4 h-100">
         <div class="card-body d-flex align-items-center gap-3 p-4">
           <span class="stat-icon mint">★</span>
-          <div><small class="d-block text-secondary">전체 승률</small><strong class="fs-4" th:text="${user.winRate()} + '%'">0%</strong><em class="text-secondary small ms-1" th:text="${user.wins} + '승'">0승</em></div>
+          <div>
+            <small class="d-block text-secondary">전체 승률</small>
+            <strong class="fs-4" th:text="${user.winRate()} + '%'">0%</strong>
+            <em class="text-secondary small ms-1" th:text="${user.wins} + '승'">0승</em>
+          </div>
         </div>
       </div>
     </article>
@@ -61,7 +69,19 @@
       <div class="card border-0 shadow-sm rounded-4 h-100">
         <div class="card-body d-flex align-items-center gap-3 p-4">
           <span class="stat-icon purple">♟</span>
-          <div><small class="d-block text-secondary">마피아 승률</small><strong class="fs-4" th:text="${user.mafiaGames == null ? '집계 준비 중' : user.mafiaWinRate() + '%'}">집계 준비 중</strong><em class="text-secondary small ms-1" th:text="${user.mafiaGames == null ? '게임 이력 없음' : user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">게임 이력 없음</em></div>
+          <div>
+            <small class="d-block text-secondary">마피아 승률</small>
+            <strong
+                class="fs-4"
+                th:text="${user.mafiaGames == null ? '집계 준비 중' : user.mafiaWinRate() + '%'}">
+              집계 준비 중
+            </strong>
+            <em
+                class="text-secondary small ms-1"
+                th:text="${user.mafiaGames == null ? '게임 이력 없음' : user.mafiaWins + '승 / ' + user.mafiaGames + '판'}">
+              게임 이력 없음
+            </em>
+          </div>
         </div>
       </div>
     </article>
@@ -72,18 +92,35 @@
       <div class="card border-0 shadow-sm rounded-4 h-100">
         <div class="card-body p-4">
           <div class="d-flex align-items-center justify-content-between">
-            <div><p class="eyebrow text-coral mb-1">GAME HISTORY</p><h2 class="h5 mb-0">최근 게임</h2></div>
+            <div>
+              <p class="eyebrow text-coral mb-1">GAME HISTORY</p>
+              <h2 class="h5 mb-0">최근 게임</h2>
+            </div>
             <a class="small text-secondary" href="#">전체 전적 보기 →</a>
           </div>
           <div class="game-list list-group list-group-flush mt-3">
-            <p class="empty-history text-center text-secondary py-4 mb-0" th:if="${#lists.isEmpty(user.recentGames)}">아직 저장된 게임 기록이 없습니다.</p>
-            <article class="game-row list-group-item d-flex align-items-center gap-3 px-0 py-3" th:each="game : ${user.recentGames}">
+            <p
+                class="empty-history text-center text-secondary py-4 mb-0"
+                th:if="${#lists.isEmpty(user.recentGames)}">
+              아직 저장된 게임 기록이 없습니다.
+            </p>
+            <article
+                class="game-row list-group-item d-flex align-items-center gap-3 px-0 py-3"
+                th:each="game : ${user.recentGames}">
               <span class="result-dot flex-shrink-0" th:classappend="${game.result == '승리'} ? ' win' : ' loss'"></span>
               <div class="game-info flex-grow-1">
                 <h3 class="h6 mb-1" th:text="${game.roomTitle}">달빛 아래의 마피아</h3>
-                <p class="text-secondary small mb-0"><span th:text="${game.role}">시민</span> · <span th:text="${game.status}">생존</span></p>
+                <p class="text-secondary small mb-0">
+                  <span th:text="${game.role}">시민</span> ·
+                  <span th:text="${game.status}">생존</span>
+                </p>
               </div>
-              <strong class="px-2 py-1 rounded-2 small" th:classappend="${game.result == '승리'} ? ' win-text' : ' loss-text'" th:text="${game.result}">승리</strong>
+              <strong
+                  class="px-2 py-1 rounded-2 small"
+                  th:classappend="${game.result == '승리'} ? ' win-text' : ' loss-text'"
+                  th:text="${game.result}">
+                승리
+              </strong>
               <time class="text-secondary small text-nowrap" th:text="${game.playedAt}">12분 전</time>
             </article>
           </div>

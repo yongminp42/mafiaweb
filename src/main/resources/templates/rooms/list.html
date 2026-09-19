@@ -27,7 +27,9 @@
     </nav>
   </header>
 
-  <section class="app-hero bg-mafia rounded-4 p-4 p-lg-5 text-white d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-4">
+  <section
+      class="app-hero bg-mafia rounded-4 p-4 p-lg-5 text-white d-flex flex-column
+              flex-md-row align-items-md-center justify-content-between gap-4">
     <div>
       <p class="eyebrow">GAME LOBBY</p>
       <h1 class="display-6 fw-bold mb-2">누구를 믿을 것인가.</h1>
@@ -43,7 +45,10 @@
       <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
         <div>
           <h2 id="room-title" class="h5 mb-1">진행 중인 게임</h2>
-          <p class="text-secondary small mb-0"><strong class="text-coral" id="roomCount" th:text="${#lists.size(rooms)}">6</strong>개의 방을 찾았어요</p>
+          <p class="text-secondary small mb-0">
+            <strong class="text-coral" id="roomCount" th:text="${#lists.size(rooms)}">6</strong>
+            개의 방을 찾았어요
+          </p>
         </div>
         <div class="d-flex gap-2">
           <div class="input-group input-group-sm">

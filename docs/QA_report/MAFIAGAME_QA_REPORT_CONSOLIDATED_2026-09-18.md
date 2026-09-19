@@ -1,26 +1,175 @@
 # MAFIAGAME QA 통합 보고서
 
-- 통합일: 2026-09-18
-- 통합 기준: 문서 파일 생성 시각(`CreationTime`) 오름차순
-- 제외 문서: 없음
+- 통합일: 2026-09-19
+- 정리 기준: 기간별(2026-09-18, 2026-09-19)로 구분하여 통합
+- 보존 원칙: 원문 내용을 유지하되, 기간별 섹션을 기준으로 재구성
 
-이 문서는 QA_report 폴더의 기존 보고서를 생성 순서대로 보존·통합한 문서다. 각 원문은 출처를 구분할 수 있도록 별도 절로 수록했다.
+이 문서는 QA_report 폴더의 보고서를 시기별로 정리한 통합 문서다. 초기 진단, 디버깅, 경계값 QA, 최종 판정을 각각의 기간 단위로 분리해 보관한다.
 
-## 통합 문서 목록
+## 기간별 문서 구성
 
-| 순서 | 원문 문서 | 비고 |
-|---:|---|---|
-| 1 | `MAFIAGAME_E2E_QA_REPORT_2026-09-18.md` | 최초 Playwright E2E QA 보고서 |
-| 2 | `MAFIAGAME_TEST_AND_E2E_ANALYSIS_2026-09-18.md` | 테스트 및 E2E 분석 보고서 |
-| 3 | `MAFIAGAME_MVP_VALIDATION_REPORT_2026-09-18.md` | MVP 테스트·검증 보고서 |
-| 4 | `MAFIAGAME_QA_EXECUTION_AND_FIX_REPORT_2026-09-18.md` | QA 실행 및 E2E 수정 보고서 |
-| 5 | `MAFIAGAME_QA_EXECUTION_REPORT_2026-09-18_173155.md` | QA 실행 보고서 |
-| 6 | `MAFIAGAME_QA_REPORT_2026-09-18_qa-20260918-174339.md` | 이전 통합에서 제외되었던 QA 보고서 |
-
+| 기간 | 주요 내용 | 상태 |
+|---|---|---|
+| 2026-09-18 | 초기 E2E 실패 진단, 서버/테스트 환경 분석, 기능별 문제 파악 | 초기 QA |
+| 2026-09-19 | 재플레이 디버깅, CSS 수정, 경계값 QA, 최종 검증 | 회귀 보완 및 통과 |
+| 종합 | 전체 결론과 후속 권장 사항 | 최종 정리 |
 
 ---
 
-## 원문 1: `MAFIAGAME_E2E_QA_REPORT_2026-09-18.md`
+## 1. 2026-09-19 디버깅 및 회귀 보완
+
+### 원문: `MAFIAGAME_DEBUG_REPORT_2026-09-18.md`
+
+### MAFIAGAME 디버깅 리포트
+
+## 1. 대상
+
+- 대상 기능: 같은 게임방 재플레이 시 게임 결과 패널 초기화
+- 관련 QA 보고서: `MAFIAGAME_QA_REPORT_2026-09-18_qa-20260918-174339.md`
+- 최초 실패 위치: `test/e2e/mafia-mvp.spec.js:319`
+
+## 2. 최초 오류
+
+Playwright 재플레이 검증에서 다음 오류가 발생했습니다.
+
+```text
+Error: expect(locator).toBeHidden() failed
+Locator: locator('#gameResultPanel')
+Expected: hidden
+Received: visible
+Timeout: 15000ms
+```
+
+오류 시 HTML에는 다음과 같이 `hidden` 속성이 존재했습니다.
+
+```html
+<div hidden="" id="gameResultPanel"
+     class="alert alert-success d-flex align-items-center justify-content-between gap-3 mb-3">
+</div>
+```
+
+## 3. 원인 분석
+
+초기 보고서에서는 이전 게임의 WebSocket `FINISHED` 메시지가 재플레이 후 늦게 도착하는 문제로 추정했습니다. 그러나 재현 결과 직접적인 원인은 CSS였습니다.
+
+`src/main/resources/templates/rooms/detail.html:128`의 결과 패널과 `:140`의 역할 패널은 Bootstrap의 `d-flex` 클래스를 사용합니다.
+
+Bootstrap의 `.d-flex`는 다음과 같이 `display: flex !important`를 적용합니다.
+
+```css
+.d-flex {
+  display: flex !important;
+}
+```
+
+따라서 JavaScript가 다음과 같이 `element.hidden = true`를 설정해도 `d-flex`의 `!important` 규칙이 우선되어 브라우저와 Playwright에서는 패널이 visible 상태로 판단되었습니다.
+
+```javascript
+gameResultPanel.hidden = true;
+```
+
+결과적으로 재플레이 직후 결과 패널의 `hidden` 속성은 존재하지만 실제 화면에서는 숨겨지지 않았습니다.
+
+## 4. 수정 내용
+
+수정 파일:
+
+- `src/main/resources/static/css/app.css:649-652`
+
+추가한 CSS:
+
+```css
+/* Bootstrap's .d-flex uses !important and can override the native hidden attribute. */
+#gameResultPanel[hidden],
+#gameRolePanel[hidden] {
+  display: none !important;
+}
+```
+
+적용 효과:
+
+- 게임 결과 패널이 `hidden` 상태일 때 실제로 숨겨짐
+- 게임 역할 패널이 `hidden` 상태일 때 실제로 숨겨짐
+- 결과 표시 시 JavaScript가 `hidden = false`로 변경하면 정상적으로 표시됨
+- 기존 Bootstrap 레이아웃 클래스와 게임 결과 표시 로직을 유지함
+
+## 5. 검증 결과
+
+수정 후 실행한 검증:
+
+### JavaScript 테스트
+
+```text
+ℹ tests 18
+ℹ pass 18
+ℹ fail 0
+```
+
+판정: **PASS**
+
+### Java 테스트 및 Gradle 통합 테스트
+
+```text
+BUILD SUCCESSFUL in 39s
+```
+
+- Java 테스트: 64/64 PASS
+- JavaScript 테스트: 18/18 PASS
+- MyBatis·Spring 테스트: PASS
+
+판정: **PASS**
+
+### Playwright 재플레이 회귀 테스트
+
+실행 범위: 4인 시나리오
+
+```text
+Running 1 test using 1 worker
+ok 1 test\\e2e\\mafia-mvp.spec.js:334:5
+1 passed (2.8m)
+```
+
+판정: **PASS**
+
+검증된 항목:
+
+- 첫 게임 결과 패널 표시
+- 게임방 `WAITING` 복귀
+- Ready 상태 초기화
+- 같은 게임방 재Ready
+- 재플레이 시작
+- 새 게임 시작 후 이전 결과 패널 숨김
+- 새 게임 역할 패널 표시
+
+## 6. 워커 실행 참고
+
+Playwright 실행 명령은 `--workers=2`였으나 현재 테스트 파일에 다음 설정이 있어 실제로는 1 worker로 실행됩니다.
+
+```javascript
+test.describe.configure({ mode: 'serial' });
+```
+
+이번 회귀 검증은 단일 4인 시나리오였으므로 실제 실행 워커는 1개였습니다.
+
+## 7. 미실행 범위
+
+이번 디버깅에서는 수정된 재플레이 문제의 4인 회귀 테스트만 검증했습니다.
+
+- 6인 Playwright 시나리오: NOT RUN
+- 8인 Playwright 시나리오: NOT RUN
+- 전체 4·6·8인 QA 재실행: 별도 요청 필요
+
+## 8. 최종 판정
+
+**재플레이 결과 패널 표시 오류: FIXED**
+
+JavaScript, Java/Gradle, 4인 Playwright 재플레이 검증을 통과했습니다. 6인·8인 전체 E2E 시나리오는 이번 디버깅 범위에 포함하지 않았습니다.
+
+---
+
+## 2. 2026-09-18 초기 QA 및 분석
+
+### 원문 1: `MAFIAGAME_E2E_QA_REPORT_2026-09-18.md`
 
 ### MAFIAGAME Playwright E2E QA 보고서
 
@@ -176,7 +325,7 @@ playwright.<runId>.*@example.com
 
 ---
 
-## 원문 2: `MAFIAGAME_TEST_AND_E2E_ANALYSIS_2026-09-18.md`
+### 원문 2: `MAFIAGAME_TEST_AND_E2E_ANALYSIS_2026-09-18.md`
 
 ### MAFIAGAME 테스트 및 E2E 분석 보고서
 
@@ -352,7 +501,7 @@ Java 단위·Spring 통합 테스트와 JavaScript 단위 테스트는 모두 �
 
 ---
 
-## 원문 3: `MAFIAGAME_MVP_VALIDATION_REPORT_2026-09-18.md`
+#### 원문 3: `MAFIAGAME_MVP_VALIDATION_REPORT_2026-09-18.md`
 
 ### MAFIAGAME MVP 테스트 및 검증 보고서
 
