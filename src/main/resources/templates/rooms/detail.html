@@ -25,7 +25,7 @@
 
   <a class="btn btn-link text-secondary ps-0 mb-3" href="/rooms">← 게임 목록으로</a>
 
-  <section class="app-room-header rounded-4 p-4 p-lg-5 d-flex align-items-center justify-content-between gap-4">
+  <section class="app-room-header rounded-4 p-3 p-lg-3 d-flex align-items-center justify-content-between gap-4">
     <div>
       <p class="eyebrow mb-2">ROOM <span th:text="${roomId}">01</span></p>
       <div class="d-flex flex-wrap align-items-center gap-2">
@@ -35,7 +35,7 @@
               th:classappend="${room.status == 'PLAYING'} ? ' bg-secondary-subtle text-secondary-emphasis' : ''"
               th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
       </div>
-      <p class="text-white-50 mb-0 mt-2" th:text="${room.description}">초보 환영 · 빠른 진행</p>
+      <p class="room-description text-white-50 mb-0 mt-2" th:text="${room.description}">초보 환영 · 빠른 진행</p>
     </div>
     <div class="text-end text-white-50 d-none d-sm-block">
       <div class="fs-4">
@@ -47,9 +47,9 @@
     </div>
   </section>
 
-  <section class="row g-4 my-4">
-    <section class="col-lg-8" aria-labelledby="players-title">
-      <div class="card border-0 shadow-sm rounded-4 h-100">
+  <section class="row g-4 mt-2 mb-4 room-content-layout">
+    <section class="col-lg-8 room-left-column" aria-labelledby="players-title">
+      <div class="card border-0 shadow-sm rounded-4 participant-panel">
         <div class="card-body p-4">
           <div class="d-flex align-items-center justify-content-between">
             <div>
@@ -78,7 +78,7 @@
                 <div class="avatar" th:classappend="${stat.index == 0} ? ' a1' : ''"
                      th:text="${#strings.substring(member, 0, 1)}">민</div>
                 <b th:text="${member}">민수</b>
-                <small th:if="${stat.index == 0}">방장</small>
+                <small class="fallback-role" th:text="${stat.index == 0} ? '방장' : '유저'">방장</small>
               </article>
             </th:block>
             <article class="col member empty-seat" th:if="${room.players < room.capacity}"
@@ -89,7 +89,7 @@
 
           <div class="alert alert-light border small mb-3">
             <strong>기본 설정</strong>
-            <span class="text-secondary ms-2">낮 60초 · 지목 투표 15초 · 처형 투표 15초 · 밤 30초</span>
+            <span class="text-secondary ms-2">역할 확인 10초 · 낮 60초 · 지목 투표 15초 · 최종 변론 15초 · 처형 투표 15초 · 밤 30초</span>
           </div>
           <button class="ready btn btn-coral w-100 py-2 fw-bold" id="ready" type="button">준비 완료</button>
           <button
@@ -103,10 +103,11 @@
           <p class="start-game-note text-center text-secondary small mt-1 mb-0" id="startGameNotice" hidden></p>
         </div>
       </div>
+      <div id="gamePanelHost"></div>
     </section>
 
-    <aside class="col-lg-4" aria-label="대기방 채팅">
-      <div class="chat-panel card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
+    <aside class="col-lg-4 room-chat-column" aria-label="대기방 채팅">
+      <div class="chat-panel card border-0 shadow-sm rounded-4 h-100 overflow-hidden w-100">
         <div class="card-header bg-white d-flex align-items-center gap-2 py-3">
           <i id="chatStatusDot"></i>
           <b>대기방 채팅</b>
@@ -116,14 +117,12 @@
           <p class="notice alert alert-light text-center small" id="chatNotice">채팅 서버에 연결 중입니다.</p>
         </div>
         <form class="chat-input card-footer bg-white border-top p-3" id="chatForm">
-          <div class="d-flex align-items-center gap-2 mb-2">
+          <div class="input-group input-group-sm chat-composer">
             <label class="small text-secondary" for="chatChannel">채널</label>
             <select class="form-select form-select-sm" id="chatChannel" aria-label="채팅 채널">
               <option value="PUBLIC">전체 채널</option>
               <option value="MAFIA" hidden disabled>마피아 채널</option>
             </select>
-          </div>
-          <div class="input-group input-group-sm">
             <input class="form-control" name="content" maxlength="300" placeholder="메시지 입력"
                    aria-label="채팅 메시지" autocomplete="off">
             <button class="btn btn-coral" type="submit" aria-label="메시지 보내기">➤</button>
@@ -134,7 +133,7 @@
   </section>
 
   <section
-      class="game-panel card border-0 shadow-sm rounded-4 mb-4"
+      class="game-panel card border-0 shadow-sm rounded-4"
       id="gamePanel"
       hidden
       aria-labelledby="gamePhaseTitle">
@@ -170,13 +169,15 @@
         </div>
       </div>
 
-      <div
-          id="gameRolePanel"
-          class="alert alert-warning d-flex align-items-center justify-content-between gap-3 mb-3"
-          hidden>
-        <span class="small fw-semibold">내 역할</span>
-        <strong id="gameRoleLabel" class="fs-5"></strong>
+      <div id="gameRolePanel" class="alert alert-warning mb-3" hidden>
+        <div class="d-flex align-items-center justify-content-between gap-3">
+          <span class="small fw-semibold">내 역할</span>
+          <strong id="gameRoleLabel" class="fs-5"></strong>
+        </div>
+        <button id="confirmGameRole" class="btn btn-dark btn-sm mt-2" type="button" hidden>역할 확인 완료</button>
       </div>
+
+      <p id="finalDefenseNotice" class="alert alert-info small mb-3" hidden></p>
 
       <div id="gameActions" hidden>
         <div id="nominationAction" hidden>
@@ -222,6 +223,12 @@
 <script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 <script th:src="@{/js/stomp-client.js}"></script>
 <script>
+  const gamePanelHost = document.querySelector('#gamePanelHost');
+  const gamePanel = document.querySelector('#gamePanel');
+  if (gamePanelHost && gamePanel) {
+    gamePanelHost.append(gamePanel);
+  }
+
   const toast = document.querySelector('#toast');
   function showToast(message) {
     toast.textContent = message;

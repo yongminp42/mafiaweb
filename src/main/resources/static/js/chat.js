@@ -38,6 +38,8 @@
   const gamePanel = document.querySelector('#gamePanel');
   const gameRolePanel = document.querySelector('#gameRolePanel');
   const gameRoleLabel = document.querySelector('#gameRoleLabel');
+  const confirmGameRole = document.querySelector('#confirmGameRole');
+  const finalDefenseNotice = document.querySelector('#finalDefenseNotice');
   const gameResultPanel = document.querySelector('#gameResultPanel');
   const gameWinnerLabel = document.querySelector('#gameWinnerLabel');
   const gameResultRoleLabel = document.querySelector('#gameResultRoleLabel');
@@ -66,8 +68,10 @@
   const joinedDestination = '/user/queue/room-joined';
   const MAX_RENDERED_MESSAGES = 200;
   const GAME_PHASE_LABELS = {
+    ROLE_ASSIGNMENT: '역할 확인',
     DAY_DISCUSSION: '낮',
     NOMINATION_VOTE: '지목 투표',
+    FINAL_DEFENSE: '최종 변론',
     EXECUTION_VOTE: '처형 투표',
     NIGHT: '밤',
     FINISHED: '게임 종료'
@@ -107,6 +111,8 @@
   let currentParticipants = [];
   let currentParticipant = null;
   let currentRole = null;
+  let roleConfirmed = false;
+  let roleConfirmationPending = false;
   let gameState = null;
   let lastGamePhase = null;
   let gameActionSubmitted = false;
@@ -149,6 +155,7 @@
     updateReadyAvailability(isOnline);
     updateStartGameAvailability(isOnline);
     updateGameActions(isOnline);
+    updateRoleConfirmation();
   }
 
   function setNotice(message) {
@@ -314,7 +321,9 @@
           showToast(errorMessage);
           if (joinedRoom) {
             gameActionSubmitted = false;
+            roleConfirmationPending = false;
             updateGameActions();
+            updateRoleConfirmation();
           }
           if (!joinedRoom) {
             rejectRoomEntry(errorMessage);
@@ -496,13 +505,17 @@
     const isNewWaitingParticipant = gameState?.phase === 'FINISHED' && !currentGamePlayer;
     const alive = !gameState || currentGamePlayer?.alive === true || isNewWaitingParticipant;
     const isNight = gameState?.phase === 'NIGHT';
+    const isRoleAssignment = gameState?.phase === 'ROLE_ASSIGNMENT';
+    const isFinalDefense = gameState?.phase === 'FINAL_DEFENSE';
+    const isDefendant = Number(gameState?.nominatedUserId) === userId;
     const canUseDeadChat = Boolean(gameState) && !alive;
-    const canUsePublic = !isNight || canUseDeadChat;
-    const canUseMafia = currentRole === 'MAFIA' && alive;
+    const canUsePublic = canUseDeadChat || (!isNight && !isRoleAssignment
+      && (!isFinalDefense || isDefendant));
+    const canUseMafia = currentRole === 'MAFIA' && alive && !isRoleAssignment;
     const canChat = isOnline
       && joinedRoom
       && presenceReady
-      && (alive ? (!isNight || canUseMafia) : canUseDeadChat);
+      && (canUsePublic || canUseMafia);
 
     const publicOption = chatChannel?.querySelector('option[value="PUBLIC"]');
     const mafiaOption = chatChannel?.querySelector('option[value="MAFIA"]');
@@ -515,7 +528,7 @@
       mafiaOption.disabled = !canUseMafia;
     }
     if (chatChannel) {
-      if (isNight && canUseMafia) {
+      if (!canUsePublic && canUseMafia) {
         chatChannel.value = 'MAFIA';
       } else if (chatChannel.value === 'MAFIA' && !canUseMafia) {
         chatChannel.value = 'PUBLIC';
@@ -523,7 +536,7 @@
       chatChannel.disabled = !isOnline
         || !joinedRoom
         || !presenceReady
-        || (!alive && !canUseDeadChat);
+        || (!canUsePublic && !canUseMafia);
     }
     if (submitButton) {
       submitButton.disabled = !canChat;
@@ -568,6 +581,10 @@
 
     if (state.phase !== lastGamePhase) {
       gameActionSubmitted = false;
+      if (state.phase === 'ROLE_ASSIGNMENT') {
+        roleConfirmed = false;
+        roleConfirmationPending = false;
+      }
       lastGamePhase = state.phase;
       clearNightResult();
     }
@@ -588,14 +605,26 @@
     if (gameMessage) {
       gameMessage.textContent = state.message || '';
     }
+    if (finalDefenseNotice) {
+      const isDefense = state.phase === 'FINAL_DEFENSE';
+      finalDefenseNotice.hidden = !isDefense;
+      if (isDefense) {
+        finalDefenseNotice.textContent = Number(state.nominatedUserId) === userId
+          ? '최종 변론 시간입니다. 전체 채널에서 발언할 수 있습니다.'
+          : '지목된 참가자의 최종 변론을 듣고 처형 여부를 결정해 주세요.';
+      }
+    }
     renderGameResult(state);
     updateChatAvailability();
     updateGameActions();
+    updateRoleConfirmation();
     startGameTimer();
   }
 
   function clearGameRole() {
     currentRole = null;
+    roleConfirmed = false;
+    roleConfirmationPending = false;
     if (gameRolePanel) {
       gameRolePanel.hidden = true;
     }
@@ -603,6 +632,7 @@
       gameRoleLabel.textContent = '';
     }
     updateChatAvailability();
+    updateRoleConfirmation();
   }
 
   function renderGameRole(roleAssignment) {
@@ -614,9 +644,22 @@
 
     gameRoleLabel.textContent = roleAssignment.roleLabel;
     currentRole = roleAssignment.role;
+    roleConfirmed = roleAssignment.confirmed === true;
+    roleConfirmationPending = false;
     gameRolePanel.hidden = false;
     updateChatAvailability();
     updateGameActions();
+    updateRoleConfirmation();
+  }
+
+  function updateRoleConfirmation() {
+    if (!confirmGameRole) {
+      return;
+    }
+    confirmGameRole.hidden = gameState?.phase !== 'ROLE_ASSIGNMENT';
+    confirmGameRole.disabled = !connected || !joinedRoom || !presenceReady
+      || !currentRole || roleConfirmed || roleConfirmationPending;
+    confirmGameRole.textContent = roleConfirmed ? '확인 완료' : '역할 확인 완료';
   }
 
   function clearGameResult() {
@@ -846,6 +889,10 @@
     }
     if (currentGamePlayer && !currentGamePlayer.alive) {
       gameActionStatus.textContent = '탈락한 참가자는 투표할 수 없습니다.';
+    } else if (gameState.phase === 'ROLE_ASSIGNMENT') {
+      gameActionStatus.textContent = `역할 확인 ${Number(gameState.submittedVotes) || 0}/${Number(gameState.eligibleVoters) || 0}`;
+    } else if (gameState.phase === 'FINAL_DEFENSE') {
+      gameActionStatus.textContent = '변론이 끝나면 처형 찬반 투표가 시작됩니다.';
     } else if (isExecutionPhase && !isExecutionVoter) {
       gameActionStatus.textContent = '지목된 참가자는 처형 투표에 참여할 수 없습니다.';
     } else if (gameActionSubmitted) {
@@ -971,6 +1018,7 @@
     updateChatAvailability(false);
     updateStartGameAvailability(false);
     updateGameActions(false);
+    updateRoleConfirmation();
     setConnectionStatus('연결 중', false);
     const connection = new WebSocket(socketUrl);
     const frameParser = createFrameParser(frame => handleFrame(frame, connection));
@@ -1069,6 +1117,15 @@
       destination: `/app/rooms/${roomId}/start`,
       'content-type': 'application/json'
     }, '{}'));
+  });
+
+  confirmGameRole?.addEventListener('click', () => {
+    if (confirmGameRole.disabled || gameState?.phase !== 'ROLE_ASSIGNMENT') {
+      return;
+    }
+    roleConfirmationPending = true;
+    updateRoleConfirmation();
+    sendGameAction({ action: 'ROLE_CONFIRM' });
   });
 
   nominationTarget?.addEventListener('change', () => updateGameActions());

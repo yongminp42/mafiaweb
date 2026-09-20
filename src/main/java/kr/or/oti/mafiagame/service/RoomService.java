@@ -84,7 +84,9 @@ public class RoomService {
         if (normalizedTitle.length() < 2 || normalizedTitle.length() > 100) {
             throw new RoomCreationException("방 제목은 2자 이상 100자 이하로 입력해 주세요.");
         }
-        if (maxPlayers == null || maxPlayers < 4 || maxPlayers > 8) {
+        if (maxPlayers == null
+                || maxPlayers < RoomGameRules.MIN_PLAYERS
+                || maxPlayers > RoomGameRules.MAX_PLAYERS) {
             throw new RoomCreationException("최대 인원은 4명에서 8명 사이로 선택해 주세요.");
         }
 

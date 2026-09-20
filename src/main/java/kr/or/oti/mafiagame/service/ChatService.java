@@ -48,6 +48,8 @@ public class ChatService {
             throw new RoomWebSocketException("로그인 후 채팅을 이용할 수 있습니다.");
         }
 
+        PrincipalIdentity identity = PrincipalIdentity.from(principal);
+
         if (!roomPresenceService.isParticipant(roomId, sessionId)) {
             throw new RoomWebSocketException("먼저 게임방에 입장해 주세요.");
         }
@@ -60,13 +62,13 @@ public class ChatService {
         if (roomGameService != null) {
             roomGameService.validateChat(
                     roomId,
-                    PrincipalIdentity.from(principal).userId(),
+                    identity.userId(),
                     requestedChannel);
         }
         return new ChatMessage(
                 roomId,
                 CHAT_TYPE,
-                PrincipalIdentity.from(principal).nickname(),
+                identity.nickname(),
                 content,
                 requestedChannel,
                 Instant.now());

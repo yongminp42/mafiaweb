@@ -12,10 +12,11 @@ import {
 const stompSource = await readClientScript('stomp-client.js');
 const chatSource = await readClientScript('chat.js');
 
-function chatMarkup() {
+function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
   return `<!doctype html>
-    <html><body data-room-id="7" data-nickname="alice" data-user-id="10" data-capacity="4">
+    <html><body data-room-id="7" data-nickname="${nickname}" data-user-id="${userId}" data-capacity="4">
       <form id="chatForm">
+        <select id="chatChannel"><option value="PUBLIC">전체 채널</option><option value="MAFIA" hidden disabled>마피아 채널</option></select>
         <input name="content">
         <button type="submit">send</button>
       </form>
@@ -36,7 +37,8 @@ function chatMarkup() {
           <strong id="gameResultAliveLabel">-</strong>
           <small id="gameResultNotice"></small>
         </div>
-        <div id="gameRolePanel" hidden><strong id="gameRoleLabel"></strong></div>
+        <div id="gameRolePanel" hidden><strong id="gameRoleLabel"></strong><button id="confirmGameRole" hidden>역할 확인 완료</button></div>
+        <p id="finalDefenseNotice" hidden></p>
         <div id="gameActions" hidden>
           <div id="nominationAction" hidden>
             <select id="nominationTarget"></select>
@@ -219,6 +221,26 @@ test('chat renders game phases and sends nomination and execution votes', () => 
       { destination: '/topic/rooms/7/game' },
       JSON.stringify({
         roomId: 7,
+        phase: 'FINAL_DEFENSE',
+        phaseEndsAt: Date.now() + 15_000,
+        remainingSeconds: 15,
+        players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
+        nominatedUserId: 11,
+        submittedVotes: 0,
+        eligibleVoters: 4,
+        message: 'bob님의 최종 변론 시간입니다.'
+      })
+    ));
+    assert.equal(dom.window.document.querySelector('#gamePhaseTitle').textContent, '최종 변론');
+    assert.equal(dom.window.document.querySelector('#finalDefenseNotice').hidden, false);
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, true);
+    assert.equal(dom.window.document.querySelector('#gameActions').hidden, true);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
         phase: 'EXECUTION_VOTE',
         phaseEndsAt: Date.now() + 15_000,
         remainingSeconds: 15,
@@ -287,6 +309,129 @@ test('chat renders a role received through the private role queue', () => {
 
     assert.equal(rolePanel.hidden, false);
     assert.equal(dom.window.document.querySelector('#gameRoleLabel').textContent, '마피아');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('role confirmation is sent once and restored from the private role state', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true }
+    ];
+    const publicPlayers = participants.map(({ userId, nickname }) => ({
+      userId, nickname, alive: true, role: null
+    }));
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame('MESSAGE', { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({ roomId: 7, phase: 'ROLE_ASSIGNMENT',
+        phaseEndsAt: Date.now() + 10_000, remainingSeconds: 10,
+        players: publicPlayers, submittedVotes: 0, eligibleVoters: 2,
+        message: '본인의 역할을 확인해 주세요.' })));
+    socket.receive(createFrame('MESSAGE', { subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'MAFIA', roleLabel: '마피아', confirmed: false })));
+
+    const confirm = dom.window.document.querySelector('#confirmGameRole');
+    assert.equal(dom.window.document.querySelector('#gamePhaseTitle').textContent, '역할 확인');
+    assert.equal(confirm.hidden, false);
+    assert.equal(confirm.disabled, false);
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, true);
+    confirm.click();
+    const frame = parseSentFrame(socket.sent.at(-1));
+    assert.equal(frame.headers.destination, '/app/rooms/7/game');
+    assert.deepEqual(JSON.parse(frame.body), { action: 'ROLE_CONFIRM' });
+    assert.equal(confirm.disabled, true);
+    confirm.click();
+    assert.equal(
+      socket.sent.map(parseSentFrame)
+        .filter(sentFrame => sentFrame.headers.destination === '/app/rooms/7/game')
+        .length,
+      1
+    );
+
+    socket.receive(createFrame('MESSAGE', { subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'MAFIA', roleLabel: '마피아', confirmed: true })));
+    assert.equal(confirm.textContent, '확인 완료');
+    assert.equal(confirm.disabled, true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('the nominated player can speak during final defense while others cannot', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame('MESSAGE', { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({ roomId: 7, phase: 'FINAL_DEFENSE',
+        phaseEndsAt: Date.now() + 15_000, remainingSeconds: 15,
+        players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
+        nominatedUserId: 10, submittedVotes: 0, eligibleVoters: 2,
+        message: 'alice님의 최종 변론 시간입니다.' })));
+
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, false);
+    assert.match(dom.window.document.querySelector('#finalDefenseNotice').textContent, /전체 채널/);
+    const chatInput = dom.window.document.querySelector('#chatForm input[name="content"]');
+    chatInput.value = '제가 시민입니다';
+    dom.window.document.querySelector('#chatForm').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true })
+    );
+    const frame = parseSentFrame(socket.sent.at(-1));
+    assert.equal(frame.headers.destination, '/app/rooms/7/chat');
+    assert.deepEqual(JSON.parse(frame.body), { content: '제가 시민입니다' });
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a non-nominated player cannot use public chat during final defense', () => {
+  const dom = createDom(chatMarkup({ nickname: 'bob', userId: 11 }));
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame('MESSAGE', { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({ roomId: 7, phase: 'FINAL_DEFENSE',
+        phaseEndsAt: Date.now() + 15_000, remainingSeconds: 15,
+        players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
+        nominatedUserId: 10, submittedVotes: 0, eligibleVoters: 2,
+        message: 'alice님의 최종 변론 시간입니다.' })));
+
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, true);
+    assert.equal(dom.window.document.querySelector('#chatForm button[type="submit"]').disabled, true);
+    assert.match(dom.window.document.querySelector('#finalDefenseNotice').textContent, /지목된 참가자/);
   } finally {
     dom.window.close();
   }

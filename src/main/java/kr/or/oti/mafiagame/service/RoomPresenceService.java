@@ -42,8 +42,6 @@ import kr.or.oti.mafiagame.security.PrincipalIdentity;
 
 @Service
 public class RoomPresenceService {
-    private static final int MIN_GAME_PLAYERS = 4;
-    private static final int MAX_GAME_PLAYERS = 8;
     private static final Duration DEFAULT_GAME_DEPARTURE_GRACE_PERIOD = Duration.ofSeconds(10);
     private static final Logger log = LoggerFactory.getLogger(RoomPresenceService.class);
     private static final String PRESENCE_DESTINATION = "/topic/rooms/%d/presence";
@@ -131,7 +129,11 @@ public class RoomPresenceService {
             }
             Map<String, ParticipantPresence> targetParticipants = participantsByRoom.get(roomId);
             boolean alreadyJoined = targetParticipants != null && targetParticipants.containsKey(participantKey);
-            if ("PLAYING".equals(room.getStatus()) && !alreadyJoined) {
+            boolean returningDeadPlayer = "PLAYING".equals(room.getStatus())
+                    && !alreadyJoined
+                    && roomGameService != null
+                    && roomGameService.isDepartedPlayer(roomId, identity.userId());
+            if ("PLAYING".equals(room.getStatus()) && !alreadyJoined && !returningDeadPlayer) {
                 throw new RoomWebSocketException("진행 중인 게임에는 새로 참가할 수 없습니다.");
             }
             if (!alreadyJoined && targetParticipants != null
@@ -393,10 +395,10 @@ public class RoomPresenceService {
             if (!"WAITING".equals(room.getStatus())) {
                 throw new RoomWebSocketException("이미 시작된 게임입니다.");
             }
-            if (participants.size() < MIN_GAME_PLAYERS) {
+            if (participants.size() < RoomGameRules.MIN_PLAYERS) {
                 throw new RoomWebSocketException("게임 시작에는 최소 4명의 참가자가 필요합니다.");
             }
-            if (participants.size() > MAX_GAME_PLAYERS) {
+            if (participants.size() > RoomGameRules.MAX_PLAYERS) {
                 throw new RoomWebSocketException("게임 시작에는 최대 8명의 참가자만 허용됩니다.");
             }
             if (participants.values().stream().anyMatch(candidate -> !candidate.ready)) {
@@ -727,12 +729,14 @@ public class RoomPresenceService {
     }
 
     private void broadcastOnlinePlayerCount() {
+        int onlinePlayerCount;
         readLock.lock();
         try {
-            broadcastOnlinePlayerCount(onlineSessionsByParticipant.size());
+            onlinePlayerCount = onlineSessionsByParticipant.size();
         } finally {
             readLock.unlock();
         }
+        broadcastOnlinePlayerCount(onlinePlayerCount);
     }
 
     private void broadcastOnlinePlayerCount(int onlinePlayerCount) {
