@@ -38,7 +38,8 @@ Configuration rules:
 - Use the same `E2E_RUN_ID` for the core and UI regression suites so their accounts and rooms can be cleaned up together.
 - Keep `$workerCount = 1` for the complete run. The suite shares a server, database, and lobby online-player baseline; running workers in parallel can mix those states.
 - Always report the requested and effective worker counts.
-- The expected server phase order is `ROLE_ASSIGNMENT(10s) → DAY_DISCUSSION(60s) → NOMINATION_VOTE(15s) → FINAL_DEFENSE(15s, when a unique nominee exists) → EXECUTION_VOTE(15s) → NIGHT(30s)`. `ROLE_ASSIGNMENT` may end early when every living player confirms their role.
+- Do not inspect or assert font sizes. Chat UI checks are limited to functionality, overflow/scroll behavior, and whether visible channel labels are clipped.
+- The expected server phase order is `ROLE_ASSIGNMENT(15s) → DAY_DISCUSSION(60s) → NOMINATION_VOTE(20s) → FINAL_DEFENSE(20s, when a unique nominee exists) → EXECUTION_VOTE(20s) → NIGHT(35s)`. `ROLE_ASSIGNMENT` may end early when every living player confirms their role.
 - Replace `$projectPath` and `$baseUrl` if the project is moved or the server configuration changes.
 - Reserve `$serverPort` for a fresh QA server built from the current workspace. If that port is already occupied, choose another unused port and update `$baseUrl` before proceeding. Never assume an existing server contains the current source.
 - Use `$dbHost` and `$dbPort` from the application datasource configuration. If MariaDB is not reachable, stop before starting the application and mark the run `BLOCKED`/`NOT RUN`; do not install or start a database service automatically.
@@ -172,6 +173,7 @@ Verify and report:
 - Voting UI
 - Police investigation result rendering
 - Game result rendering
+- Participant death-state rendering: when a game state marks a player as `alive: false`, the matching card receives `.participant-dead`, shows `사망`, and living cards remain unchanged
 - Reconnection handling
 
 Report the standalone JavaScript result separately from the Gradle Java result. If the
@@ -346,8 +348,8 @@ Verify:
 - Playwright UI discovery listed the chat-scroll case and the 8-player room-layout case
 - `ROLE_ASSIGNMENT` is observed before the first `DAY_DISCUSSION`, and roles are not present in public game state
 - Role confirmation is submitted once per living player; duplicate confirmations are rejected
-- All confirmations cause early transition to `DAY_DISCUSSION`; otherwise the 10-second role timer advances the game
-- A unique nomination enters `FINAL_DEFENSE` for 15 seconds before `EXECUTION_VOTE`
+- All confirmations cause early transition to `DAY_DISCUSSION`; otherwise the 15-second role timer advances the game
+- A unique nomination enters `FINAL_DEFENSE` for 20 seconds before `EXECUTION_VOTE`
 - Only the nominated player can send public chat during `FINAL_DEFENSE`; other living players are rejected by the server
 - A nominee departure during `FINAL_DEFENSE` skips execution and advances to `NIGHT`
 - Unique account creation
@@ -375,6 +377,7 @@ Verify:
 - Execution candidate vote prevention
 - Game result rendering
 - Winning faction, role, and alive/dead status rendering
+- Participant death-state rendering: after execution or a night-state update, the affected participant card has the grey/red visual treatment and visible `사망` status; living participant cards do not receive the death style
 - `PLAYING` to `WAITING` transition
 - Ready reset
 - Same-room replay
@@ -404,11 +407,12 @@ Verify:
 - A submitted night action survives disconnect only during the 10-second reconnect grace period
 - A night action is removed when the player is absent after the 10-second grace period
 - Same-room replay at 4, 5, 6, and 8 players after `WAITING` reset
-- Actual elapsed 10/60/15/15/15/30 second phase durations for role assignment, day discussion, nomination, final defense, execution, and night; not only displayed timer values
+- Actual elapsed 15/60/20/20/20/35 second phase durations for role assignment, day discussion, nomination, final defense, execution, and night; not only displayed timer values
 - Every non-host browser reaches the exact created room URL before participant-state assertions
 - A pending lobby refresh is cancelled when a browser starts navigating from `/rooms` to a room
 - The equality case where alive mafia equals the alive citizen faction continues to the next phase
 - The chat input is at least 40px high in the browser
+- `마피아 채널` is fully visible without clipping in the selector
 - 210 chat submissions retain only the latest 200 rendered messages, scroll internally, and do not increase the document height
 - The waiting-room `GAME` placeholder is visible before start and the started role panel is visible after start
 - The 8-player role panel reaches the lower game-card edge and the `역할 확인 완료` button remains at the role panel bottom
@@ -564,10 +568,10 @@ Validate the following:
 1. Mafia, doctor, police, and citizen role assignment
 2. Private role visibility
 3. 60-second day timer
-4. 15-second nomination vote timer
-5. 15-second final defense timer
-6. 15-second execution vote timer
-7. 30-second night timer
+4. 20-second nomination vote timer
+5. 20-second final defense timer
+6. 20-second execution vote timer
+7. 35-second night timer
 8. Duplicate nomination vote prevention
 9. Self-nomination prevention
 10. Dead-player vote prevention
@@ -583,7 +587,7 @@ Validate the following:
 20. Immediate result display after victory
 21. Winning faction display
 22. Personal role display in the result
-23. Alive/dead status display
+23. Alive/dead status display, including the dead participant card's grey/red distinction and visible `사망` label
 24. Return to `WAITING`
 25. Ready state reset
 26. Replay in the same room
@@ -614,7 +618,7 @@ The following checks are required when the QA request includes boundary, disconn
 12. A submitted night action survives a disconnect only while the player is within the 10-second reconnect grace period; after grace expiry it is removed before resolution.
 13. Public chat is delivered only to the public channel; mafia chat is delivered only to living mafia users; dead users can use only the dead channel, and their messages must not be visible to living users.
 14. The same room can be replayed after `FINISHED` at 4, 5, 6, and 8 players, with Ready reset and fresh role assignment.
-15. The measured phase transitions must be approximately 10 seconds for role confirmation, 60 seconds for day discussion, 15 seconds for nomination, 15 seconds for final defense, 15 seconds for execution, and 30 seconds for night; a client-side countdown alone is insufficient evidence.
+15. The measured phase transitions must be approximately 15 seconds for role confirmation, 60 seconds for day discussion, 20 seconds for nomination, 20 seconds for final defense, 20 seconds for execution, and 35 seconds for night; a client-side countdown alone is insufficient evidence.
 
 For each extended check, record the evidence source (`Java service test`, `Playwright E2E`, or `source inspection`) and classify it as `PASS`, `FAIL`, `BLOCKED`, or `NOT RUN`. Source inspection alone cannot be reported as an executed test `PASS`.
 
@@ -639,7 +643,7 @@ Use this evidence split when producing the report:
 When source inspection is used to explain a result, inspect these contracts directly and include the file and line number in the report:
 
 - `RoomGameRules.createRoles`/`assignRoles`: mafia count is `1` for 4–5 players and `2` for 6–8 players; doctor and police remain one each; citizens fill the remainder.
-- `GamePhase`: `ROLE_ASSIGNMENT` is 10 seconds and `FINAL_DEFENSE` is 15 seconds; both are part of the server phase enum.
+- `GamePhase`: `ROLE_ASSIGNMENT` is 15 seconds and `FINAL_DEFENSE` is 20 seconds; both are part of the server phase enum.
 - `RoomGameService.submitAction`: `ROLE_CONFIRM` is accepted only during `ROLE_ASSIGNMENT`, once per living player, and all confirmations can advance the room early to `DAY_DISCUSSION`.
 - `RoomGameService.moveAfterNominationVote`/`validateChat`: a unique nominee enters `FINAL_DEFENSE`, and only that nominee may use public chat during the defense phase.
 - `RoomGameRules.determineWinner`: citizen victory is checked first when `aliveMafia == 0`; mafia victory is checked only when `aliveMafia > aliveCitizenFaction`.
@@ -734,9 +738,9 @@ Write the report in the following order:
 
 The MVP validation table and the per-scenario results must explicitly report:
 
-- `ROLE_ASSIGNMENT`: role delivery is private, the public game state does not reveal roles, each living player can confirm once, duplicate confirmation is rejected, and the phase advances on all confirmations or after 10 seconds.
-- `FINAL_DEFENSE`: a unique nominee enters the 15-second phase, only the nominee can use public chat, non-nominees are rejected, and a nominee departure skips execution and advances to night.
-- Measured server-side phase durations: approximately 10 seconds for role assignment, 60 seconds for day discussion, 15 seconds for nomination, 15 seconds for final defense, 15 seconds for execution, and 30 seconds for night.
+- `ROLE_ASSIGNMENT`: role delivery is private, the public game state does not reveal roles, each living player can confirm once, duplicate confirmation is rejected, and the phase advances on all confirmations or after 15 seconds.
+- `FINAL_DEFENSE`: a unique nominee enters the 20-second phase, only the nominee can use public chat, non-nominees are rejected, and a nominee departure skips execution and advances to night.
+- Measured server-side phase durations: approximately 15 seconds for role assignment, 60 seconds for day discussion, 20 seconds for nomination, 20 seconds for final defense, 20 seconds for execution, and 35 seconds for night.
 
 For every result, include:
 

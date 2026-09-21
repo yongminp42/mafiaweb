@@ -595,6 +595,7 @@
     // 역할 정보는 개인 큐로, 페이즈·타이머·생존자 목록은 공개 토픽으로 받는다.
     // 공개 상태가 갱신될 때마다 행동 버튼과 타이머도 함께 다시 계산한다.
     gameState = state;
+    updateParticipantDeathStates();
     gamePanel.hidden = false;
     if (readyNote) {
       readyNote.hidden = true;
@@ -726,7 +727,7 @@
     revealedPlayers.forEach(player => {
       const item = document.createElement('li');
       const roleLabel = GAME_ROLE_LABELS[player.role] || player.role;
-      item.textContent = `${player.nickname || '알 수 없음'} · ${roleLabel} · ${player.alive ? '생존' : '탈락'}`;
+      item.textContent = `${player.nickname || '알 수 없음'} · ${roleLabel} · ${player.alive ? '생존' : '사망'}`;
       fragment.append(item);
     });
     gameRoleRevealList.replaceChildren(fragment);
@@ -753,7 +754,7 @@
       gameResultRoleLabel.textContent = result.roleLabel;
     }
     if (gameResultAliveLabel && typeof result.alive === 'boolean') {
-      gameResultAliveLabel.textContent = result.alive ? '생존' : '탈락';
+      gameResultAliveLabel.textContent = result.alive ? '생존' : '사망';
     }
     if (gameResultNotice) {
       gameResultNotice.textContent = '같은 게임방에서 다시 준비할 수 있습니다.';
@@ -896,7 +897,7 @@
     }
     gameActionStatus.hidden = gameState.phase === 'ROLE_ASSIGNMENT';
     if (currentGamePlayer && !currentGamePlayer.alive) {
-      gameActionStatus.textContent = '탈락한 참가자는 투표할 수 없습니다.';
+      gameActionStatus.textContent = '사망한 참가자는 투표할 수 없습니다.';
     } else if (gameState.phase === 'ROLE_ASSIGNMENT') {
       gameActionStatus.textContent = '';
     } else if (gameState.phase === 'FINAL_DEFENSE') {
@@ -916,6 +917,28 @@
     } else {
       gameActionStatus.textContent = '';
     }
+  }
+
+  function updateParticipantDeathStates() {
+    if (!memberGrid) {
+      return;
+    }
+
+    const hasActiveGame = gameStarted || (gameState && gameState.phase !== 'FINISHED');
+    const playersById = hasActiveGame && Array.isArray(gameState?.players)
+      ? new Map(gameState.players.map(player => [Number(player.userId), player]))
+      : new Map();
+
+    memberGrid.querySelectorAll('.member[data-user-id]').forEach(article => {
+      const player = playersById.get(Number(article.dataset.userId));
+      const isDead = player?.alive === false;
+      article.classList.toggle('participant-dead', isDead);
+
+      const status = article.querySelector('small');
+      if (status) {
+        status.textContent = isDead ? '사망' : status.dataset.baseStatus;
+      }
+    });
   }
 
   function renderParticipants(participants, status) {
@@ -948,6 +971,7 @@
         participant.host ? 'host' : '',
         participant.ready ? 'participant-ready' : ''
       ].filter(Boolean).join(' ');
+      article.dataset.userId = String(participant.userId);
 
       const avatar = document.createElement('div');
       avatar.className = `avatar${participant.host ? ' a1' : ''}`;
@@ -962,7 +986,8 @@
         labels.push('방장');
       }
       labels.push(participant.ready ? '준비 완료' : '대기 중');
-      status.textContent = labels.join(' · ');
+      status.dataset.baseStatus = labels.join(' · ');
+      status.textContent = status.dataset.baseStatus;
 
       article.append(avatar, name, status);
       fragment.append(article);
@@ -984,6 +1009,7 @@
     }
 
     memberGrid.replaceChildren(fragment);
+    updateParticipantDeathStates();
     if (roomPlayerCount) {
       roomPlayerCount.textContent = participants.length;
     }

@@ -201,7 +201,7 @@ public class RoomGameService {
                 throw new RoomWebSocketException("게임 참가자 정보를 찾을 수 없습니다.");
             }
             if (!player.alive) {
-                throw new RoomWebSocketException("탈락한 참가자는 행동할 수 없습니다.");
+                throw new RoomWebSocketException("사망한 참가자는 행동할 수 없습니다.");
             }
 
             if (game.phase == GamePhase.ROLE_ASSIGNMENT) {

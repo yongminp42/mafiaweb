@@ -131,7 +131,7 @@ class RoomGameServiceTest {
         gameService.startGame(ROOM_ID, nightParticipants(), principalNamesForFourPlayers());
         RoomGameState initial = latestPublicState();
         assertThat(initial.phase()).isEqualTo("ROLE_ASSIGNMENT");
-        assertThat(initial.phaseEndsAt() - System.currentTimeMillis()).isBetween(8_000L, 10_000L);
+        assertThat(initial.phaseEndsAt() - System.currentTimeMillis()).isBetween(13_000L, 15_000L);
         assertThat(initial.players()).allSatisfy(player -> assertThat(player.role()).isNull());
 
         assertThatThrownBy(() -> gameService.submitAction(ROOM_ID, principal(1L, "alice"),
@@ -169,20 +169,28 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void startsDayWhenTheRoleConfirmationTimerExpires() throws Exception {
+    void startsDayWhenTheRoleConfirmationTimerExpiresInRealTime() throws Exception {
+        long startedAt = System.currentTimeMillis();
         gameService.startGame(ROOM_ID, nightParticipants(), principalNamesForFourPlayers());
-        advancePhaseOnce();
+
+        long deadline = startedAt + 30_000L;
+        while ("ROLE_ASSIGNMENT".equals(currentPhase())
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100L);
+        }
+
         assertThat(latestPublicState().phase()).isEqualTo("DAY_DISCUSSION");
+        assertThat(System.currentTimeMillis() - startedAt).isGreaterThanOrEqualTo(13_000L);
     }
 
     @Test
     void usesTheMvpServerDurationsForEveryTimedPhase() {
-        assertThat(GamePhase.ROLE_ASSIGNMENT.durationSeconds()).isEqualTo(10L);
+        assertThat(GamePhase.ROLE_ASSIGNMENT.durationSeconds()).isEqualTo(15L);
         assertThat(GamePhase.DAY_DISCUSSION.durationSeconds()).isEqualTo(60L);
-        assertThat(GamePhase.NOMINATION_VOTE.durationSeconds()).isEqualTo(15L);
-        assertThat(GamePhase.FINAL_DEFENSE.durationSeconds()).isEqualTo(15L);
-        assertThat(GamePhase.EXECUTION_VOTE.durationSeconds()).isEqualTo(15L);
-        assertThat(GamePhase.NIGHT.durationSeconds()).isEqualTo(30L);
+        assertThat(GamePhase.NOMINATION_VOTE.durationSeconds()).isEqualTo(20L);
+        assertThat(GamePhase.FINAL_DEFENSE.durationSeconds()).isEqualTo(20L);
+        assertThat(GamePhase.EXECUTION_VOTE.durationSeconds()).isEqualTo(20L);
+        assertThat(GamePhase.NIGHT.durationSeconds()).isEqualTo(35L);
     }
 
     @Test
@@ -294,7 +302,7 @@ class RoomGameServiceTest {
                 principal(1L, "alice"),
                 new GameActionRequest(2L, null)))
                 .isInstanceOf(RoomWebSocketException.class)
-                .hasMessage("탈락한 참가자는 행동할 수 없습니다.");
+                .hasMessage("사망한 참가자는 행동할 수 없습니다.");
         assertThat(latestPublicState().submittedVotes()).isEqualTo(0);
     }
 
@@ -354,7 +362,7 @@ class RoomGameServiceTest {
         RoomGameState defense = latestPublicState();
         assertThat(defense.phase()).isEqualTo("FINAL_DEFENSE");
         assertThat(defense.nominatedUserId()).isEqualTo(2L);
-        assertThat(defense.phaseEndsAt() - System.currentTimeMillis()).isBetween(13_000L, 15_000L);
+        assertThat(defense.phaseEndsAt() - System.currentTimeMillis()).isBetween(18_000L, 20_000L);
         assertThatCode(() -> gameService.validateChat(ROOM_ID, 2L, ChatChannel.PUBLIC))
                 .doesNotThrowAnyException();
         assertThatThrownBy(() -> gameService.validateChat(ROOM_ID, 1L, ChatChannel.PUBLIC))
@@ -759,12 +767,13 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void appliesMafiaKillWhenNoDoctorProtectionIsSubmitted() throws Exception {
+    void appliesMafiaKillWhenDoctorAndPoliceSubmitNoAction() throws Exception {
         startNightVote(nightParticipants(), principalNamesForFourPlayers());
         setRole(1L, GameRole.MAFIA);
         setRole(2L, GameRole.CITIZEN);
         setRole(3L, GameRole.DOCTOR);
         setRole(4L, GameRole.POLICE);
+        clearInvocations(messagingTemplate);
 
         gameService.submitAction(ROOM_ID, principal(1L, "alice"),
                 new GameActionRequest(2L, null, "MAFIA_KILL"));
@@ -776,10 +785,12 @@ class RoomGameServiceTest {
                 .filteredOn(player -> player.userId() == 2L)
                 .singleElement()
                 .satisfies(player -> assertThat(player.alive()).isFalse());
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                anyString(), eq("/queue/night-result"), any(GameInvestigationResult.class));
     }
 
     @Test
-    void leavesEveryoneAliveWhenNoMafiaSubmitsANightAction() throws Exception {
+    void leavesEveryoneAliveWhenMafiaDoctorAndPoliceSubmitNoAction() throws Exception {
         startNightVote(nightParticipants(), principalNamesForFourPlayers());
         setRole(1L, GameRole.MAFIA);
         setRole(2L, GameRole.CITIZEN);

@@ -111,6 +111,51 @@ test('chat subscribes to room topics only after the room join acknowledgement', 
   }
 });
 
+test('chat marks eliminated participants with a dead state after game updates', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })
+    ));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'DAY_DISCUSSION',
+        phaseEndsAt: Date.now() + 60_000,
+        remainingSeconds: 60,
+        players: [
+          { userId: 10, nickname: 'alice', alive: true },
+          { userId: 11, nickname: 'bob', alive: false }
+        ],
+        message: '낮 토론이 시작되었습니다.'
+      })
+    ));
+
+    const aliveCard = dom.window.document.querySelector('[data-user-id="10"]');
+    const deadCard = dom.window.document.querySelector('[data-user-id="11"]');
+    assert.equal(aliveCard.classList.contains('participant-dead'), false);
+    assert.equal(deadCard.classList.contains('participant-dead'), true);
+    assert.equal(deadCard.querySelector('small').textContent, '사망');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('chat sends trimmed messages and ready changes after joining', () => {
   const dom = createDom(chatMarkup());
   try {
@@ -196,8 +241,8 @@ test('chat renders game phases and sends nomination and execution votes', () => 
       JSON.stringify({
         roomId: 7,
         phase: 'NOMINATION_VOTE',
-        phaseEndsAt: Date.now() + 15_000,
-        remainingSeconds: 15,
+        phaseEndsAt: Date.now() + 20_000,
+        remainingSeconds: 20,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: null,
         submittedVotes: 0,
@@ -222,8 +267,8 @@ test('chat renders game phases and sends nomination and execution votes', () => 
       JSON.stringify({
         roomId: 7,
         phase: 'FINAL_DEFENSE',
-        phaseEndsAt: Date.now() + 15_000,
-        remainingSeconds: 15,
+        phaseEndsAt: Date.now() + 20_000,
+        remainingSeconds: 20,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: 11,
         submittedVotes: 0,
@@ -242,8 +287,8 @@ test('chat renders game phases and sends nomination and execution votes', () => 
       JSON.stringify({
         roomId: 7,
         phase: 'EXECUTION_VOTE',
-        phaseEndsAt: Date.now() + 15_000,
-        remainingSeconds: 15,
+        phaseEndsAt: Date.now() + 20_000,
+        remainingSeconds: 20,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: 11,
         submittedVotes: 0,
@@ -262,8 +307,8 @@ test('chat renders game phases and sends nomination and execution votes', () => 
       JSON.stringify({
         roomId: 7,
         phase: 'NIGHT',
-        phaseEndsAt: Date.now() + 30_000,
-        remainingSeconds: 30,
+        phaseEndsAt: Date.now() + 35_000,
+        remainingSeconds: 35,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: 11,
         submittedVotes: 0,
@@ -336,7 +381,7 @@ test('role confirmation is sent once and restored from the private role state', 
       JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
     socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
       JSON.stringify({ roomId: 7, phase: 'ROLE_ASSIGNMENT',
-        phaseEndsAt: Date.now() + 10_000, remainingSeconds: 10,
+        phaseEndsAt: Date.now() + 15_000, remainingSeconds: 15,
         players: publicPlayers, submittedVotes: 0, eligibleVoters: 2,
         message: '본인의 역할을 확인해 주세요.' })));
     socket.receive(createFrame('MESSAGE', { subscription: 'game-role' },
@@ -389,7 +434,7 @@ test('the nominated player can speak during final defense while others cannot', 
       JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
     socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
       JSON.stringify({ roomId: 7, phase: 'FINAL_DEFENSE',
-        phaseEndsAt: Date.now() + 15_000, remainingSeconds: 15,
+        phaseEndsAt: Date.now() + 20_000, remainingSeconds: 20,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: 10, submittedVotes: 0, eligibleVoters: 2,
         message: 'alice님의 최종 변론 시간입니다.' })));
@@ -427,7 +472,7 @@ test('a non-nominated player cannot use public chat during final defense', () =>
       JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
     socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
       JSON.stringify({ roomId: 7, phase: 'FINAL_DEFENSE',
-        phaseEndsAt: Date.now() + 15_000, remainingSeconds: 15,
+        phaseEndsAt: Date.now() + 20_000, remainingSeconds: 20,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: 10, submittedVotes: 0, eligibleVoters: 2,
         message: 'alice님의 최종 변론 시간입니다.' })));
@@ -472,8 +517,8 @@ test('chat renders the role-specific night action and sends its target', () => {
       JSON.stringify({
         roomId: 7,
         phase: 'NIGHT',
-        phaseEndsAt: Date.now() + 30_000,
-        remainingSeconds: 30,
+        phaseEndsAt: Date.now() + 35_000,
+        remainingSeconds: 35,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: null,
         submittedVotes: 0,
@@ -528,8 +573,8 @@ test('chat disables execution voting for the nominated player', () => {
       JSON.stringify({
         roomId: 7,
         phase: 'EXECUTION_VOTE',
-        phaseEndsAt: Date.now() + 15_000,
-        remainingSeconds: 15,
+        phaseEndsAt: Date.now() + 20_000,
+        remainingSeconds: 20,
         players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
         nominatedUserId: 10,
         submittedVotes: 0,
@@ -647,7 +692,7 @@ test('chat renders the winning faction when the server finishes the game', () =>
       })
     ));
     assert.equal(dom.window.document.querySelector('#gameResultRoleLabel').textContent, '경찰');
-    assert.equal(dom.window.document.querySelector('#gameResultAliveLabel').textContent, '탈락');
+    assert.equal(dom.window.document.querySelector('#gameResultAliveLabel').textContent, '사망');
 
     socket.receive(createFrame(
       'MESSAGE',

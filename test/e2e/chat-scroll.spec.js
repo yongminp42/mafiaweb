@@ -52,6 +52,35 @@ test('role slot is visible before game and chat scrolls without growing the page
     await expect(page.locator('#gameRoleLabel')).toBeEmpty();
     const input = page.locator('#chatForm input[name="content"]');
     await expect(input).toBeEnabled({ timeout: 15_000 });
+    const chatTypography = await page.evaluate(() => {
+      const channel = document.querySelector('#chatChannel');
+      const messageInput = document.querySelector('#chatForm input[name="content"]');
+      const mafiaOption = channel?.querySelector('option[value="MAFIA"]');
+      if (!channel || !messageInput || !mafiaOption) {
+        throw new Error('Chat composer elements are missing');
+      }
+
+      const channelStyle = getComputedStyle(channel);
+      const probe = document.createElement('span');
+      probe.textContent = mafiaOption.textContent || '';
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.whiteSpace = 'nowrap';
+      probe.style.fontFamily = channelStyle.fontFamily;
+      probe.style.fontSize = channelStyle.fontSize;
+      probe.style.fontWeight = channelStyle.fontWeight;
+      probe.style.fontStyle = channelStyle.fontStyle;
+      probe.style.letterSpacing = channelStyle.letterSpacing;
+      document.body.append(probe);
+      const textWidth = probe.getBoundingClientRect().width;
+      const availableWidth = channel.clientWidth
+        - parseFloat(channelStyle.paddingLeft)
+        - parseFloat(channelStyle.paddingRight);
+      probe.remove();
+
+      return { textWidth, availableWidth };
+    });
+    expect(chatTypography.textWidth).toBeLessThanOrEqual(chatTypography.availableWidth);
     const inputBox = await input.boundingBox();
     expect(inputBox?.height).toBeGreaterThanOrEqual(40);
 

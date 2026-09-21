@@ -476,9 +476,9 @@ async function startReplayGame(pages, traces) {
   });
   await pages[0].locator('#startGame').click();
 
-  await waitForPhase(pages, PHASE_LABELS.ROLE, 15_000);
+  await waitForPhase(pages, PHASE_LABELS.ROLE, 20_000);
   const secondRoleState = await waitForGameState(
-    traces[0], 'ROLE_ASSIGNMENT', nextRoleOccurrence, 15_000
+    traces[0], 'ROLE_ASSIGNMENT', nextRoleOccurrence, 20_000
   );
   expect(secondRoleState.players.every(player => player.role == null)).toBeTruthy();
   await confirmAllRoles(pages);
@@ -512,12 +512,144 @@ async function startReplayGame(pages, traces) {
       });
     })
   );
+
+  const replayUserIds = await Promise.all(pages.map(readUserId));
+  const replayRoleLabels = await Promise.all(pages.map(async page =>
+    (await page.locator('#gameRoleLabel').textContent()).trim()
+  ));
+  const replayMafiaUserIds = replayUserIds.filter((userId, index) =>
+    replayRoleLabels[index] === ROLE_LABELS.MAFIA
+  );
+  const replayCitizenUserIds = replayUserIds.filter((userId, index) =>
+    replayRoleLabels[index] === ROLE_LABELS.CITIZEN
+  );
+
+  const firstReplayNominationOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'NOMINATION_VOTE')
+    .length;
+  await waitForPhase(pages, PHASE_LABELS.NOMINATION, 75_000);
+  await waitForGameState(
+    traces[0], 'NOMINATION_VOTE', firstReplayNominationOccurrence, 25_000
+  );
+  const firstReplayTargetId = replayMafiaUserIds.length === 2
+    ? replayMafiaUserIds[0]
+    : replayCitizenUserIds[0];
+  expect(firstReplayTargetId).toBeTruthy();
+  const firstReplayDefenseOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'FINAL_DEFENSE')
+    .length;
+  await submitNominationVotes(
+    pages,
+    replayUserIds,
+    firstReplayTargetId,
+    replayUserIds
+  );
+
+  await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
+  const firstReplayDefenseState = await waitForGameState(
+    traces[0], 'FINAL_DEFENSE', firstReplayDefenseOccurrence, 25_000
+  );
+  expect(firstReplayDefenseState.nominatedUserId).toBe(firstReplayTargetId);
+
+  const firstReplayExecutionOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'EXECUTION_VOTE')
+    .length;
+  await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
+  await waitForGameState(
+    traces[0], 'EXECUTION_VOTE', firstReplayExecutionOccurrence, 25_000
+  );
+  const firstReplayNightOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'NIGHT')
+    .length;
+  await submitExecutionVotes(
+    pages,
+    replayUserIds,
+    firstReplayTargetId,
+    replayUserIds
+  );
+
+  await waitForPhase(pages, PHASE_LABELS.NIGHT, 25_000);
+  await waitForGameState(
+    traces[0], 'NIGHT', firstReplayNightOccurrence, 25_000
+  );
+
+  const secondReplayDayOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'DAY_DISCUSSION')
+    .length;
+  await waitForPhase(pages, PHASE_LABELS.DAY, 75_000);
+  const secondReplayDayState = await waitForGameState(
+    traces[0], 'DAY_DISCUSSION', secondReplayDayOccurrence, 25_000
+  );
+  const replayAliveUserIds = secondReplayDayState.players
+    .filter(player => player.alive)
+    .map(player => Number(player.userId));
+  const finalReplayTargetId = replayMafiaUserIds.find(userId =>
+    replayAliveUserIds.includes(userId)
+  );
+  expect(finalReplayTargetId).toBeTruthy();
+
+  const finalReplayNominationOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'NOMINATION_VOTE')
+    .length;
+  const finalReplayDefenseOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'FINAL_DEFENSE')
+    .length;
+  await waitForPhase(pages, PHASE_LABELS.NOMINATION, 75_000);
+  await waitForGameState(
+    traces[0], 'NOMINATION_VOTE', finalReplayNominationOccurrence, 25_000
+  );
+  await submitNominationVotes(
+    pages,
+    replayUserIds,
+    finalReplayTargetId,
+    replayAliveUserIds
+  );
+
+  await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
+  await waitForGameState(
+    traces[0], 'FINAL_DEFENSE', finalReplayDefenseOccurrence, 25_000
+  );
+
+  const finalReplayExecutionOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'EXECUTION_VOTE')
+    .length;
+  await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
+  await waitForGameState(
+    traces[0], 'EXECUTION_VOTE', finalReplayExecutionOccurrence, 25_000
+  );
+  const replayFinishedOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'FINISHED')
+    .length;
+  await submitExecutionVotes(
+    pages,
+    replayUserIds,
+    finalReplayTargetId,
+    replayAliveUserIds
+  );
+
+  await waitForPhase(pages, PHASE_LABELS.FINISHED, 25_000);
+  const replayFinishedState = await waitForGameState(
+    traces[0], 'FINISHED', replayFinishedOccurrence, 25_000
+  );
+  expect(replayFinishedState.gameOver).toBe(true);
+  expect(replayFinishedState.winningFaction).toBe('CITIZEN');
+  expect(replayFinishedState.players.every(player => typeof player.role === 'string'))
+    .toBeTruthy();
+  await Promise.all(
+    pages.map(async page => {
+      await expect(page.locator('#gameResultPanel')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('#gameWinnerLabel')).toHaveText('시민 진영');
+      await expect(page.locator('#gameRoleRevealPanel')).toBeVisible();
+      await expect(page.locator('#roomStatus')).toHaveText('대기 중');
+      await expect(page.locator('#ready')).toBeEnabled();
+    })
+  );
 }
 
 for (const playerCount of PLAYER_COUNTS) {
   test.describe.serial('MVP ' + playerCount + '인 핵심 게임 흐름', () => {
     test('인증부터 한 사이클까지 동기화 검증', async ({ browser }) => {
-      test.setTimeout(8 * 60 * 1000);
+      test.setTimeout(12 * 60 * 1000);
 
       const scenarioId = playerCount + '-' + RUN_ID;
       const contexts = [];
@@ -615,7 +747,7 @@ for (const playerCount of PLAYER_COUNTS) {
           )
         );
 
-        await waitForPhase(pages, PHASE_LABELS.ROLE, 15_000);
+        await waitForPhase(pages, PHASE_LABELS.ROLE, 20_000);
         const roleState = await waitForGameState(traces[0], 'ROLE_ASSIGNMENT');
         expect(roleState.players.every(player => player.role == null)).toBeTruthy();
 
@@ -707,9 +839,9 @@ for (const playerCount of PLAYER_COUNTS) {
         const nominationState = await waitForGameState(traces[0], 'NOMINATION_VOTE');
         expect(nominationState.receivedAt - dayState.receivedAt).toBeGreaterThanOrEqual(55_000);
         expect(nominationState.phaseEndsAt - nominationState.receivedAt)
-          .toBeGreaterThanOrEqual(14_000);
+          .toBeGreaterThanOrEqual(19_000);
         expect(nominationState.phaseEndsAt - nominationState.receivedAt)
-          .toBeLessThanOrEqual(16_000);
+          .toBeLessThanOrEqual(21_000);
         await Promise.all(
           pages.map(page =>
             expect(page.locator('#nominationAction')).toBeVisible()
@@ -728,17 +860,17 @@ for (const playerCount of PLAYER_COUNTS) {
           userIds
         );
 
-        await waitForPhase(pages, PHASE_LABELS.DEFENSE, 20_000);
+        await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
         const defenseState = await waitForGameState(traces[0], 'FINAL_DEFENSE');
         expect(defenseState.nominatedUserId).toBe(initialExecutionTargetId);
         expect(defenseState.phaseEndsAt - nominationState.phaseEndsAt)
-          .toBeGreaterThanOrEqual(14_000);
+          .toBeGreaterThanOrEqual(19_000);
         expect(defenseState.phaseEndsAt - nominationState.phaseEndsAt)
-          .toBeLessThanOrEqual(16_000);
+          .toBeLessThanOrEqual(21_000);
         expect(defenseState.phaseEndsAt - defenseState.receivedAt)
-          .toBeGreaterThanOrEqual(14_000);
+          .toBeGreaterThanOrEqual(19_000);
         expect(defenseState.phaseEndsAt - defenseState.receivedAt)
-          .toBeLessThanOrEqual(16_000);
+          .toBeLessThanOrEqual(21_000);
 
         const defendantPage = pages[userIds.indexOf(initialExecutionTargetId)];
         await expect(defendantPage.locator('#finalDefenseNotice')).toContainText('전체 채널');
@@ -757,18 +889,18 @@ for (const playerCount of PLAYER_COUNTS) {
         await expectRoomError(pages[nonDefendantIndex], nonDefendantTrace,
           previousDefenseErrors, '최종 변론');
 
-        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 20_000);
+        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
         const executionState = await waitForGameState(traces[0], 'EXECUTION_VOTE');
-        expect(executionState.receivedAt - defenseState.receivedAt).toBeGreaterThanOrEqual(13_000);
+        expect(executionState.receivedAt - defenseState.receivedAt).toBeGreaterThanOrEqual(18_000);
         expect(executionState.nominatedUserId).toBe(initialExecutionTargetId);
         expect(executionState.phaseEndsAt - defenseState.phaseEndsAt)
-          .toBeGreaterThanOrEqual(14_000);
+          .toBeGreaterThanOrEqual(19_000);
         expect(executionState.phaseEndsAt - defenseState.phaseEndsAt)
-          .toBeLessThanOrEqual(16_000);
+          .toBeLessThanOrEqual(21_000);
         expect(executionState.phaseEndsAt - executionState.receivedAt)
-          .toBeGreaterThanOrEqual(14_000);
+          .toBeGreaterThanOrEqual(19_000);
         expect(executionState.phaseEndsAt - executionState.receivedAt)
-          .toBeLessThanOrEqual(16_000);
+          .toBeLessThanOrEqual(21_000);
 
         await Promise.all(pages.map(page =>
           expect(page.locator('#executionAction')).toBeVisible()
@@ -780,24 +912,48 @@ for (const playerCount of PLAYER_COUNTS) {
           userIds
         );
 
-        await waitForPhase(pages, PHASE_LABELS.NIGHT, 20_000);
+        await waitForPhase(pages, PHASE_LABELS.NIGHT, 25_000);
         await assertTimersAreSynchronized(pages);
         const nightState = await waitForGameState(traces[0], 'NIGHT');
-        expect(nightState.receivedAt - executionState.receivedAt).toBeGreaterThanOrEqual(13_000);
+        expect(nightState.receivedAt - executionState.receivedAt).toBeGreaterThanOrEqual(18_000);
         expect(nightState.phaseEndsAt - executionState.phaseEndsAt)
-          .toBeGreaterThanOrEqual(29_000);
+          .toBeGreaterThanOrEqual(34_000);
         expect(nightState.phaseEndsAt - executionState.phaseEndsAt)
-          .toBeLessThanOrEqual(31_000);
+          .toBeLessThanOrEqual(36_000);
         expect(nightState.phaseEndsAt - nightState.receivedAt)
-          .toBeGreaterThanOrEqual(29_000);
+          .toBeGreaterThanOrEqual(34_000);
         expect(nightState.phaseEndsAt - nightState.receivedAt)
-          .toBeLessThanOrEqual(31_000);
+          .toBeLessThanOrEqual(36_000);
         await expect(pages[0].locator('#gameMessage')).toContainText('처형');
 
         const aliveAfterExecutionIds = nightState.players
           .filter(player => player.alive)
           .map(player => Number(player.userId));
         expect(aliveAfterExecutionIds).not.toContain(initialExecutionTargetId);
+
+        const deadParticipantCard = pages[0].locator(
+          `#memberGrid .member[data-user-id="${initialExecutionTargetId}"]`
+        );
+        await expect(deadParticipantCard).toHaveClass(/participant-dead/);
+        await expect(deadParticipantCard.locator('small')).toHaveText('사망');
+        const deadCardStyle = await deadParticipantCard.evaluate(element => {
+          const cardStyle = getComputedStyle(element);
+          const badgeStyle = getComputedStyle(element, '::after');
+          return {
+            backgroundImage: cardStyle.backgroundImage,
+            borderTopColor: cardStyle.borderTopColor,
+            badgeContent: badgeStyle.content
+          };
+        });
+        expect(deadCardStyle.backgroundImage).toContain('linear-gradient');
+        expect(deadCardStyle.borderTopColor).toBe('rgb(210, 122, 116)');
+        expect(deadCardStyle.badgeContent).toContain('사망');
+        const livingParticipantId = aliveAfterExecutionIds[0];
+        if (livingParticipantId) {
+          await expect(
+            pages[0].locator(`#memberGrid .member[data-user-id="${livingParticipantId}"]`)
+          ).not.toHaveClass(/participant-dead/);
+        }
 
         const deadPage = pages[userIds.indexOf(initialExecutionTargetId)];
         const deadChatMessage = 'dead-chat-' + scenarioId;
@@ -935,8 +1091,8 @@ for (const playerCount of PLAYER_COUNTS) {
           finalMafiaUserId,
           aliveAfterNightIds
         );
-        await waitForPhase(pages, PHASE_LABELS.DEFENSE, 20_000);
-        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 20_000);
+        await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
+        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
         const finalExecutionState = await waitForMatchingGameState(
           traces[0],
           'EXECUTION_VOTE',
@@ -974,7 +1130,7 @@ for (const playerCount of PLAYER_COUNTS) {
               timeout: 15_000
             });
             await expect(page.locator('#gameResultAliveLabel')).toHaveText(
-              /생존|탈락/,
+              /생존|사망/,
               { timeout: 15_000 }
             );
             await expect(page.locator('#gameRoleRevealPanel')).toBeVisible({
@@ -1027,7 +1183,7 @@ if (PLAYER_COUNTS.includes(6)) {
       await Promise.all(pages.slice(0, 5).map(page => page.locator('#ready').click()));
       await expect(pages[0].locator('#startGame')).toBeEnabled();
       await pages[0].locator('#startGame').click();
-      await waitForPhase(pages.slice(0, 5), PHASE_LABELS.ROLE, 15_000);
+      await waitForPhase(pages.slice(0, 5), PHASE_LABELS.ROLE, 20_000);
       await confirmAllRoles(pages.slice(0, 5));
       await waitForPhase(pages.slice(0, 5), PHASE_LABELS.DAY, 25_000);
       const roles = await Promise.all(pages.slice(0, 5).map(async page =>
@@ -1067,7 +1223,7 @@ if (PLAYER_COUNTS.includes(6)) {
       await Promise.all(pages.map(page => page.locator('#ready').click()));
       await expect(pages[0].locator('#startGame')).toBeEnabled();
       await pages[0].locator('#startGame').click();
-      await waitForPhase(pages, PHASE_LABELS.ROLE, 15_000);
+      await waitForPhase(pages, PHASE_LABELS.ROLE, 20_000);
       const roleState = await waitForGameState(traces[0], 'ROLE_ASSIGNMENT');
       expect(roleState.players.every(player => player.role == null)).toBeTruthy();
       await confirmAllRoles(pages);
@@ -1103,11 +1259,11 @@ if (PLAYER_COUNTS.includes(6)) {
         [observer], [PHASE_LABELS.NIGHT, PHASE_LABELS.DEFENSE, PHASE_LABELS.EXECUTION], 20_000
       );
       if (phaseAfterNomination !== PHASE_LABELS.NIGHT) {
-        await waitForPhase([observer], PHASE_LABELS.NIGHT, 40_000);
+        await waitForPhase([observer], PHASE_LABELS.NIGHT, 55_000);
       }
 
       const night = await waitForGameState(observerTrace, 'NIGHT');
-      expect(night.phaseEndsAt - Date.now()).toBeGreaterThan(22_000);
+      expect(night.phaseEndsAt - Date.now()).toBeGreaterThan(27_000);
       const [returningMafia, departingMafia] = mafiaIndexes;
       await submitNightActionForPage(pages[returningMafia], userIds[citizenIndexes[0]]);
       await pages[returningMafia].close();
