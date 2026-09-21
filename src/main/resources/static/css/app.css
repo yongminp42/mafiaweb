@@ -341,11 +341,11 @@ a {
 
 .member {
   display: flex;
-  min-height: 104px;
+  min-height: 98px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid #e6e8ec;
   border-radius: 10px;
   background: #fff;
@@ -364,8 +364,8 @@ a {
 .avatar {
   display: grid;
   place-items: center;
-  width: 39px;
-  height: 39px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   color: #606875;
   background: #e7eaef;
@@ -423,7 +423,7 @@ a {
 #memberGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  gap: .75rem;
   margin-right: 0;
   margin-left: 0;
 }
@@ -434,11 +434,15 @@ a {
   padding: 0;
 }
 
+.participant-panel > .card-body {
+  padding: 1.25rem !important;
+}
+
 .room-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .5rem;
-  margin-bottom: .75rem;
+  gap: .375rem;
+  margin-bottom: .5rem;
 }
 
 .room-actions:not(:has(#startGame:not([hidden]))) #ready {
@@ -446,7 +450,7 @@ a {
 }
 
 .game-panel-placeholder-body {
-  padding: 1.5rem;
+  padding: 1.25rem;
 }
 
 .room-settings {
@@ -470,28 +474,50 @@ a {
 }
 
 #gamePanel > .card-body {
-  padding: 1rem !important;
+  padding: .875rem !important;
 }
 
 #gamePanel #gameMessage {
-  margin-top: .5rem !important;
-  margin-bottom: .75rem !important;
+  margin-top: .375rem !important;
+  margin-bottom: .5rem !important;
+}
+
+#gamePanel #gamePhaseTitle {
+  font-size: 1.125rem !important;
 }
 
 #gamePanel #gameTimer {
-  font-size: 1.25rem !important;
+  font-size: 1.125rem !important;
 }
 
 #gameRolePanel {
-  padding: .75rem;
-  margin-bottom: .75rem !important;
+  padding: .625rem;
+  margin-bottom: .5rem !important;
+}
+
+#gameRolePanel #gameRoleLabel {
+  font-size: 1.125rem !important;
+}
+
+#gamePanel .form-select,
+#gamePanel .btn {
+  font-size: .875rem;
+}
+
+#gamePanel .form-select {
+  padding-top: .375rem;
+  padding-bottom: .375rem;
+}
+
+#gamePanel .btn {
+  padding: .375rem .625rem;
 }
 
 #gamePanel:has(#gameRolePanel:not([hidden])) > .card-body {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding-bottom: .5rem !important;
+  padding-bottom: .375rem !important;
 }
 
 #gamePanel:has(#gameRolePanel:not([hidden])) #gameRolePanel {
@@ -693,24 +719,25 @@ a {
 
 .chat-composer {
   display: grid;
-  grid-template-columns: minmax(5.5rem, 1fr) minmax(0, 3fr) auto;
+  grid-template-columns: minmax(6.5rem, 1fr) minmax(0, 3fr) auto;
   min-height: 2.5rem;
 }
 
 .chat-composer #chatChannel {
-  min-width: 5.5rem;
+  min-width: 6.5rem;
   width: 100%;
   min-height: 2.5rem;
   padding-right: 1.5rem;
   padding-left: .5rem;
-  font-size: .75rem;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .chat-composer .form-control {
   width: 100%;
   min-width: 0;
   min-height: 2.5rem;
-  font-size: .75rem;
+  font-size: 11px;
 }
 
 .chat-composer > .btn {
