@@ -8,6 +8,7 @@
   --mafia-navy: #252b3c;
   --mafia-mint: #31b596;
   --mafia-purple: #8165b7;
+  --room-column-height: clamp(700px, calc(100vh - 280px), 760px);
 }
 
 body {
@@ -15,6 +16,10 @@ body {
   color: var(--mafia-ink);
   background: #f6f7f9;
   font-family: 'Noto Sans KR', sans-serif;
+}
+
+body[data-room-id] > main.container-xl {
+  padding-bottom: .5rem !important;
 }
 
 a {
@@ -336,7 +341,7 @@ a {
 
 .member {
   display: flex;
-  min-height: 112px;
+  min-height: 104px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -409,8 +414,9 @@ a {
 
 .chat-panel {
   display: flex;
-  min-height: 560px;
-  height: 100%;
+  width: 100%;
+  height: var(--room-column-height);
+  min-height: 0;
   flex-direction: column;
 }
 
@@ -428,63 +434,132 @@ a {
   padding: 0;
 }
 
+.room-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+.room-actions:not(:has(#startGame:not([hidden]))) #ready {
+  grid-column: 1 / -1;
+}
+
+.game-panel-placeholder-body {
+  padding: 1.5rem;
+}
+
+.room-settings {
+  padding: .5rem .75rem;
+  line-height: 1.25;
+}
+
+.room-settings span {
+  line-height: inherit;
+}
+
+.ready-note,
+.start-game-note {
+  margin-top: .25rem !important;
+  font-size: .625rem !important;
+  line-height: 1.1;
+}
+
+.start-game-note {
+  display: none !important;
+}
+
+#gamePanel > .card-body {
+  padding: 1rem !important;
+}
+
+#gamePanel #gameMessage {
+  margin-top: .5rem !important;
+  margin-bottom: .75rem !important;
+}
+
+#gamePanel #gameTimer {
+  font-size: 1.25rem !important;
+}
+
+#gameRolePanel {
+  padding: .75rem;
+  margin-bottom: .75rem !important;
+}
+
+#gamePanel:has(#gameRolePanel:not([hidden])) > .card-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding-bottom: .5rem !important;
+}
+
+#gamePanel:has(#gameRolePanel:not([hidden])) #gameRolePanel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  margin-bottom: 0 !important;
+}
+
+#gamePanel:has(#gameRolePanel:not([hidden])) #confirmGameRole {
+  align-self: flex-start;
+  margin-top: auto !important;
+}
+
 .room-content-layout {
   align-items: stretch;
+  margin-bottom: .5rem !important;
 }
 
 .room-left-column {
-  display: flex;
-  min-height: 560px;
+  display: grid;
+  height: var(--room-column-height);
+  min-height: 0;
   align-self: stretch;
-  flex-direction: column;
+  grid-template-rows: minmax(0, 1fr) 240px;
   gap: 1.5rem;
 }
 
 .participant-panel {
-  flex: 3 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 #gamePanelHost {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
 }
 
-#gamePanelHost:has(#gamePanel[hidden]) {
+#gamePanelHost #gamePanelPlaceholder {
+  min-width: 0;
+  min-height: 240px;
+  flex: 1 1 auto;
+}
+
+#gamePanelHost:has(#gamePanel:not([hidden])) #gamePanelPlaceholder {
   display: none;
 }
 
 #gamePanelHost #gamePanel {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
   flex: 1 1 auto;
   margin: 0;
 }
 
-.room-left-column:has(#gamePanel:not([hidden])) {
-  display: grid;
-  min-height: 720px;
-  grid-template-rows: minmax(0, 2fr) minmax(240px, 1fr);
-}
-
-.room-content-layout:has(#gamePanel:not([hidden])) .chat-panel {
-  min-height: 720px;
-}
-
-.room-left-column:has(#gamePanel:not([hidden])) .participant-panel {
-  min-height: 0;
-  overflow: auto;
-}
-
 .room-chat-column {
   display: flex;
+  height: var(--room-column-height);
   align-self: stretch;
 }
 
 .chat-panel .messages {
   min-height: 0;
-  max-height: none;
-  flex: 1 1 auto;
+  flex: 1 1 0;
 }
 
 .messages {
@@ -619,11 +694,13 @@ a {
 .chat-composer {
   display: grid;
   grid-template-columns: minmax(5.5rem, 1fr) minmax(0, 3fr) auto;
+  min-height: 2.5rem;
 }
 
 .chat-composer #chatChannel {
   min-width: 5.5rem;
   width: 100%;
+  min-height: 2.5rem;
   padding-right: 1.5rem;
   padding-left: .5rem;
   font-size: .75rem;
@@ -632,7 +709,12 @@ a {
 .chat-composer .form-control {
   width: 100%;
   min-width: 0;
+  min-height: 2.5rem;
   font-size: .75rem;
+}
+
+.chat-composer > .btn {
+  min-height: 2.5rem;
 }
 
 .game-row {
@@ -766,7 +848,8 @@ a {
 
 /* Bootstrap's .d-flex uses !important and can override the native hidden attribute. */
 #gameResultPanel[hidden],
-#gameRolePanel[hidden] {
+#gameRolePanel[hidden],
+#gamePanel[hidden] {
   display: none !important;
 }
 
@@ -775,13 +858,14 @@ a {
 }
 
 @media (max-width: 991.98px) {
-  .room-left-column,
-  .room-left-column:has(#gamePanel:not([hidden])) {
+  .room-left-column {
     display: flex;
+    height: auto;
     min-height: 0;
+    flex-direction: column;
   }
 
-  .room-left-column:has(#gamePanel:not([hidden])) .participant-panel {
+  .room-left-column .participant-panel {
     min-height: auto;
     overflow: visible;
   }
@@ -790,13 +874,15 @@ a {
     flex: none;
   }
 
-  .chat-panel {
-    min-height: 520px;
+  .room-chat-column {
+    height: auto;
   }
 
-  .room-content-layout:has(#gamePanel:not([hidden])) .chat-panel {
-    min-height: 520px;
+  .chat-panel {
+    height: 520px;
+    min-height: 0;
   }
+
 }
 
 @media (max-width: 767.98px) {

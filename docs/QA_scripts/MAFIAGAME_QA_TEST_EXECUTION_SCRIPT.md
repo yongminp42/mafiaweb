@@ -11,12 +11,13 @@ Execute the project tests and validate the implementation against the MVP requir
 Change only the values in this section before each run. Keep the rest of this document unchanged so that it can be reused for future QA runs.
 
 ```powershell
-$projectPath = 'C:\workspace\mafiaweb'
+$projectPath = 'C:\workspace-sts-5.3.0\mafiagame'
 $e2eEnabled = $true
 $playerCounts = '4,5,6,8'
+$uiCapacity = 8
 $workerCount = 1
-$baseUrl = 'http://127.0.0.1:8081'
-$serverPort = 8081
+$baseUrl = 'http://127.0.0.1:8080'
+$serverPort = 8080
 $dbHost = '127.0.0.1'
 $dbPort = 23306
 $mvpDocument = 'docs/MAFIAGAME_MVP.md'
@@ -32,7 +33,9 @@ Configuration rules:
 - If `$e2eEnabled = $false`, skip all Playwright commands and report E2E as `NOT RUN`.
 - For a complete run, `$playerCounts` must contain exactly `4,5,6,8`. The `6` entry is required because the two extended browser cases are conditionally registered only when six players are configured.
 - Use the value of `$playerCounts` for `PLAYER_COUNTS` in the Playwright command. A targeted count is supplementary evidence only.
+- Use `$uiCapacity = 8` for the dedicated UI regression suite so the role-card layout is checked at the maximum supported room size.
 - Use a new `E2E_RUN_ID` for every execution.
+- Use the same `E2E_RUN_ID` for the core and UI regression suites so their accounts and rooms can be cleaned up together.
 - Keep `$workerCount = 1` for the complete run. The suite shares a server, database, and lobby online-player baseline; running workers in parallel can mix those states.
 - Always report the requested and effective worker counts.
 - The expected server phase order is `ROLE_ASSIGNMENT(10s) → DAY_DISCUSSION(60s) → NOMINATION_VOTE(15s) → FINAL_DEFENSE(15s, when a unique nominee exists) → EXECUTION_VOTE(15s) → NIGHT(30s)`. `ROLE_ASSIGNMENT` may end early when every living player confirms their role.
@@ -266,9 +269,10 @@ $env:BASE_URL = $baseUrl
 The suite uses one worker so scenarios run in order. Individual scenario failures
 must not cause the remaining configured scenarios to be skipped. Keep retries disabled.
 
-Before the real run, enumerate the tests and verify that the complete six-test set is
+Before the real run, enumerate the core tests and verify that the complete six-test set is
 present. This catches a missing conditional six-player scenario before accounts are
-created:
+created. The UI regression suite is discovered separately because it uses a dedicated
+maximum-capacity layout run:
 
 ```powershell
 $e2eList = @(
@@ -291,22 +295,45 @@ foreach ($scenario in $requiredE2EScenarios) {
         throw "Required Playwright scenario was not discovered: $scenario"
     }
 }
+
+$env:E2E_CAPACITY = [string]$uiCapacity
+$uiE2eList = @(
+    npm.cmd run test:e2e:ui -- --list --workers=$workerCount 2>&1
+)
+if ($LASTEXITCODE -ne 0) {
+    throw 'Playwright UI regression discovery failed; do not start the full E2E run.'
+}
+
+$requiredUIScenarios = @(
+    'role slot is visible before game and chat scrolls without growing the page',
+    "waiting and started room layout ($uiCapacity players)"
+)
+foreach ($scenario in $requiredUIScenarios) {
+    if (-not ($uiE2eList -match [regex]::Escape($scenario))) {
+        throw "Required Playwright UI scenario was not discovered: $scenario"
+    }
+}
 ```
 
-After discovery succeeds, run the complete suite once:
+After discovery succeeds, run the core suite and then the UI regression suite once:
 
 ```powershell
 npm.cmd run test:e2e -- --workers=$workerCount --retries=0 --reporter=list
 $e2eExitCode = $LASTEXITCODE
+
+npm.cmd run test:e2e:ui -- --workers=$workerCount --retries=0 --reporter=list
+$uiE2eExitCode = $LASTEXITCODE
+Remove-Item Env:E2E_CAPACITY -ErrorAction SilentlyContinue
 ```
 
-Record each case's actual result and `$e2eExitCode`. A failure in one case must not
+Record each core case's actual result, `$e2eExitCode`, and `$uiE2eExitCode`. A failure in one case must not
 be counted as a failure in a skipped case. If any case is skipped, report it as
 `NOT RUN` and investigate the execution order before claiming a complete run.
 
-The expected inventory is four normal boundary cases plus two six-player resilience
-cases. If `$playerCounts` does not include `6`, the last two cases are not registered;
-the run is incomplete and must be reported with the missing cases as `NOT RUN`.
+The core inventory is four normal boundary cases plus two six-player resilience cases.
+The UI inventory adds the chat-scroll case and the 8-player room-layout case. If
+`$playerCounts` does not include `6`, the two core resilience cases are not registered;
+the core run is incomplete and must be reported with the missing cases as `NOT RUN`.
 
 If the test suite is later split into independent files, parallel workers may be
 considered only after server, database, test-account, and online-player-baseline
@@ -315,7 +342,8 @@ isolation has been demonstrated.
 Verify:
 
 - MariaDB preflight passed before any application process was started
-- Playwright discovery listed all six required cases when `$playerCounts = '4,5,6,8'`
+- Playwright core discovery listed all six required cases when `$playerCounts = '4,5,6,8'`
+- Playwright UI discovery listed the chat-scroll case and the 8-player room-layout case
 - `ROLE_ASSIGNMENT` is observed before the first `DAY_DISCUSSION`, and roles are not present in public game state
 - Role confirmation is submitted once per living player; duplicate confirmations are rejected
 - All confirmations cause early transition to `DAY_DISCUSSION`; otherwise the 10-second role timer advances the game
@@ -380,6 +408,10 @@ Verify:
 - Every non-host browser reaches the exact created room URL before participant-state assertions
 - A pending lobby refresh is cancelled when a browser starts navigating from `/rooms` to a room
 - The equality case where alive mafia equals the alive citizen faction continues to the next phase
+- The chat input is at least 40px high in the browser
+- 210 chat submissions retain only the latest 200 rendered messages, scroll internally, and do not increase the document height
+- The waiting-room `GAME` placeholder is visible before start and the started role panel is visible after start
+- The 8-player role panel reaches the lower game-card edge and the `역할 확인 완료` button remains at the role panel bottom
 
 The Playwright inventory must map to the following executable cases:
 
@@ -391,6 +423,13 @@ The Playwright inventory must map to the following executable cases:
 | 8 players | `MVP 8인 핵심 게임 흐름` | Role confirmation, maximum supported browser flow, final defense, replay |
 | 6→5 before start | `closing a waiting-room tab changes six players to the five-player role threshold` | Closed tab is removed before start and five-player roles are assigned |
 | Deadline/reconnect | `browser deadline, reconnect grace, and expired night action` | Near-deadline requests do not hang; reconnect within 10 seconds preserves state; expiry removes the pending action |
+
+The UI regression inventory must also map to these executable cases:
+
+| Case | Playwright test | Required result |
+|---|---|---|
+| Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
+| 8-player role layout | `waiting and started room layout (8 players)` | Eight participants render; host controls remain aligned; left/right columns have equal height; the role panel reaches the lower game-card edge; the role-confirmation status count is hidden; the `역할 확인 완료` button is at the panel bottom; screenshot is saved under the current `E2E_RUN_ID` |
 
 The four normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 generated only when `PLAYER_COUNTS` contains `6`, so omitting `6` makes the run
@@ -407,11 +446,12 @@ await waitForRoomParticipantCount(page, expectedCount);
 The lobby regression case must verify that a refresh scheduled for a newly discovered room is cancelled
 when `beforeunload` starts. This protects the room-entry navigation from a competing `window.location.reload()`.
 
-For a complete QA result, run all four configured counts and both conditional six-player
-cases in one execution (`4,5,6,8`). A targeted rerun such as only `6` or `8` may be
-recorded as supplementary evidence, but it does not replace the missing configured
-scenarios. Any count or extended case not executed in the same complete run must remain
-`NOT RUN` in the final report.
+For a complete QA result, run all four configured core counts and both conditional
+six-player cases in one execution (`4,5,6,8`), then run the UI regression suite with
+`E2E_CAPACITY=8` using the same `E2E_RUN_ID`. A targeted rerun such as only `6` or `8`
+may be recorded as supplementary evidence, but it does not replace the missing core
+scenarios. Any core count, extended case, or UI regression case not executed in the
+same QA run must remain `NOT RUN` in the final report.
 
 Do not retry failed tests automatically. Investigate the failure first.
 
@@ -423,6 +463,8 @@ For failed Playwright tests, inspect:
 - `test-results/.last-run.json`
 - `test-results/bootRun.<E2E_RUN_ID>.stdout.log`
 - `test-results/bootRun.<E2E_RUN_ID>.stderr.log`
+- `output/chat-scroll-test-<E2E_RUN_ID>/**`
+- `output/room-layout-test-<uiCapacity>-<E2E_RUN_ID>/**`
 
 ### 3.4 Clean Up Only the Test Server
 
@@ -453,6 +495,10 @@ The E2E test account email format is:
 ```text
 playwright.<E2E_RUN_ID>.<scenarioId>.<playerNumber>@example.com
 ```
+
+Both `test:e2e` and `test:e2e:ui` use this namespace. The UI suite uses the
+`chat-scroll` and `room-layout` scenario IDs, and its room titles start with
+`Playwright MVP UI`, so the same cleanup transaction covers both suites.
 
 Cleanup rules:
 
@@ -701,7 +747,8 @@ For every result, include:
 - JUnit XML paths
 - Gradle HTML report path
 - Playwright trace and screenshot paths
-- Playwright discovery output and the six required scenario names
+- Playwright core discovery output and the six required scenario names
+- Playwright UI discovery output and the two required UI scenario names
 - Requested worker count and effective worker count (`1` for the current suite)
 - Application stdout and stderr log paths
 

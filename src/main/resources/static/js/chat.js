@@ -15,6 +15,7 @@
   const chatChannel = document.querySelector('#chatChannel');
   const readyButton = document.querySelector('#ready');
   const startButton = document.querySelector('#startGame');
+  const readyNote = document.querySelector('.ready-note');
   const startGameNotice = document.querySelector('#startGameNotice');
   const memberGrid = document.querySelector('#memberGrid');
   const roomPlayerCount = document.querySelector('#roomPlayerCount');
@@ -461,6 +462,9 @@
   }
 
   function updateStartGameAvailability(isOnline = connected) {
+    if (readyNote) {
+      readyNote.hidden = gameStarted || currentParticipant?.host === true;
+    }
     if (!startButton) {
       return;
     }
@@ -592,6 +596,9 @@
     // 공개 상태가 갱신될 때마다 행동 버튼과 타이머도 함께 다시 계산한다.
     gameState = state;
     gamePanel.hidden = false;
+    if (readyNote) {
+      readyNote.hidden = true;
+    }
     const currentGamePlayer = Array.isArray(state.players)
       ? state.players.find(player => Number(player.userId) === userId)
       : null;
@@ -887,10 +894,11 @@
     if (!gameActionStatus) {
       return;
     }
+    gameActionStatus.hidden = gameState.phase === 'ROLE_ASSIGNMENT';
     if (currentGamePlayer && !currentGamePlayer.alive) {
       gameActionStatus.textContent = '탈락한 참가자는 투표할 수 없습니다.';
     } else if (gameState.phase === 'ROLE_ASSIGNMENT') {
-      gameActionStatus.textContent = `역할 확인 ${Number(gameState.submittedVotes) || 0}/${Number(gameState.eligibleVoters) || 0}`;
+      gameActionStatus.textContent = '';
     } else if (gameState.phase === 'FINAL_DEFENSE') {
       gameActionStatus.textContent = '변론이 끝나면 처형 찬반 투표가 시작됩니다.';
     } else if (isExecutionPhase && !isExecutionVoter) {

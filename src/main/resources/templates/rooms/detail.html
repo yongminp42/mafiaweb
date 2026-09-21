@@ -87,27 +87,35 @@
             </article>
           </div>
 
-          <div class="alert alert-light border small mb-3">
+          <div class="alert alert-light border small mb-3 room-settings">
             <strong>기본 설정</strong>
             <span class="text-secondary ms-2">역할 확인 10초 · 낮 60초 · 지목 투표 15초 · 최종 변론 15초 · 처형 투표 15초 · 밤 30초</span>
           </div>
-          <button class="ready btn btn-coral w-100 py-2 fw-bold" id="ready" type="button">준비 완료</button>
-          <button
-              class="start-game btn btn-dark w-100 py-2 fw-bold mt-2"
-              id="startGame"
-              type="button"
-              hidden>
-            게임 시작
-          </button>
+          <div class="room-actions" id="roomActions">
+            <button class="ready btn btn-coral w-100 py-2 fw-bold" id="ready" type="button">준비 완료</button>
+            <button
+                class="start-game btn btn-dark w-100 py-2 fw-bold"
+                id="startGame"
+                type="button"
+                hidden>
+              게임 시작
+            </button>
+          </div>
           <p class="ready-note text-center text-secondary small mt-2 mb-0">모든 참가자가 준비되면 게임이 시작됩니다.</p>
           <p class="start-game-note text-center text-secondary small mt-1 mb-0" id="startGameNotice" hidden></p>
         </div>
       </div>
-      <div id="gamePanelHost"></div>
+      <div id="gamePanelHost">
+        <div id="gamePanelPlaceholder" class="card border-0 shadow-sm rounded-4" aria-label="GAME 영역">
+          <div class="game-panel-placeholder-body">
+            <p class="eyebrow text-coral mb-0">GAME</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <aside class="col-lg-4 room-chat-column" aria-label="대기방 채팅">
-      <div class="chat-panel card border-0 shadow-sm rounded-4 h-100 overflow-hidden w-100">
+      <div class="chat-panel card border-0 shadow-sm rounded-4 overflow-hidden w-100">
         <div class="card-header bg-white d-flex align-items-center gap-2 py-3">
           <i id="chatStatusDot"></i>
           <b>대기방 채팅</b>
@@ -145,7 +153,7 @@
         </div>
         <div class="text-end">
           <small class="text-secondary d-block">남은 시간</small>
-          <strong id="gameTimer" class="fs-4">--</strong>
+          <strong id="gameTimer" class="fs-5">--</strong>
         </div>
       </div>
       <p id="gameMessage" class="text-secondary small mt-3 mb-3">게임이 시작되면 현재 페이즈가 표시됩니다.</p>

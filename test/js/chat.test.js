@@ -37,7 +37,7 @@ function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
           <strong id="gameResultAliveLabel">-</strong>
           <small id="gameResultNotice"></small>
         </div>
-        <div id="gameRolePanel" hidden><strong id="gameRoleLabel"></strong><button id="confirmGameRole" hidden>역할 확인 완료</button></div>
+        <div id="gameRolePanel" hidden><span>내 역할</span><strong id="gameRoleLabel"></strong><button id="confirmGameRole" hidden>역할 확인 완료</button></div>
         <p id="finalDefenseNotice" hidden></p>
         <div id="gameActions" hidden>
           <div id="nominationAction" hidden>
@@ -300,6 +300,7 @@ test('chat renders a role received through the private role queue', () => {
 
     const rolePanel = dom.window.document.querySelector('#gameRolePanel');
     assert.equal(rolePanel.hidden, true);
+    assert.equal(dom.window.document.querySelector('#gameRoleLabel').textContent, '');
 
     socket.receive(createFrame(
       'MESSAGE',
@@ -342,6 +343,8 @@ test('role confirmation is sent once and restored from the private role state', 
       JSON.stringify({ roomId: 7, role: 'MAFIA', roleLabel: '마피아', confirmed: false })));
 
     const confirm = dom.window.document.querySelector('#confirmGameRole');
+    assert.equal(dom.window.document.querySelector('#gameActionStatus').textContent, '');
+    assert.equal(dom.window.document.querySelector('#gameActionStatus').hidden, true);
     assert.equal(dom.window.document.querySelector('#gamePhaseTitle').textContent, '역할 확인');
     assert.equal(confirm.hidden, false);
     assert.equal(confirm.disabled, false);
