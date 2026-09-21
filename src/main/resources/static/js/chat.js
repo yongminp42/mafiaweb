@@ -159,6 +159,10 @@
     updateRoleConfirmation();
   }
 
+  function updateNightBackground(phase = gameState?.phase) {
+    document.body?.classList.toggle('night-phase', phase === 'NIGHT');
+  }
+
   function setNotice(message) {
     if (notice) {
       notice.textContent = message;
@@ -179,6 +183,7 @@
     stopHeartbeat();
     stopGameTimer();
     gameState = null;
+    updateNightBackground();
     clearGameRole();
     clearGameResult();
     clearNightResult();
@@ -208,6 +213,7 @@
     stopHeartbeat();
     stopGameTimer();
     gameState = null;
+    updateNightBackground();
     clearGameRole();
     clearGameResult();
     clearNightResult();
@@ -371,7 +377,7 @@
           return;
         }
         if (message.type === 'CHAT') {
-          appendMessage(message);
+          appendMessage(message, getMessageChannel(message, frame));
         }
       } catch (error) {
         console.error('Invalid chat message', error);
@@ -384,13 +390,35 @@
     }
   }
 
-  function appendMessage(message) {
+  function getMessageChannel(message, frame) {
+    const headers = frame?.headers || {};
+    const destination = String(headers.destination || '');
+    const subscription = String(headers.subscription || '');
+
+    // Dead-player messages use the public payload shape but are delivered through
+    // a private subscription, so the destination is the source of truth here.
+    if (subscription === 'dead-chat'
+        || destination === deadChatDestination
+        || destination.includes('/dead-chat')) {
+      return 'DEAD';
+    }
+
+    if (String(message?.channel || '').toUpperCase() === 'MAFIA'
+        || subscription === 'mafia-chat') {
+      return 'MAFIA';
+    }
+
+    return 'PUBLIC';
+  }
+
+  function appendMessage(message, channel = 'PUBLIC') {
     const senderName = String(message.sender || '알 수 없음').trim() || '알 수 없음';
     const isOwnMessage = senderName === nickname;
+    const normalizedChannel = ['PUBLIC', 'MAFIA', 'DEAD'].includes(channel) ? channel : 'PUBLIC';
     const item = document.createElement('article');
-    item.className = `chat-message ${isOwnMessage ? 'own' : 'other'}`;
+    item.className = `chat-message ${isOwnMessage ? 'own' : 'other'} channel-${normalizedChannel.toLowerCase()}`;
     item.dataset.sender = senderName;
-    item.dataset.channel = message.channel || 'PUBLIC';
+    item.dataset.channel = normalizedChannel;
 
     const avatar = document.createElement('div');
     avatar.className = `chat-avatar chat-avatar-${getSenderColor(senderName)}`;
@@ -595,6 +623,7 @@
     // 역할 정보는 개인 큐로, 페이즈·타이머·생존자 목록은 공개 토픽으로 받는다.
     // 공개 상태가 갱신될 때마다 행동 버튼과 타이머도 함께 다시 계산한다.
     gameState = state;
+    updateNightBackground(state.phase);
     updateParticipantDeathStates();
     gamePanel.hidden = false;
     if (readyNote) {
@@ -1042,6 +1071,7 @@
     currentParticipants = [];
     currentParticipant = null;
     gameState = null;
+    updateNightBackground();
     clearGameRole();
     clearGameResult();
     clearNightResult();

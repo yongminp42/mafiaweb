@@ -14,16 +14,25 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
 
   const contexts = [];
   const pages = [];
+  let hostVideo;
 
   try {
     for (let index = 0; index < capacity; index += 1) {
-      const context = await browser.newContext({
+      const contextOptions = {
         baseURL,
         viewport: { width: 1440, height: 1000 }
-      });
+      };
+      if (index === 0) {
+        contextOptions.recordVideo = {
+          dir: artifactDirectory,
+          size: { width: 1440, height: 1000 }
+        };
+      }
+      const context = await browser.newContext(contextOptions);
       contexts.push(context);
       const page = await context.newPage();
       pages.push(page);
+      if (index === 0) hostVideo = page.video();
 
       const email = `playwright.${runId}.room-layout.${index}@example.com`;
       await page.goto('/signup');
@@ -63,6 +72,60 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(host.locator('#gamePanelPlaceholder')).toBeVisible();
     await expect(host.locator('#gamePanelPlaceholder')).toHaveText('GAME');
     await expect(host.locator('#gameRolePanel')).toBeHidden();
+    const backLink = host.locator('.room-back-link');
+    await expect(backLink).toBeVisible();
+    await expect(backLink).toHaveAttribute('href', '/rooms');
+    await expect(backLink).toContainText('게임 목록으로');
+    const dayVisual = await host.evaluate(() => {
+      const link = document.querySelector('.room-back-link');
+      if (!link) throw new Error('The room back link is missing.');
+      const linkStyle = getComputedStyle(link);
+      const bodyStyle = getComputedStyle(document.body);
+      return {
+        link: {
+          color: linkStyle.color,
+          backgroundColor: linkStyle.backgroundColor,
+          borderColor: linkStyle.borderTopColor
+        },
+        body: {
+          backgroundColor: bodyStyle.backgroundColor,
+          transitionProperty: bodyStyle.transitionProperty,
+          transitionDuration: bodyStyle.transitionDuration
+        }
+      };
+    });
+    expect(dayVisual.body.transitionProperty).toContain('background-color');
+    expect(dayVisual.body.transitionDuration).toContain('0.8s');
+
+    await host.evaluate(() => document.body.classList.add('night-phase'));
+    await host.waitForTimeout(900);
+    const nightVisual = await host.evaluate(() => {
+      const linkStyle = getComputedStyle(document.querySelector('.room-back-link'));
+      return {
+        link: {
+          color: linkStyle.color,
+          backgroundColor: linkStyle.backgroundColor,
+          borderColor: linkStyle.borderTopColor
+        },
+        bodyBackgroundColor: getComputedStyle(document.body).backgroundColor
+      };
+    });
+    expect(nightVisual.bodyBackgroundColor).not.toBe(dayVisual.body.backgroundColor);
+    expect(nightVisual.link).toEqual(dayVisual.link);
+    await host.screenshot({
+      path: path.join(artifactDirectory, 'night-background-and-back-link.png'),
+      fullPage: true
+    });
+
+    await host.evaluate(() => document.body.classList.remove('night-phase'));
+    await host.waitForTimeout(900);
+    await expect.poll(
+      () => host.evaluate(() => getComputedStyle(document.body).backgroundColor)
+    ).toBe(dayVisual.body.backgroundColor);
+    await host.screenshot({
+      path: path.join(artifactDirectory, 'restored-background-and-back-link.png'),
+      fullPage: true
+    });
     await expect(host.locator('#startGame')).toBeVisible();
     await expect(pages[1].locator('#startGame')).toBeHidden();
     const hostButtonPositions = await host.evaluate(() => {
@@ -149,5 +212,8 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     );
   } finally {
     await Promise.all(contexts.map(context => context.close().catch(() => {})));
+    if (hostVideo) {
+      await hostVideo.saveAs(path.join(artifactDirectory, 'room-layout-transition.webm'));
+    }
   }
 });

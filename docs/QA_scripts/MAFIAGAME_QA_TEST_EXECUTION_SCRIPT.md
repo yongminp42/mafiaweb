@@ -39,6 +39,10 @@ Configuration rules:
 - Keep `$workerCount = 1` for the complete run. The suite shares a server, database, and lobby online-player baseline; running workers in parallel can mix those states.
 - Always report the requested and effective worker counts.
 - Do not inspect or assert font sizes. Chat UI checks are limited to functionality, overflow/scroll behavior, and whether visible channel labels are clipped.
+- Frontend design checks must use the actual game-room detail route `/rooms/{roomId}` and its server-rendered template. The lobby route `/rooms` is not sufficient evidence for room UI changes.
+- For the current room UI, verify the fixed `게임 목록으로` button remains visible in both normal and `body.night-phase` backgrounds without switching its own colors by phase.
+- Verify `PUBLIC`, `MAFIA`, and `DEAD` message bubbles have distinct channel classes and visible visual treatment. Verify that the page-only `NIGHT` background is gray, transitions through `background-color`, and returns to the normal light background after `DAY_DISCUSSION` or `FINISHED`.
+- Save actual game-room screenshots for normal, night, and restored states. When an animation change is in scope, save a short browser video covering normal → night → normal; do not replace server-rendered evidence with an AI mockup or an isolated CSS/DOM preview.
 - The expected server phase order is `ROLE_ASSIGNMENT(15s) → DAY_DISCUSSION(60s) → NOMINATION_VOTE(20s) → FINAL_DEFENSE(20s, when a unique nominee exists) → EXECUTION_VOTE(20s) → NIGHT(35s)`. `ROLE_ASSIGNMENT` may end early when every living player confirms their role.
 - Replace `$projectPath` and `$baseUrl` if the project is moved or the server configuration changes.
 - Reserve `$serverPort` for a fresh QA server built from the current workspace. If that port is already occupied, choose another unused port and update `$baseUrl` before proceeding. Never assume an existing server contains the current source.
@@ -174,6 +178,8 @@ Verify and report:
 - Police investigation result rendering
 - Game result rendering
 - Participant death-state rendering: when a game state marks a player as `alive: false`, the matching card receives `.participant-dead`, shows `사망`, and living cards remain unchanged
+- Channel rendering: incoming public, mafia, and dead messages receive `.channel-public`, `.channel-mafia`, and `.channel-dead` respectively
+- Night background state: `NIGHT` adds `.night-phase`; `DAY_DISCUSSION` and `FINISHED` remove it
 - Reconnection handling
 
 Report the standalone JavaScript result separately from the Gradle Java result. If the
@@ -378,6 +384,10 @@ Verify:
 - Game result rendering
 - Winning faction, role, and alive/dead status rendering
 - Participant death-state rendering: after execution or a night-state update, the affected participant card has the grey/red visual treatment and visible `사망` status; living participant cards do not receive the death style
+- Actual game-room navigation control: `/rooms/{roomId}` shows a visible `.room-back-link` button with `/rooms` as its destination and `게임 목록으로` as its label
+- Back-link contrast: the button's color, background, and border remain the same when `body.night-phase` is toggled, while the page background changes to gray and later restores to the normal light color
+- Background transition: the game-room body exposes a `background-color` transition in both directions; capture normal, night, and restored screenshots and the requested transition video
+- Channel bubble visual treatment: mafia bubbles use a dark gray background with a light gray border and light red text; dead bubbles combine light gray and light red background treatment with a red border
 - `PLAYING` to `WAITING` transition
 - Ready reset
 - Same-room replay
@@ -433,7 +443,7 @@ The UI regression inventory must also map to these executable cases:
 | Case | Playwright test | Required result |
 |---|---|---|
 | Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
-| 8-player role layout | `waiting and started room layout (8 players)` | Eight participants render; host controls remain aligned; left/right columns have equal height; the role panel reaches the lower game-card edge; the role-confirmation status count is hidden; the `역할 확인 완료` button is at the panel bottom; screenshot is saved under the current `E2E_RUN_ID` |
+| 8-player role layout and room visual states | `waiting and started room layout (8 players)` | Eight participants render; host controls remain aligned; left/right columns have equal height; the role panel reaches the lower game-card edge; the role-confirmation status count is hidden; the `역할 확인 완료` button is at the panel bottom; `.room-back-link` is visible and readable in normal/night backgrounds; normal, night, and restored screenshots plus `room-layout-transition.webm` are saved under the current `E2E_RUN_ID` |
 
 The four normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 generated only when `PLAYER_COUNTS` contains `6`, so omitting `6` makes the run
@@ -599,6 +609,11 @@ Validate the following:
 32. No role/investigation disclosure on death
 33. Full role reveal after game completion
 34. Server-time deadline handling and duplicate-request idempotency
+35. Actual game-room `게임 목록으로` button visibility and `/rooms` navigation target
+36. Fixed back-link contrast in both normal and `NIGHT` page backgrounds
+37. Public, mafia, and dead bubble channel classes and visual distinction
+38. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
+39. Server-rendered game-room screenshots and, for animation changes, a normal→night→normal browser video
 
 ### 4.1 Extended Boundary and Resilience Checks
 
@@ -652,6 +667,9 @@ When source inspection is used to explain a result, inspect these contracts dire
 - `chat.js`: the host start button is disabled below four participants, and the current presence snapshot drives the displayed participant count and readiness state.
 - `ChatService`/`RoomGameService`: public and mafia channel permissions are checked from the authoritative alive/role/phase state.
 - `RoomGameService.snapshot`: roles are null before `FINISHED` and included for all players only after game completion.
+- `src/main/resources/templates/rooms/detail.html`: the game-room back control is a button-styled `.room-back-link` targeting `/rooms`.
+- `src/main/resources/static/css/app.css`: `.room-back-link` uses a fixed high-contrast palette; `body.night-phase` changes only the page background and `body` transitions `background-color` in both directions.
+- `src/main/resources/static/js/chat.js`: `getMessageChannel` and `appendMessage` assign the public, mafia, and dead channel classes, and game-phase rendering toggles `.night-phase`.
 - `test/e2e/mafia-mvp.spec.js`: the four count-driven cases verify role confirmation and final defense, and the two conditional six-player resilience cases are discovered before execution.
 
 Do not infer a runtime result from these contracts. Use them only to identify implementation evidence, expected behavior, or the root cause of a failed or unexecuted test.

@@ -318,6 +318,43 @@ test('chat renders game phases and sends nomination and execution votes', () => 
     ));
     assert.equal(dom.window.document.querySelector('#gamePhaseTitle').textContent, '밤');
     assert.equal(dom.window.document.querySelector('#gameActions').hidden, true);
+    assert.equal(dom.window.document.body.classList.contains('night-phase'), true);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'DAY_DISCUSSION',
+        phaseEndsAt: Date.now() + 60_000,
+        remainingSeconds: 60,
+        players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
+        nominatedUserId: null,
+        submittedVotes: 0,
+        eligibleVoters: 4,
+        message: '낮 토론이 시작되었습니다.'
+      })
+    ));
+    assert.equal(dom.window.document.body.classList.contains('night-phase'), false);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'FINISHED',
+        phaseEndsAt: Date.now(),
+        remainingSeconds: 0,
+        players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
+        nominatedUserId: null,
+        submittedVotes: 0,
+        eligibleVoters: 4,
+        message: '게임이 종료되었습니다.',
+        gameOver: true,
+        winningFaction: 'CITIZEN'
+      })
+    ));
+    assert.equal(dom.window.document.body.classList.contains('night-phase'), false);
   } finally {
     dom.window.close();
   }
@@ -750,6 +787,50 @@ test('chat renders incoming content as text instead of HTML', () => {
       ));
     }
     assert.equal(dom.window.document.querySelectorAll('.chat-message').length, 200);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('chat marks public, mafia, and dead messages with separate channel classes', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined', subscription: 'room-joined' },
+      JSON.stringify({
+        roomId: 7,
+        participants: [{ userId: 10, nickname: 'alice', host: true, ready: false }]
+      })
+    ));
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/chat', subscription: 'room-chat' },
+      JSON.stringify({ type: 'CHAT', sender: 'bob', content: 'public', channel: 'PUBLIC' })
+    ));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/queue/mafia-chat-user123', subscription: 'mafia-chat' },
+      JSON.stringify({ type: 'CHAT', sender: 'carol', content: 'mafia', channel: 'MAFIA' })
+    ));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/queue/dead-chat-user123', subscription: 'dead-chat' },
+      JSON.stringify({ type: 'CHAT', sender: 'dave', content: 'dead', channel: 'PUBLIC' })
+    ));
+
+    const messages = [...dom.window.document.querySelectorAll('.chat-message')];
+    assert.deepEqual(messages.map(message => message.dataset.channel), ['PUBLIC', 'MAFIA', 'DEAD']);
+    assert.equal(messages[0].classList.contains('channel-public'), true);
+    assert.equal(messages[1].classList.contains('channel-mafia'), true);
+    assert.equal(messages[2].classList.contains('channel-dead'), true);
   } finally {
     dom.window.close();
   }
