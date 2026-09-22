@@ -684,6 +684,46 @@ a {
   --chat-bubble-own-text: #633c3c;
 }
 
+.chat-message.channel-system {
+  --chat-bubble-background: #fff8df;
+  --chat-bubble-border: #e2c66f;
+  --chat-bubble-text: #66521f;
+}
+
+.chat-message.system {
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-system-icon {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d5b652;
+  border-radius: 50%;
+  color: #806619;
+  background: #fff1b8;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.chat-message.system .chat-message-body {
+  align-items: center;
+  max-width: calc(100% - 38px);
+}
+
+.chat-message.system .chat-message-sender {
+  color: #806619;
+}
+
+.chat-message.system .chat-message-bubble {
+  border-style: dashed;
+  text-align: center;
+}
+
 .chat-message.own {
   flex-direction: row-reverse;
   align-self: flex-end;

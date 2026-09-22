@@ -194,6 +194,30 @@ class RoomGameServiceTest {
     }
 
     @Test
+    void broadcastsSystemGuidanceWhenAGamePhaseStarts() throws Exception {
+        gameService.startGame(ROOM_ID, nightParticipants(), principalNamesForFourPlayers());
+
+        ArgumentCaptor<ChatMessage> initialMessage = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messagingTemplate).convertAndSend(
+                eq("/topic/rooms/1/chat"), initialMessage.capture());
+        assertThat(initialMessage.getValue().type()).isEqualTo("SYSTEM");
+        assertThat(initialMessage.getValue().content())
+                .contains("역할 확인")
+                .contains("역할 확인 완료");
+
+        clearInvocations(messagingTemplate);
+        advancePhaseOnce();
+
+        ArgumentCaptor<ChatMessage> dayMessage = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messagingTemplate).convertAndSend(
+                eq("/topic/rooms/1/chat"), dayMessage.capture());
+        assertThat(dayMessage.getValue().type()).isEqualTo("SYSTEM");
+        assertThat(dayMessage.getValue().content())
+                .contains("낮 토론")
+                .contains("지목 투표");
+    }
+
+    @Test
     void resendsOnlyTheCurrentPlayersRoleWhenStateIsSynchronized() {
         Map<Long, String> principalNames = Map.of(
                 1L, "alice@example.com",
@@ -1173,11 +1197,17 @@ class RoomGameServiceTest {
     }
 
     private RoomGameState latestPublicState() {
-        ArgumentCaptor<RoomGameState> captor = ArgumentCaptor.forClass(RoomGameState.class);
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
         verify(messagingTemplate, atLeastOnce())
                 .convertAndSend(anyString(), captor.capture());
-        List<RoomGameState> states = captor.getAllValues();
-        return states.get(states.size() - 1);
+        RoomGameState latest = null;
+        for (Object message : captor.getAllValues()) {
+            if (message instanceof RoomGameState state) {
+                latest = state;
+            }
+        }
+        assertThat(latest).isNotNull();
+        return latest;
     }
 
     private void setRole(long userId, GameRole role) throws Exception {

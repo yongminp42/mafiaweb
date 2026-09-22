@@ -16,6 +16,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import jakarta.annotation.PreDestroy;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.NonNull;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
@@ -105,6 +106,7 @@ public class RoomGameService {
         }
 
         broadcast(state);
+        broadcastPhaseSystemMessage(null, state);
         broadcastRoleAssignments(roleDeliveries);
     }
 
@@ -151,13 +153,13 @@ public class RoomGameService {
         if (state != null) {
             broadcast(state);
         }
-        if (roleAssignment != null) {
+        if (roleAssignment != null && principalName != null) {
             messagingTemplate.convertAndSendToUser(
                     principalName,
                     ROLE_DESTINATION,
                     roleAssignment);
         }
-        if (gameResult != null) {
+        if (gameResult != null && principalName != null) {
             messagingTemplate.convertAndSendToUser(
                     principalName,
                     RESULT_DESTINATION,
@@ -175,10 +177,15 @@ public class RoomGameService {
         if (request == null) {
             throw new RoomWebSocketException("게임 행동을 확인할 수 없습니다.");
         }
+        String principalName = principal.getName();
+        if (principalName == null) {
+            throw new RoomWebSocketException("로그인 정보를 확인할 수 없습니다.");
+        }
 
         long userId = PrincipalIdentity.from(principal).userId();
         RoomGameState state;
         GameRoleAssignment confirmedRole = null;
+        GamePhase previousPhase = null;
         GameRoom game = gamesByRoom.get(roomId);
         if (game == null) {
             throw new RoomWebSocketException("아직 게임이 시작되지 않았습니다.");
@@ -189,6 +196,7 @@ public class RoomGameService {
             if (!isCurrentGame(game)) {
                 throw new RoomWebSocketException("게임 세션이 변경되었습니다.");
             }
+            previousPhase = game.phase;
             if (game.phase == GamePhase.FINISHED) {
                 throw new RoomWebSocketException("게임이 이미 종료되었습니다.");
             }
@@ -239,8 +247,9 @@ public class RoomGameService {
         }
 
         broadcast(state);
+        broadcastPhaseSystemMessage(previousPhase, state);
         if (confirmedRole != null) {
-            messagingTemplate.convertAndSendToUser(principal.getName(), ROLE_DESTINATION,
+            messagingTemplate.convertAndSendToUser(principalName, ROLE_DESTINATION,
                     confirmedRole);
         }
     }
@@ -334,6 +343,9 @@ public class RoomGameService {
         }
 
         for (String principalName : recipients) {
+            if (principalName == null) {
+                continue;
+            }
             messagingTemplate.convertAndSendToUser(
                     principalName,
                     MAFIA_CHAT_DESTINATION,
@@ -355,7 +367,7 @@ public class RoomGameService {
         GameRoom game = gamesByRoom.get(message.roomId());
         if (game == null) {
             messagingTemplate.convertAndSend(
-                    CHAT_DESTINATION.formatted(message.roomId()),
+                    formatDestination(CHAT_DESTINATION, message.roomId()),
                     message);
             return;
         }
@@ -384,12 +396,15 @@ public class RoomGameService {
 
         if (!deadSender) {
             messagingTemplate.convertAndSend(
-                    CHAT_DESTINATION.formatted(message.roomId()),
+                    formatDestination(CHAT_DESTINATION, message.roomId()),
                     message);
             return;
         }
 
         for (String principalName : deadRecipients) {
+            if (principalName == null) {
+                continue;
+            }
             messagingTemplate.convertAndSendToUser(
                     principalName,
                     DEAD_CHAT_DESTINATION,
@@ -439,6 +454,7 @@ public class RoomGameService {
     public void handlePlayerDeparture(long roomId, long userId) {
         RoomGameState state = null;
         List<GameResultDelivery> resultDeliveries = List.of();
+        GamePhase previousPhase = null;
         GameRoom game = gamesByRoom.get(roomId);
         if (game == null) {
             return;
@@ -454,6 +470,7 @@ public class RoomGameService {
             }
 
             // 이탈자는 투표와 밤 행동에서도 즉시 제외한다.
+            previousPhase = game.phase;
             player.alive = false;
             game.nominationVotes.remove(userId);
             game.executionVotes.remove(userId);
@@ -483,6 +500,7 @@ public class RoomGameService {
         }
 
         broadcast(state);
+        broadcastPhaseSystemMessage(previousPhase, state);
         broadcastGameResults(resultDeliveries);
         if (state.gameOver() && roomPresenceService != null) {
             roomPresenceService.resetAfterGame(roomId);
@@ -558,6 +576,7 @@ public class RoomGameService {
         game.nightActions.put(actorId, new NightAction(actorId, action, target.userId));
     }
 
+    @SuppressWarnings("unused")
     private void advancePhase(long roomId) {
         advancePhase(gamesByRoom.get(roomId));
     }
@@ -566,6 +585,7 @@ public class RoomGameService {
         RoomGameState state = null;
         List<GameResultDelivery> resultDeliveries = List.of();
         List<InvestigationDelivery> investigationDeliveries = List.of();
+        GamePhase previousPhase = null;
         if (!isCurrentGame(game)) {
             return;
         }
@@ -575,6 +595,7 @@ public class RoomGameService {
             if (!isCurrentGame(game)) {
                 return;
             }
+            previousPhase = game.phase;
             phaseScheduler.complete(game.roomId);
             long now = System.currentTimeMillis();
             if (now < game.phaseEndsAt) {
@@ -615,6 +636,7 @@ public class RoomGameService {
 
         if (state != null) {
             broadcast(state);
+            broadcastPhaseSystemMessage(previousPhase, state);
         }
         broadcastInvestigationResults(investigationDeliveries);
         broadcastGameResults(resultDeliveries);
@@ -644,7 +666,7 @@ public class RoomGameService {
         boolean executed = target != null
                 && target.alive
                 && RoomGameRules.hasExecutionMajority(game.players, game.executionVotes);
-        if (executed) {
+        if (executed && target != null) {
             // 지목된 참가자 본인의 표는 제외한 찬성표가 반대표보다 많을 때만 처형한다.
             target.alive = false;
         }
@@ -653,7 +675,7 @@ public class RoomGameService {
         GameFaction winner = RoomGameRules.determineWinner(game.players.values());
         if (winner != null) {
             finishGame(game, now, winner);
-        } else if (executed) {
+        } else if (executed && target != null) {
             moveTo(game, GamePhase.NIGHT, now, target.nickname + "님이 처형되었습니다. 밤이 시작됩니다.");
         } else {
             moveTo(game, GamePhase.NIGHT, now, "처형되지 않았습니다. 밤이 시작됩니다.");
@@ -772,9 +794,71 @@ public class RoomGameService {
                 game.winningFaction == null ? null : game.winningFaction.name());
     }
 
+    private void broadcastPhaseSystemMessage(GamePhase previousPhase, RoomGameState state) {
+        if (state == null || state.phase() == null
+                || (previousPhase != null && previousPhase.name().equals(state.phase()))) {
+            return;
+        }
+
+        messagingTemplate.convertAndSend(
+                formatDestination(CHAT_DESTINATION, state.roomId()),
+                ChatMessage.system(state.roomId(), phaseSystemMessage(state)));
+    }
+
+    private static String phaseSystemMessage(RoomGameState state) {
+        String title;
+        String guidance;
+        switch (state.phase()) {
+            case "ROLE_ASSIGNMENT" -> {
+                title = "역할 확인";
+                guidance = "각자에게 전달된 역할을 확인하고 역할 확인 완료를 눌러 주세요. "
+                        + "자신의 역할은 다른 참가자에게 공개하지 마세요.";
+            }
+            case "DAY_DISCUSSION" -> {
+                title = "낮 토론";
+                guidance = "생존자들은 자유롭게 토론하세요. 밤의 결과와 참가자들의 발언을 근거로 "
+                        + "마피아를 추리합니다. 시간이 끝나면 지목 투표가 시작됩니다.";
+            }
+            case "NOMINATION_VOTE" -> {
+                title = "지목 투표";
+                guidance = "살아있는 참가자 중 의심되는 한 명을 지목하세요. 최다 득표자가 최종 변론을 하며, "
+                        + "동률이면 처형 없이 밤으로 넘어갑니다.";
+            }
+            case "FINAL_DEFENSE" -> {
+                title = "최종 변론";
+                guidance = "지목된 참가자만 전체 채널에서 최종 변론을 할 수 있습니다. "
+                        + "다른 생존자는 변론을 들은 뒤 처형 여부를 판단하세요.";
+            }
+            case "EXECUTION_VOTE" -> {
+                title = "처형 투표";
+                guidance = "지목된 참가자를 처형할지 찬반 투표하세요. 지목된 참가자는 투표할 수 없으며, "
+                        + "찬성이 반대보다 많으면 처형됩니다.";
+            }
+            case "NIGHT" -> {
+                title = "밤";
+                guidance = "밤 행동을 제출하세요. 마피아는 제거, 의사는 보호, 경찰은 조사 대상을 선택합니다. "
+                        + "시민은 행동 없이 기다립니다. 역할별 밤 행동은 한 번만 제출할 수 있습니다.";
+            }
+            case "FINISHED" -> {
+                title = "게임 종료";
+                guidance = "게임이 종료되었습니다. 공개된 역할과 승리 진영을 확인하고 다음 게임을 준비하세요.";
+            }
+            default -> {
+                title = "게임 안내";
+                guidance = "현재 게임 진행 상황을 확인해 주세요.";
+            }
+        }
+
+        String transition = state.message();
+        if (transition == null || transition.isBlank()) {
+            transition = title + " 페이즈가 시작되었습니다.";
+        }
+        return "【" + title + " 안내】\n" + transition + "\n" + guidance;
+    }
+
     private void broadcast(RoomGameState state) {
         messagingTemplate.convertAndSend(
-                GAME_DESTINATION.formatted(state.roomId()),
+                formatDestination(GAME_DESTINATION, state.roomId()),
                 state);
     }
 
@@ -832,19 +916,29 @@ public class RoomGameService {
 
     private void broadcastRoleAssignments(List<RoleDelivery> deliveries) {
         for (RoleDelivery delivery : deliveries) {
+            String principalName = delivery.principalName();
+            GameRoleAssignment assignment = delivery.assignment();
+            if (principalName == null || assignment == null) {
+                continue;
+            }
             messagingTemplate.convertAndSendToUser(
-                    delivery.principalName(),
+                    principalName,
                     ROLE_DESTINATION,
-                    delivery.assignment());
+                    assignment);
         }
     }
 
     private void broadcastGameResults(List<GameResultDelivery> deliveries) {
         for (GameResultDelivery delivery : deliveries) {
+            String principalName = delivery.principalName();
+            GameResult result = delivery.result();
+            if (principalName == null || result == null) {
+                continue;
+            }
             messagingTemplate.convertAndSendToUser(
-                    delivery.principalName(),
+                    principalName,
                     RESULT_DESTINATION,
-                    delivery.result());
+                    result);
         }
     }
 
@@ -882,11 +976,24 @@ public class RoomGameService {
 
     private void broadcastInvestigationResults(List<InvestigationDelivery> deliveries) {
         for (InvestigationDelivery delivery : deliveries) {
+            String principalName = delivery.principalName();
+            GameInvestigationResult result = delivery.result();
+            if (principalName == null || result == null) {
+                continue;
+            }
             messagingTemplate.convertAndSendToUser(
-                    delivery.principalName(),
+                    principalName,
                     NIGHT_RESULT_DESTINATION,
-                    delivery.result());
+                    result);
         }
+    }
+
+    private static @NonNull String formatDestination(String template, long roomId) {
+        String destination = template.formatted(roomId);
+        if (destination == null) {
+            throw new IllegalStateException("WebSocket destination must not be null.");
+        }
+        return destination;
     }
 
     @PreDestroy

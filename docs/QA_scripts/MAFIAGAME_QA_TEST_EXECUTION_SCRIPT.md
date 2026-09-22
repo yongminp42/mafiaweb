@@ -169,6 +169,9 @@ Verify and report:
 - Passed and failed test counts
 - STOMP communication
 - Lobby and participant synchronization
+- Patch-note modal opens on the first lobby visit and exposes the `오늘 하루 그만보기` checkbox and `닫기` button
+- Same-day patch-note suppression works only when the stored patch-note content is unchanged
+- Updating the patch-note content invalidates the previous hide preference and requires a new checkbox selection
 - Ready state handling
 - Game phase UI rendering
 - Role-confirmation phase UI and confirmation request
@@ -179,6 +182,8 @@ Verify and report:
 - Game result rendering
 - Participant death-state rendering: when a game state marks a player as `alive: false`, the matching card receives `.participant-dead`, shows `사망`, and living cards remain unchanged
 - Channel rendering: incoming public, mafia, and dead messages receive `.channel-public`, `.channel-mafia`, and `.channel-dead` respectively
+- System message rendering: incoming `SYSTEM` messages receive `.system` and `.channel-system`, display the `게임 안내` sender, and remain text-only
+- Phase guidance rendering: the room chat displays one public system message for role confirmation, day discussion, nomination, final defense, execution vote, night, and game completion
 - Night background state: `NIGHT` adds `.night-phase`; `DAY_DISCUSSION` and `FINISHED` remove it
 - Reconnection handling
 
@@ -352,6 +357,10 @@ Verify:
 - MariaDB preflight passed before any application process was started
 - Playwright core discovery listed all six required cases when `$playerCounts = '4,5,6,8'`
 - Playwright UI discovery listed the chat-scroll case and the 8-player room-layout case
+- Lobby patch-note modal appears after the lobby loads when no matching local preference exists
+- The modal footer places `오늘 하루 그만보기` on the left and `닫기` on the right; closing without checking allows the modal to appear on the next visit
+- Checking `오늘 하루 그만보기` suppresses the same patch-note content for the current local date
+- Changing any visible patch-note text causes the modal to appear again and requires a new hide selection
 - `ROLE_ASSIGNMENT` is observed before the first `DAY_DISCUSSION`, and roles are not present in public game state
 - Role confirmation is submitted once per living player; duplicate confirmations are rejected
 - All confirmations cause early transition to `DAY_DISCUSSION`; otherwise the 15-second role timer advances the game
@@ -388,6 +397,7 @@ Verify:
 - Back-link contrast: the button's color, background, and border remain the same when `body.night-phase` is toggled, while the page background changes to gray and later restores to the normal light color
 - Background transition: the game-room body exposes a `background-color` transition in both directions; capture normal, night, and restored screenshots and the requested transition video
 - Channel bubble visual treatment: mafia bubbles use a dark gray background with a light gray border and light red text; dead bubbles combine light gray and light red background treatment with a red border
+- Phase system-message flow: every actual phase transition publishes one `SYSTEM` message to the room topic; the message includes the transition result and the phase-specific Mafia-game instructions, without revealing private role or investigation data
 - `PLAYING` to `WAITING` transition
 - Ready reset
 - Same-room replay
@@ -612,8 +622,9 @@ Validate the following:
 35. Actual game-room `게임 목록으로` button visibility and `/rooms` navigation target
 36. Fixed back-link contrast in both normal and `NIGHT` page backgrounds
 37. Public, mafia, and dead bubble channel classes and visual distinction
-38. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
-39. Server-rendered game-room screenshots and, for animation changes, a normal→night→normal browser video
+38. System phase-message type, public delivery, one-message-per-transition behavior, and phase-specific guidance
+39. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
+40. Server-rendered game-room screenshots and, for animation changes, a normal→night→normal browser video
 
 ### 4.1 Extended Boundary and Resilience Checks
 
@@ -669,10 +680,34 @@ When source inspection is used to explain a result, inspect these contracts dire
 - `RoomGameService.snapshot`: roles are null before `FINISHED` and included for all players only after game completion.
 - `src/main/resources/templates/rooms/detail.html`: the game-room back control is a button-styled `.room-back-link` targeting `/rooms`.
 - `src/main/resources/static/css/app.css`: `.room-back-link` uses a fixed high-contrast palette; `body.night-phase` changes only the page background and `body` transitions `background-color` in both directions.
-- `src/main/resources/static/js/chat.js`: `getMessageChannel` and `appendMessage` assign the public, mafia, and dead channel classes, and game-phase rendering toggles `.night-phase`.
+- `RoomGameService.broadcastPhaseSystemMessage`/`phaseSystemMessage`: a real phase transition publishes one public `SYSTEM` chat message containing the transition result and role-appropriate instructions; state synchronization must not publish a duplicate.
+- `ChatMessage.system`: system messages use the `SYSTEM` type, the public channel, and the `게임 안내` sender.
+- `src/main/resources/static/js/chat.js`: `getMessageChannel` and `appendMessage` assign the public, mafia, dead, and system channel classes; system messages render as text-only guidance; game-phase rendering toggles `.night-phase`.
+- `src/main/resources/static/css/app.css`: `.channel-system` and `.chat-message.system` provide the distinct system-guidance visual treatment.
 - `test/e2e/mafia-mvp.spec.js`: the four count-driven cases verify role confirmation and final defense, and the two conditional six-player resilience cases are discovered before execution.
 
 Do not infer a runtime result from these contracts. Use them only to identify implementation evidence, expected behavior, or the root cause of a failed or unexecuted test.
+
+### 4.3 Phase System Message Checks
+
+Validate the phase guidance through the public room chat, not only through the game panel:
+
+1. Starting a game publishes one `SYSTEM` message for `ROLE_ASSIGNMENT`. It instructs each player to check the private role and confirm it without revealing the role.
+2. `DAY_DISCUSSION` publishes the night result when applicable and explains that living players should discuss and prepare for nomination.
+3. `NOMINATION_VOTE` explains the single-target nomination rule and the tie-to-night behavior.
+4. `FINAL_DEFENSE` identifies the defense phase and explains that only the nominee may speak in the public channel.
+5. `EXECUTION_VOTE` explains the nominee exclusion and the yes-versus-no majority rule.
+6. `NIGHT` explains the mafia kill, doctor protection, police investigation, and citizen wait behavior without naming private targets or results.
+7. `FINISHED` announces completion and directs players to the public role/result reveal.
+8. A state synchronization request, reconnect, duplicate action, or timer refresh does not publish a second system message for the same phase.
+9. System messages are delivered through the public room topic to all subscribed room clients, including clients that are dead, while mafia chat and police investigation results remain private.
+10. The browser renders system messages as `.chat-message.system.channel-system` with text content only; HTML-like content must not create DOM elements.
+
+Automated evidence for these checks:
+
+- `RoomGameServiceTest.broadcastsSystemGuidanceWhenAGamePhaseStarts` verifies server publication at game start and at a phase transition.
+- `test/js/chat.test.js` verifies `SYSTEM` message routing and the distinct system-message DOM treatment.
+- `test/e2e/mafia-mvp.spec.js` traces `SYSTEM` messages and waits for role, day, nomination, defense, execution, night, and finished guidance in the browser flow.
 
 ## 5. Analysis Rules
 

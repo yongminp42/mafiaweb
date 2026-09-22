@@ -3,7 +3,13 @@ HELP.md
 .gradle/
 .gradle-codex/
 .gradle-test/
-build/
+/build/
+!/build/
+/build/*
+!/build/libs/
+/build/libs/*
+!/build/libs/mafiagame-0.1.1-alpha.jar
+!/build/libs/mafiagame-0.1.1-alpha-plain.jar
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
