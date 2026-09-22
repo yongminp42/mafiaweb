@@ -28,7 +28,7 @@ public class RoomGameController {
             GameActionRequest request,
             Principal principal) {
         // 인증 주체와 행동 요청을 게임 서비스에 전달한다.
-        // 페이즈·역할·생존 여부 검증과 상태 변경은 서비스의 단일 잠금 안에서 처리한다.
+        // 페이즈·역할·생존 여부 검증과 상태 변경은 해당 방의 잠금 안에서 처리한다.
         roomGameService.submitAction(roomId, principal, request);
     }
 

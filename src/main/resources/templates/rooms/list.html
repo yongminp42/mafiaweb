@@ -83,8 +83,7 @@
           <span>♟</span> <strong class="text-dark" data-room-player-count th:text="${room.currentPlayers}">6</strong>
           <em class="fst-normal text-body-tertiary">/</em> <span th:text="${room.maxPlayers}">8</span>
         </div>
-        <a class="join btn btn-sm btn-outline-secondary" th:href="@{/rooms/{id}(id=${room.roomId})}"
-           th:text="${room.status == 'PLAYING'} ? '관전하기' : '입장하기'">입장하기</a>
+        <a class="join btn btn-sm btn-outline-secondary" th:href="@{/rooms/{id}(id=${room.roomId})}">입장하기</a>
       </article>
     </div>
     <p class="empty text-center text-secondary py-4 mb-0" id="emptyState"

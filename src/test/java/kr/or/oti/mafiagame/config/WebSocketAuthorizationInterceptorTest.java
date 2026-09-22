@@ -60,6 +60,25 @@ class WebSocketAuthorizationInterceptorTest {
     }
 
     @Test
+    void routesJoinedParticipantsMafiaChatToServiceForRoleValidation() {
+        Principal principal = () -> "player";
+        when(roomPresenceService.isParticipant(7L, "session")).thenReturn(true);
+        Message<byte[]> send = message(StompCommand.SEND, "/app/rooms/7/mafia-chat", principal);
+
+        assertThat(interceptor.preSend(send, null)).isSameAs(send);
+    }
+
+    @Test
+    void rejectsMafiaChatFromNonParticipantBeforeService() {
+        Principal principal = () -> "player";
+        when(roomPresenceService.isParticipant(7L, "session")).thenReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(
+                message(StompCommand.SEND, "/app/rooms/7/mafia-chat", principal), null))
+                .hasMessage("먼저 게임방에 입장해 주세요.");
+    }
+
+    @Test
     void allowsJoinButRequiresLoginForRoomOperations() {
         Principal principal = () -> "player";
         Message<byte[]> join = message(StompCommand.SEND, "/app/rooms/7/join", principal);

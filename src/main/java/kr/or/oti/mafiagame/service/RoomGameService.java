@@ -2,18 +2,15 @@ package kr.or.oti.mafiagame.service;
 
 import java.security.Principal;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadFactory;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 import jakarta.annotation.PreDestroy;
@@ -46,13 +43,12 @@ public class RoomGameService {
     private static final String NIGHT_RESULT_DESTINATION = "/queue/night-result";
     private static final String MAFIA_CHAT_DESTINATION = "/queue/mafia-chat";
     private static final String DEAD_CHAT_DESTINATION = "/queue/dead-chat";
+    private static final String CHAT_DESTINATION = "/topic/rooms/%d/chat";
 
     private final SimpMessagingTemplate messagingTemplate;
     private final RoomPresenceService roomPresenceService;
-    private final ReentrantLock gameLock = new ReentrantLock();
-    private final ScheduledExecutorService phaseExecutor;
-    private final Map<Long, GameRoom> gamesByRoom = new HashMap<>();
-    private final Map<Long, ScheduledFuture<?>> phaseTasksByRoom = new HashMap<>();
+    private final GamePhaseScheduler phaseScheduler;
+    private final Map<Long, GameRoom> gamesByRoom = new ConcurrentHashMap<>();
 
     public RoomGameService(SimpMessagingTemplate messagingTemplate) {
         this(messagingTemplate, null);
@@ -64,12 +60,7 @@ public class RoomGameService {
             RoomPresenceService roomPresenceService) {
         this.messagingTemplate = messagingTemplate;
         this.roomPresenceService = roomPresenceService;
-        ThreadFactory threadFactory = runnable -> {
-            Thread thread = new Thread(runnable, "room-game-phase");
-            thread.setDaemon(true);
-            return thread;
-        };
-        this.phaseExecutor = Executors.newScheduledThreadPool(1, threadFactory);
+        this.phaseScheduler = new GamePhaseScheduler();
     }
 
     public void startGame(long roomId, List<RoomParticipant> participants) {
@@ -84,31 +75,33 @@ public class RoomGameService {
             throw new RoomWebSocketException("게임 시작에는 참가자가 필요합니다.");
         }
 
+        GameRoom game = new GameRoom(roomId);
+        for (RoomParticipant participant : participants) {
+            game.players.putIfAbsent(
+                    participant.userId(),
+                    new GamePlayerState(participant.userId(), participant.nickname()));
+        }
+        if (principalNames != null) {
+            game.principalNames.putAll(principalNames);
+        }
+        // 새 게임을 공개하기 전에 역할을 배정한다. 공개 후의 페이즈 변경과
+        // 타이머 예약은 방별 잠금 안에서 처리한다.
+        RoomGameRules.assignRoles(game.players);
+
         RoomGameState state;
         List<RoleDelivery> roleDeliveries;
-        gameLock.lock();
+        game.lock.lock();
         try {
             // 같은 방에서 이전 게임의 타이머가 남아 있을 수 있으므로 먼저 취소한다.
-            cancelPhaseTask(roomId);
-            GameRoom game = new GameRoom(roomId);
-            for (RoomParticipant participant : participants) {
-                game.players.putIfAbsent(
-                        participant.userId(),
-                        new GamePlayerState(participant.userId(), participant.nickname()));
-            }
-            if (principalNames != null) {
-                game.principalNames.putAll(principalNames);
-            }
-            // 역할 배정부터 첫 페이즈 예약까지를 하나의 잠금 안에서 처리한다.
-            // 타이머 콜백이 초기화 중인 게임을 관찰하거나 덮어쓰지 못하게 한다.
-            assignRoles(game);
+            phaseScheduler.cancel(roomId);
             gamesByRoom.put(roomId, game);
-            moveTo(game, GamePhase.DAY_DISCUSSION, System.currentTimeMillis(), "낮 토론이 시작되었습니다.");
+            moveTo(game, GamePhase.ROLE_ASSIGNMENT, System.currentTimeMillis(),
+                    "본인의 역할을 확인해 주세요.");
             state = snapshot(game, System.currentTimeMillis());
             roleDeliveries = roleDeliveries(game);
             scheduleNextPhase(game);
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
 
         broadcast(state);
@@ -124,27 +117,35 @@ public class RoomGameService {
         GameRoleAssignment roleAssignment = null;
         GameResult gameResult = null;
         String principalName = principal == null ? null : principal.getName();
-        gameLock.lock();
-        try {
-            // 새로고침한 클라이언트에는 공개 상태를 재전송하고, 인증된 사용자에게만
-            // 자신의 역할과 종료 결과를 복원한다.
-            GameRoom game = gamesByRoom.get(roomId);
-            state = game == null ? null : snapshot(game, System.currentTimeMillis());
-            if (game != null && principal != null) {
-                long userId = PrincipalIdentity.from(principal).userId();
-                String assignedPrincipalName = game.principalNames.get(userId);
-                GamePlayerState player = game.players.get(userId);
-                if (player != null
-                        && player.role != null
-                        && Objects.equals(assignedPrincipalName, principalName)) {
-                    roleAssignment = toRoleAssignment(game, player);
-                    if (game.phase == GamePhase.FINISHED && game.winningFaction != null) {
-                        gameResult = toGameResult(game, player);
+        GameRoom game = gamesByRoom.get(roomId);
+        if (game == null) {
+            state = null;
+        } else {
+            game.lock.lock();
+            try {
+                if (!isCurrentGame(game)) {
+                    state = null;
+                } else {
+                    // 새로고침한 클라이언트에는 공개 상태를 재전송하고, 인증된 사용자에게만
+                    // 자신의 역할과 종료 결과를 복원한다.
+                    state = snapshot(game, System.currentTimeMillis());
+                    if (principal != null) {
+                        long userId = PrincipalIdentity.from(principal).userId();
+                        String assignedPrincipalName = game.principalNames.get(userId);
+                        GamePlayerState player = game.players.get(userId);
+                        if (player != null
+                                && player.role != null
+                                && Objects.equals(assignedPrincipalName, principalName)) {
+                            roleAssignment = toRoleAssignment(game, player);
+                            if (game.phase == GamePhase.FINISHED && game.winningFaction != null) {
+                                gameResult = toGameResult(game, player);
+                            }
+                        }
                     }
                 }
+            } finally {
+                game.lock.unlock();
             }
-        } finally {
-            gameLock.unlock();
         }
 
         if (state != null) {
@@ -177,13 +178,16 @@ public class RoomGameService {
 
         long userId = PrincipalIdentity.from(principal).userId();
         RoomGameState state;
-        GameInvestigationResult investigationResult = null;
-        gameLock.lock();
+        GameRoleAssignment confirmedRole = null;
+        GameRoom game = gamesByRoom.get(roomId);
+        if (game == null) {
+            throw new RoomWebSocketException("아직 게임이 시작되지 않았습니다.");
+        }
+        game.lock.lock();
         try {
             // 행동 검증과 기록을 같은 잠금 안에서 수행해 중복 제출과 타이머 경계의 경쟁 상태를 막는다.
-            GameRoom game = gamesByRoom.get(roomId);
-            if (game == null) {
-                throw new RoomWebSocketException("아직 게임이 시작되지 않았습니다.");
+            if (!isCurrentGame(game)) {
+                throw new RoomWebSocketException("게임 세션이 변경되었습니다.");
             }
             if (game.phase == GamePhase.FINISHED) {
                 throw new RoomWebSocketException("게임이 이미 종료되었습니다.");
@@ -197,32 +201,47 @@ public class RoomGameService {
                 throw new RoomWebSocketException("게임 참가자 정보를 찾을 수 없습니다.");
             }
             if (!player.alive) {
-                throw new RoomWebSocketException("탈락한 참가자는 행동할 수 없습니다.");
+                throw new RoomWebSocketException("사망한 참가자는 행동할 수 없습니다.");
             }
 
-            if (game.phase == GamePhase.NOMINATION_VOTE) {
+            if (game.phase == GamePhase.ROLE_ASSIGNMENT) {
+                if (!"ROLE_CONFIRM".equals(request.action())) {
+                    throw new RoomWebSocketException("역할을 확인해 주세요.");
+                }
+                if (!game.confirmedRoleUserIds.add(userId)) {
+                    throw new RoomWebSocketException("이미 역할을 확인했습니다.");
+                }
+                confirmedRole = toRoleAssignment(game, player);
+                // 모두 확인하면 대기 시간을 줄인다. 확인하지 않은 참가자가 있어도
+                // 역할 확인 타이머가 끝나면 게임이 진행된다.
+                if (game.confirmedRoleUserIds.size() == game.players.values().stream()
+                        .filter(candidate -> candidate.alive).count()) {
+                    moveTo(game, GamePhase.DAY_DISCUSSION, System.currentTimeMillis(),
+                            "낮 토론이 시작되었습니다.");
+                    scheduleNextPhase(game);
+                }
+            } else if (game.phase == GamePhase.NOMINATION_VOTE) {
                 // 낮 지목 투표는 대상 ID를 기록하고, 페이즈 종료 시 단독 최다 득표를 확정한다.
                 submitNomination(game, userId, request.targetUserId());
             } else if (game.phase == GamePhase.EXECUTION_VOTE) {
                 // 처형 투표는 찬반만 저장하며, 실제 처형 여부는 타이머 종료 시 과반으로 결정한다.
                 submitExecutionVote(game, userId, request.execute());
             } else if (game.phase == GamePhase.NIGHT) {
-                // 밤 행동은 역할별로 한 번만 허용한다. 경찰 조사 결과는 제출 즉시 개인 큐로 반환한다.
-                investigationResult = submitNightAction(game, userId, request);
+                // 밤 행동은 역할별로 한 번만 허용한다. 경찰 조사 결과는 밤 정산 후
+                // 조사 경찰의 생존 여부를 확인해 개인 큐로 전달한다.
+                submitNightAction(game, userId, request);
             } else {
                 throw new RoomWebSocketException("현재는 투표할 수 있는 시간이 아닙니다.");
             }
             state = snapshot(game, System.currentTimeMillis());
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
 
         broadcast(state);
-        if (investigationResult != null) {
-            messagingTemplate.convertAndSendToUser(
-                    principal.getName(),
-                    NIGHT_RESULT_DESTINATION,
-                    investigationResult);
+        if (confirmedRole != null) {
+            messagingTemplate.convertAndSendToUser(principal.getName(), ROLE_DESTINATION,
+                    confirmedRole);
         }
     }
 
@@ -232,16 +251,19 @@ public class RoomGameService {
      */
     public void validateChat(long roomId, long userId, ChatChannel requestedChannel) {
         ChatChannel channel = requestedChannel == null ? ChatChannel.PUBLIC : requestedChannel;
-        gameLock.lock();
-        try {
-            GameRoom game = gamesByRoom.get(roomId);
-            if (game == null) {
-                if (channel == ChatChannel.MAFIA) {
-                    throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
-                }
-                return;
+        GameRoom game = gamesByRoom.get(roomId);
+        if (game == null) {
+            if (channel == ChatChannel.MAFIA) {
+                throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
             }
+            return;
+        }
 
+        game.lock.lock();
+        try {
+            if (!isCurrentGame(game)) {
+                throw new RoomWebSocketException("게임 세션이 변경되었습니다.");
+            }
             GamePlayerState player = game.players.get(userId);
             if (player == null) {
                 // A new participant may join the same room after the previous game finished.
@@ -260,6 +282,13 @@ public class RoomGameService {
             if (channel == ChatChannel.MAFIA && player.role != GameRole.MAFIA) {
                 throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
             }
+            if (game.phase == GamePhase.ROLE_ASSIGNMENT) {
+                throw new RoomWebSocketException("역할 확인 중에는 채팅할 수 없습니다.");
+            }
+            if (game.phase == GamePhase.FINAL_DEFENSE && channel == ChatChannel.PUBLIC
+                    && !Objects.equals(game.nominatedUserId, userId)) {
+                throw new RoomWebSocketException("최종 변론 중에는 지목된 참가자만 전체 채팅을 할 수 있습니다.");
+            }
             if (game.phase == GamePhase.NIGHT && channel == ChatChannel.PUBLIC) {
                 throw new RoomWebSocketException("밤에는 마피아 채널만 사용할 수 있습니다.");
             }
@@ -267,7 +296,7 @@ public class RoomGameService {
                 throw new RoomWebSocketException("게임이 종료되어 마피아 채널을 사용할 수 없습니다.");
             }
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
     }
 
@@ -281,10 +310,13 @@ public class RoomGameService {
         }
 
         List<String> recipients = new ArrayList<>();
-        gameLock.lock();
+        GameRoom game = gamesByRoom.get(message.roomId());
+        if (game == null) {
+            return;
+        }
+        game.lock.lock();
         try {
-            GameRoom game = gamesByRoom.get(message.roomId());
-            if (game == null || game.phase == GamePhase.FINISHED) {
+            if (!isCurrentGame(game) || game.phase == GamePhase.FINISHED) {
                 return;
             }
             for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
@@ -298,7 +330,7 @@ public class RoomGameService {
                 }
             }
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
 
         for (String principalName : recipients) {
@@ -320,16 +352,19 @@ public class RoomGameService {
 
         List<String> deadRecipients = new ArrayList<>();
         boolean deadSender = false;
-        gameLock.lock();
+        GameRoom game = gamesByRoom.get(message.roomId());
+        if (game == null) {
+            messagingTemplate.convertAndSend(
+                    CHAT_DESTINATION.formatted(message.roomId()),
+                    message);
+            return;
+        }
+
+        game.lock.lock();
         try {
-            GameRoom game = gamesByRoom.get(message.roomId());
-            if (game == null) {
-                messagingTemplate.convertAndSend(
-                        "/topic/rooms/" + message.roomId() + "/chat",
-                        message);
+            if (!isCurrentGame(game)) {
                 return;
             }
-
             GamePlayerState sender = game.players.get(senderId);
             deadSender = sender != null && !sender.alive;
             if (deadSender) {
@@ -344,12 +379,12 @@ public class RoomGameService {
                 }
             }
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
 
         if (!deadSender) {
             messagingTemplate.convertAndSend(
-                    "/topic/rooms/" + message.roomId() + "/chat",
+                    CHAT_DESTINATION.formatted(message.roomId()),
                     message);
             return;
         }
@@ -363,17 +398,37 @@ public class RoomGameService {
     }
 
     public boolean canAccessMafiaChat(long roomId, long userId) {
-        gameLock.lock();
+        GameRoom game = gamesByRoom.get(roomId);
+        if (game == null) {
+            return false;
+        }
+        game.lock.lock();
         try {
-            GameRoom game = gamesByRoom.get(roomId);
-            GamePlayerState player = game == null ? null : game.players.get(userId);
-            return game != null
+            GamePlayerState player = game.players.get(userId);
+            return isCurrentGame(game)
                     && game.phase != GamePhase.FINISHED
                     && player != null
                     && player.alive
                     && player.role == GameRole.MAFIA;
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
+        }
+    }
+
+    public boolean isDepartedPlayer(long roomId, long userId) {
+        GameRoom game = gamesByRoom.get(roomId);
+        if (game == null) {
+            return false;
+        }
+        game.lock.lock();
+        try {
+            GamePlayerState player = game.players.get(userId);
+            return isCurrentGame(game)
+                    && game.phase != GamePhase.FINISHED
+                    && player != null
+                    && !player.alive;
+        } finally {
+            game.lock.unlock();
         }
     }
 
@@ -384,11 +439,17 @@ public class RoomGameService {
     public void handlePlayerDeparture(long roomId, long userId) {
         RoomGameState state = null;
         List<GameResultDelivery> resultDeliveries = List.of();
-        gameLock.lock();
+        GameRoom game = gamesByRoom.get(roomId);
+        if (game == null) {
+            return;
+        }
+        game.lock.lock();
         try {
-            GameRoom game = gamesByRoom.get(roomId);
-            GamePlayerState player = game == null ? null : game.players.get(userId);
-            if (player == null || game.phase == GamePhase.FINISHED || !player.alive) {
+            GamePlayerState player = game.players.get(userId);
+            if (!isCurrentGame(game)
+                    || player == null
+                    || game.phase == GamePhase.FINISHED
+                    || !player.alive) {
                 return;
             }
 
@@ -397,16 +458,28 @@ public class RoomGameService {
             game.nominationVotes.remove(userId);
             game.executionVotes.remove(userId);
             game.nightActions.remove(userId);
+            game.confirmedRoleUserIds.remove(userId);
 
             // 탈주로 생존자 수가 바뀌었으므로 처형과 동일하게 승리 조건을 다시 계산한다.
-            GameFaction winner = determineWinner(game);
+            GameFaction winner = RoomGameRules.determineWinner(game.players.values());
             if (winner != null) {
                 finishGame(game, System.currentTimeMillis(), winner);
                 resultDeliveries = gameResultDeliveries(game);
+            } else if (game.phase == GamePhase.FINAL_DEFENSE
+                    && Objects.equals(game.nominatedUserId, userId)) {
+                moveTo(game, GamePhase.NIGHT, System.currentTimeMillis(),
+                        "지목된 참가자가 퇴장하여 처형 없이 밤으로 넘어갑니다.");
+                scheduleNextPhase(game);
+            } else if (game.phase == GamePhase.ROLE_ASSIGNMENT
+                    && game.confirmedRoleUserIds.size() == game.players.values().stream()
+                            .filter(candidate -> candidate.alive).count()) {
+                moveTo(game, GamePhase.DAY_DISCUSSION, System.currentTimeMillis(),
+                        "낮 토론이 시작되었습니다.");
+                scheduleNextPhase(game);
             }
             state = snapshot(game, System.currentTimeMillis());
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
 
         broadcast(state);
@@ -454,7 +527,7 @@ public class RoomGameService {
         game.executionVotes.put(voterId, execute);
     }
 
-    private GameInvestigationResult submitNightAction(
+    private void submitNightAction(
             GameRoom game,
             long actorId,
             GameActionRequest request) {
@@ -481,34 +554,28 @@ public class RoomGameService {
             throw new RoomWebSocketException("마피아는 같은 마피아를 제거할 수 없습니다.");
         }
 
-        // 마피아 제거와 의사 보호는 밤 종료 시 함께 해석하고, 경찰 조사는 제출 즉시 결과를 반환한다.
+        // 마피아 제거·의사 보호·경찰 조사는 밤 정산 시점에 함께 확정한다.
         game.nightActions.put(actorId, new NightAction(actorId, action, target.userId));
-        if (action != GameNightAction.POLICE_INVESTIGATE) {
-            return null;
-        }
-
-        GameFaction faction = target.role == GameRole.MAFIA
-                ? GameFaction.MAFIA
-                : GameFaction.CITIZEN;
-        return new GameInvestigationResult(
-                game.roomId,
-                target.userId,
-                target.nickname,
-                faction.name(),
-            faction.investigationLabel());
     }
 
     private void advancePhase(long roomId) {
+        advancePhase(gamesByRoom.get(roomId));
+    }
+
+    private void advancePhase(GameRoom game) {
         RoomGameState state = null;
         List<GameResultDelivery> resultDeliveries = List.of();
-        gameLock.lock();
+        List<InvestigationDelivery> investigationDeliveries = List.of();
+        if (!isCurrentGame(game)) {
+            return;
+        }
+        game.lock.lock();
         try {
-            phaseTasksByRoom.remove(roomId);
-            GameRoom game = gamesByRoom.get(roomId);
-            if (game == null) {
+            // 이전 게임의 콜백이 새 게임을 변경하지 않도록 현재 세션인지 다시 확인한다.
+            if (!isCurrentGame(game)) {
                 return;
             }
-
+            phaseScheduler.complete(game.roomId);
             long now = System.currentTimeMillis();
             if (now < game.phaseEndsAt) {
                 // 이전 예약이 조금 일찍 실행됐으면 남은 시간만큼 다시 예약한다.
@@ -518,14 +585,18 @@ public class RoomGameService {
 
             // 타이머 콜백은 현재 페이즈의 종료 시점에서 다음 페이즈와 결과를 확정한다.
             switch (game.phase) {
+                case ROLE_ASSIGNMENT -> moveTo(game, GamePhase.DAY_DISCUSSION, now,
+                        "낮 토론이 시작되었습니다.");
                 case DAY_DISCUSSION -> moveTo(
                         game,
                         GamePhase.NOMINATION_VOTE,
                         now,
                         "지목할 참가자를 선택해 주세요.");
                 case NOMINATION_VOTE -> moveAfterNominationVote(game, now);
+                case FINAL_DEFENSE -> moveTo(game, GamePhase.EXECUTION_VOTE, now,
+                        "지목된 참가자를 처형할지 투표해 주세요.");
                 case EXECUTION_VOTE -> moveAfterExecutionVote(game, now);
-                case NIGHT -> moveAfterNight(game, now);
+                case NIGHT -> investigationDeliveries = moveAfterNight(game, now);
                 case FINISHED -> {
                     // 종료된 게임은 다음 페이즈로 진행하지 않는다.
                 }
@@ -539,20 +610,21 @@ public class RoomGameService {
                 resultDeliveries = gameResultDeliveries(game);
             }
         } finally {
-            gameLock.unlock();
+            game.lock.unlock();
         }
 
         if (state != null) {
             broadcast(state);
         }
+        broadcastInvestigationResults(investigationDeliveries);
         broadcastGameResults(resultDeliveries);
         if (state != null && state.gameOver() && roomPresenceService != null) {
-            roomPresenceService.resetAfterGame(roomId);
+            roomPresenceService.resetAfterGame(game.roomId);
         }
     }
 
     private void moveAfterNominationVote(GameRoom game, long now) {
-        Long nominee = findNominee(game);
+        Long nominee = RoomGameRules.findNominee(game.players, game.nominationVotes);
         game.nominatedUserId = nominee;
         if (nominee == null) {
             // 최다 득표가 동률이거나 유효한 투표가 없으면 처형 없이 밤으로 넘어간다.
@@ -561,22 +633,24 @@ public class RoomGameService {
         }
 
         GamePlayerState target = game.players.get(nominee);
-        moveTo(game, GamePhase.EXECUTION_VOTE, now,
-                target.nickname + "님을 처형할지 투표해 주세요.");
+        moveTo(game, GamePhase.FINAL_DEFENSE, now,
+                target.nickname + "님의 최종 변론 시간입니다.");
     }
 
     private void moveAfterExecutionVote(GameRoom game, long now) {
         GamePlayerState target = game.nominatedUserId == null
                 ? null
                 : game.players.get(game.nominatedUserId);
-        boolean executed = target != null && target.alive && hasExecutionMajority(game);
+        boolean executed = target != null
+                && target.alive
+                && RoomGameRules.hasExecutionMajority(game.players, game.executionVotes);
         if (executed) {
             // 지목된 참가자 본인의 표는 제외한 찬성표가 반대표보다 많을 때만 처형한다.
             target.alive = false;
         }
 
         // 사망 반영 후 승리를 판정한다. 마피아 전멸이면 시민 승리가 우선한다.
-        GameFaction winner = determineWinner(game);
+        GameFaction winner = RoomGameRules.determineWinner(game.players.values());
         if (winner != null) {
             finishGame(game, now, winner);
         } else if (executed) {
@@ -586,17 +660,26 @@ public class RoomGameService {
         }
     }
 
-    private void moveAfterNight(GameRoom game, long now) {
+    private List<InvestigationDelivery> moveAfterNight(GameRoom game, long now) {
         // 두 마피아의 공격과 의사의 보호를 합산해 밤 결과를 먼저 확정한다.
-        NightResolution resolution = resolveNightActions(game);
-        GameFaction winner = determineWinner(game);
+        RoomGameRules.NightOutcome resolution = RoomGameRules.resolveNightActions(
+                game.players,
+                game.nightActions.values(),
+                ThreadLocalRandom.current());
+        // 경찰이 같은 밤에 사망했다면 조사 결과를 보내지 않는다. 행동 제출 시점이
+        // 아니라 밤 결과가 확정된 뒤 생존 여부를 확인해야 이 규칙을 지킬 수 있다.
+        List<InvestigationDelivery> investigationDeliveries = buildInvestigationDeliveries(game);
+        GameFaction winner = RoomGameRules.determineWinner(game.players.values());
         if (winner != null) {
             finishGame(game, now, winner);
-            return;
+            return investigationDeliveries;
         }
-        if (resolution.killedPlayer() != null) {
+        GamePlayerState killedPlayer = resolution.killedPlayerId() == null
+                ? null
+                : game.players.get(resolution.killedPlayerId());
+        if (killedPlayer != null) {
             moveTo(game, GamePhase.DAY_DISCUSSION, now,
-                    resolution.killedPlayer().nickname + "님이 밤에 사망했습니다. 낮 토론이 시작되었습니다.");
+                    killedPlayer.nickname + "님이 밤에 사망했습니다. 낮 토론이 시작되었습니다.");
         } else if (resolution.protectedTarget()) {
             moveTo(game, GamePhase.DAY_DISCUSSION, now,
                     "의사의 보호로 밤 동안 사망자가 없었습니다. 낮 토론이 시작되었습니다.");
@@ -604,75 +687,7 @@ public class RoomGameService {
             moveTo(game, GamePhase.DAY_DISCUSSION, now,
                     "밤 동안 사망자가 없었습니다. 낮 토론이 시작되었습니다.");
         }
-    }
-
-    private NightResolution resolveNightActions(GameRoom game) {
-        Long mafiaTargetId = findMafiaTarget(game);
-        if (mafiaTargetId == null) {
-            return new NightResolution(null, false);
-        }
-
-        GamePlayerState target = game.players.get(mafiaTargetId);
-        if (target == null || !target.alive) {
-            return new NightResolution(null, false);
-        }
-
-        // 의사가 공격 대상과 같은 사람을 보호하면 사망 처리를 생략한다.
-        boolean protectedTarget = game.nightActions.values().stream()
-                .anyMatch(action -> action.action == GameNightAction.DOCTOR_PROTECT
-                        && action.targetUserId == mafiaTargetId);
-        if (protectedTarget) {
-            return new NightResolution(null, true);
-        }
-
-        target.alive = false;
-        return new NightResolution(target, false);
-    }
-
-    private Long findMafiaTarget(GameRoom game) {
-        // 여러 마피아의 공격을 대상별로 합산한다. 최다 득표 대상이 여러 명이면 그중 하나를 무작위로 선택한다.
-        Map<Long, Integer> targetCounts = new HashMap<>();
-        for (NightAction action : game.nightActions.values()) {
-            if (action.action != GameNightAction.MAFIA_KILL) {
-                continue;
-            }
-            GamePlayerState target = game.players.get(action.targetUserId);
-            if (target != null && target.alive && target.role != GameRole.MAFIA) {
-                targetCounts.merge(action.targetUserId, 1, Integer::sum);
-            }
-        }
-        if (targetCounts.isEmpty()) {
-            return null;
-        }
-
-        int highest = targetCounts.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-        List<Long> leaders = targetCounts.entrySet().stream()
-                .filter(entry -> entry.getValue() == highest)
-                .map(Map.Entry::getKey)
-                .toList();
-        return leaders.get(ThreadLocalRandom.current().nextInt(leaders.size()));
-    }
-
-    private GameFaction determineWinner(GameRoom game) {
-        int mafiaAlive = 0;
-        int citizenFactionAlive = 0;
-        for (GamePlayerState player : game.players.values()) {
-            if (!player.alive) {
-                continue;
-            }
-            if (player.role == GameRole.MAFIA) {
-                mafiaAlive++;
-            } else {
-                citizenFactionAlive++;
-            }
-        }
-
-        // 마피아 전멸을 먼저 검사해 마지막 마피아 처형 직후 시민 승리를 보장한다.
-        if (mafiaAlive == 0) {
-            return GameFaction.CITIZEN;
-        }
-        // 마피아 수가 시민 진영 생존자 수보다 많을 때만 마피아가 즉시 승리한다.
-        return mafiaAlive > citizenFactionAlive ? GameFaction.MAFIA : null;
+        return investigationDeliveries;
     }
 
     private void finishGame(GameRoom game, long now, GameFaction winner) {
@@ -680,51 +695,18 @@ public class RoomGameService {
         moveTo(game, GamePhase.FINISHED, now, winner.label() + " 승리!");
     }
 
-    private Long findNominee(GameRoom game) {
-        Map<Long, Integer> voteCounts = new HashMap<>();
-        for (Map.Entry<Long, Long> vote : game.nominationVotes.entrySet()) {
-            GamePlayerState voter = game.players.get(vote.getKey());
-            GamePlayerState target = game.players.get(vote.getValue());
-            if (voter != null && voter.alive && target != null && target.alive
-                    && !Objects.equals(voter.userId, target.userId)) {
-                voteCounts.merge(target.userId, 1, Integer::sum);
-            }
-        }
-        if (voteCounts.isEmpty()) {
-            return null;
-        }
-
-        int highest = voteCounts.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-        List<Long> leaders = voteCounts.entrySet().stream()
-                .filter(entry -> entry.getValue() == highest)
-                .map(Map.Entry::getKey)
-                .toList();
-        return leaders.size() == 1 ? leaders.get(0) : null;
-    }
-
-    private boolean hasExecutionMajority(GameRoom game) {
-        int yesVotes = 0;
-        int noVotes = 0;
-        for (Map.Entry<Long, Boolean> vote : game.executionVotes.entrySet()) {
-            GamePlayerState voter = game.players.get(vote.getKey());
-            if (voter == null || !voter.alive) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(vote.getValue())) {
-                yesVotes++;
-            } else {
-                noVotes++;
-            }
-        }
-        return yesVotes > noVotes;
-    }
-
     private void moveTo(GameRoom game, GamePhase phase, long now, String message) {
         // 페이즈 전환 시 새 페이즈에서만 유효한 투표와 행동을 초기화한다.
         game.phase = phase;
         game.phaseEndsAt = now + phase.durationSeconds() * 1_000L;
         game.message = message;
-        if (phase == GamePhase.DAY_DISCUSSION) {
+        if (phase == GamePhase.ROLE_ASSIGNMENT) {
+            game.confirmedRoleUserIds.clear();
+            game.nominatedUserId = null;
+            game.nominationVotes.clear();
+            game.executionVotes.clear();
+            game.nightActions.clear();
+        } else if (phase == GamePhase.DAY_DISCUSSION) {
             game.nominatedUserId = null;
             game.nominationVotes.clear();
             game.executionVotes.clear();
@@ -746,18 +728,12 @@ public class RoomGameService {
 
     private void scheduleNextPhase(GameRoom game) {
         // 방마다 하나의 타이머만 유지해 이전 페이즈 콜백이 중복 실행되지 않게 한다.
-        cancelPhaseTask(game.roomId);
         long delay = Math.max(1L, game.phaseEndsAt - System.currentTimeMillis());
-        phaseTasksByRoom.put(
-                game.roomId,
-                phaseExecutor.schedule(() -> advancePhase(game.roomId), delay, TimeUnit.MILLISECONDS));
+        phaseScheduler.schedule(game.roomId, delay, () -> advancePhase(game));
     }
 
-    private void cancelPhaseTask(long roomId) {
-        ScheduledFuture<?> task = phaseTasksByRoom.remove(roomId);
-        if (task != null) {
-            task.cancel(false);
-        }
+    private boolean isCurrentGame(GameRoom game) {
+        return game != null && gamesByRoom.get(game.roomId) == game;
     }
 
     private RoomGameState snapshot(GameRoom game, long now) {
@@ -773,6 +749,7 @@ public class RoomGameService {
         }
 
         int submittedVotes = switch (game.phase) {
+            case ROLE_ASSIGNMENT -> game.confirmedRoleUserIds.size();
             case NOMINATION_VOTE -> game.nominationVotes.size();
             case EXECUTION_VOTE -> game.executionVotes.size();
             default -> 0;
@@ -801,36 +778,6 @@ public class RoomGameService {
                 state);
     }
 
-    private void assignRoles(GameRoom game) {
-        // 역할 목록을 만든 뒤 플레이어 ID를 섞어 역할과 사용자를 무작위로 매칭한다.
-        List<Long> playerIds = new ArrayList<>(game.players.keySet());
-        List<GameRole> roles = createRoles(playerIds.size());
-        Collections.shuffle(playerIds);
-        for (int index = 0; index < playerIds.size(); index++) {
-            game.players.get(playerIds.get(index)).role = roles.get(index);
-        }
-    }
-
-    private static List<GameRole> createRoles(int playerCount) {
-        // 4~5명은 마피아 1명, 6~8명은 마피아 2명으로 구성하고 나머지는
-        // 의사 1명·경찰 1명·시민으로 채운다.
-        List<GameRole> roles = new ArrayList<>(playerCount);
-        int mafiaCount = playerCount >= 6 ? 2 : 1;
-        for (int index = 0; index < mafiaCount && roles.size() < playerCount; index++) {
-            roles.add(GameRole.MAFIA);
-        }
-        if (roles.size() < playerCount) {
-            roles.add(GameRole.DOCTOR);
-        }
-        if (roles.size() < playerCount) {
-            roles.add(GameRole.POLICE);
-        }
-        while (roles.size() < playerCount) {
-            roles.add(GameRole.CITIZEN);
-        }
-        return roles;
-    }
-
     private List<RoleDelivery> roleDeliveries(GameRoom game) {
         List<RoleDelivery> deliveries = new ArrayList<>();
         for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
@@ -850,7 +797,8 @@ public class RoomGameService {
         return new GameRoleAssignment(
                 game.roomId,
                 player.role.name(),
-                player.role.label());
+                player.role.label(),
+                game.confirmedRoleUserIds.contains(player.userId));
     }
 
     private GameResult toGameResult(GameRoom game, GamePlayerState player) {
@@ -900,18 +848,61 @@ public class RoomGameService {
         }
     }
 
+    private List<InvestigationDelivery> buildInvestigationDeliveries(GameRoom game) {
+        List<InvestigationDelivery> deliveries = new ArrayList<>();
+        for (NightAction action : game.nightActions.values()) {
+            if (action.action != GameNightAction.POLICE_INVESTIGATE) {
+                continue;
+            }
+
+            GamePlayerState investigator = game.players.get(action.actorId);
+            GamePlayerState target = game.players.get(action.targetUserId);
+            String principalName = game.principalNames.get(action.actorId);
+            if (investigator == null
+                    || !investigator.alive
+                    || target == null
+                    || principalName == null
+                    || principalName.isBlank()) {
+                continue;
+            }
+
+            GameFaction faction = target.role == GameRole.MAFIA
+                    ? GameFaction.MAFIA
+                    : GameFaction.CITIZEN;
+            GameInvestigationResult result = new GameInvestigationResult(
+                    game.roomId,
+                    target.userId,
+                    target.nickname,
+                    faction.name(),
+                    faction.investigationLabel());
+            deliveries.add(new InvestigationDelivery(principalName, result));
+        }
+        return List.copyOf(deliveries);
+    }
+
+    private void broadcastInvestigationResults(List<InvestigationDelivery> deliveries) {
+        for (InvestigationDelivery delivery : deliveries) {
+            messagingTemplate.convertAndSendToUser(
+                    delivery.principalName(),
+                    NIGHT_RESULT_DESTINATION,
+                    delivery.result());
+        }
+    }
+
     @PreDestroy
     void shutdownPhaseExecutor() {
-        phaseExecutor.shutdownNow();
+        phaseScheduler.close();
     }
 
     private static final class GameRoom {
+        private final ReentrantLock lock = new ReentrantLock();
         private final long roomId;
         private final Map<Long, GamePlayerState> players = new LinkedHashMap<>();
         private final Map<Long, String> principalNames = new HashMap<>();
         private final Map<Long, Long> nominationVotes = new HashMap<>();
         private final Map<Long, Boolean> executionVotes = new HashMap<>();
         private final Map<Long, NightAction> nightActions = new HashMap<>();
+        private final Set<Long> confirmedRoleUserIds = new HashSet<>();
         private GamePhase phase;
         private long phaseEndsAt;
         private Long nominatedUserId;
@@ -923,7 +914,7 @@ public class RoomGameService {
         }
     }
 
-    private static final class GamePlayerState {
+    private static final class GamePlayerState implements RoomGameRules.GameRulePlayer {
         private final long userId;
         private final String nickname;
         private GameRole role;
@@ -932,6 +923,31 @@ public class RoomGameService {
         private GamePlayerState(long userId, String nickname) {
             this.userId = userId;
             this.nickname = nickname;
+        }
+
+        @Override
+        public long userId() {
+            return userId;
+        }
+
+        @Override
+        public GameRole role() {
+            return role;
+        }
+
+        @Override
+        public boolean alive() {
+            return alive;
+        }
+
+        @Override
+        public void setRole(GameRole role) {
+            this.role = role;
+        }
+
+        @Override
+        public void setAlive(boolean alive) {
+            this.alive = alive;
         }
     }
 
@@ -945,14 +961,15 @@ public class RoomGameService {
             GameResult result) {
     }
 
+    private record InvestigationDelivery(
+            String principalName,
+            GameInvestigationResult result) {
+    }
+
     private record NightAction(
             long actorId,
             GameNightAction action,
-            long targetUserId) {
+            long targetUserId) implements RoomGameRules.GameRuleNightAction {
     }
 
-    private record NightResolution(
-            GamePlayerState killedPlayer,
-            boolean protectedTarget) {
-    }
 }

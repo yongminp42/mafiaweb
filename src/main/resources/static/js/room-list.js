@@ -14,6 +14,7 @@
   let refreshTimer;
   let navigatingAway = false;
   let shouldReconnect = true;
+  let disconnectSent = false;
   let stopHeartbeat = () => {};
   const reconnectController = createReconnectController(connect);
 
@@ -43,6 +44,42 @@
         window.location.reload();
       }
     }, 150);
+  }
+
+  // 로비에서 다른 화면으로 이동하기 시작하면 예약된 목록 갱신이
+  // 현재 이동과 경쟁하지 않도록 즉시 중단한다.
+  function stopLobbyUpdates() {
+    navigatingAway = true;
+    shouldReconnect = false;
+    reconnectController.cancel();
+    if (refreshTimer !== undefined) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+    }
+    stopHeartbeat();
+    stopHeartbeat = () => {};
+    if (!disconnectSent && socket && socket.readyState === WebSocket.OPEN) {
+      disconnectSent = true;
+      socket.send(createFrame('DISCONNECT'));
+    }
+  }
+
+  function isPrimaryInternalLink(event) {
+    if (!event || event.defaultPrevented || event.button !== 0
+        || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return false;
+    }
+
+    const anchor = event.target?.closest?.('a[href]');
+    if (!anchor) {
+      return false;
+    }
+
+    try {
+      return new URL(anchor.href, window.location.href).origin === window.location.origin;
+    } catch {
+      return false;
+    }
   }
 
   function replaceLiveCount(roomId, count) {
@@ -184,19 +221,19 @@
     });
   }
 
-  window.addEventListener('beforeunload', () => {
-    navigatingAway = true;
-    shouldReconnect = false;
-    reconnectController.cancel();
-    if (refreshTimer !== undefined) {
-      window.clearTimeout(refreshTimer);
-      refreshTimer = undefined;
+  // 클릭/제출 시점에 먼저 정리해 beforeunload보다 빠른 타이머 경합도 막는다.
+  document.addEventListener('pointerdown', event => {
+    if (isPrimaryInternalLink(event)) {
+      stopLobbyUpdates();
     }
-    stopHeartbeat();
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(createFrame('DISCONNECT'));
+  }, true);
+  document.addEventListener('click', event => {
+    if (isPrimaryInternalLink(event)) {
+      stopLobbyUpdates();
     }
-  });
+  }, true);
+  document.addEventListener('submit', () => stopLobbyUpdates(), true);
+  window.addEventListener('beforeunload', stopLobbyUpdates);
 
   connect();
 })();

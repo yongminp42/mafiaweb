@@ -197,3 +197,47 @@ test('room list cancels a pending refresh when the page starts navigating away',
     dom.window.close();
   }
 });
+
+test('room list cancels a pending refresh when an internal link starts navigation', () => {
+  const dom = createDom(roomListMarkup());
+  const scheduledCallbacks = [];
+  const clearedTimers = [];
+  dom.window.setTimeout = callback => {
+    scheduledCallbacks.push(callback);
+    return scheduledCallbacks.length;
+  };
+  dom.window.clearTimeout = timerId => clearedTimers.push(timerId);
+  dom.window.document.body.insertAdjacentHTML(
+    'beforeend',
+    '<a class="join" href="/rooms/99">입장</a>'
+  );
+  // jsdom의 기본 링크 이동은 막고, 로비 스크립트의 capture 단계만 검증한다.
+  dom.window.document.addEventListener('click', event => event.preventDefault());
+
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify({ roomId: 99, currentPlayers: 1 })
+    ));
+
+    const link = dom.window.document.querySelector('a.join');
+    link.dispatchEvent(new dom.window.MouseEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+
+    assert.deepEqual(clearedTimers.filter(timerId => timerId !== undefined), [1]);
+    assert.equal(scheduledCallbacks.length, 1);
+  } finally {
+    dom.window.close();
+  }
+});

@@ -315,6 +315,25 @@ class RoomPresenceServiceTest {
     }
 
     @Test
+    void departedPlayerRejoinsPlayingRoomAsSpectatorButNewPlayerCannot() {
+        presenceService.join(1L, "old-session", principal(10L, "host"));
+        RoomSummary playingRoom = room(1L, 10L);
+        playingRoom.setStatus("PLAYING");
+        when(roomService.getRoom(1L)).thenReturn(playingRoom);
+        presenceService.leave("old-session");
+        when(roomGameService.isDepartedPlayer(1L, 10L)).thenReturn(true);
+
+        RoomPresenceState state = presenceService.join(
+                1L, "returned-session", principal(10L, "host"));
+
+        assertThat(state.status()).isEqualTo("PLAYING");
+        assertThat(state.participants()).hasSize(1);
+        assertThatThrownBy(() -> presenceService.join(
+                1L, "outsider-session", principal(11L, "outsider")))
+                .isInstanceOf(RoomWebSocketException.class);
+    }
+
+    @Test
     void concurrentJoinsNeverExceedRoomCapacity() throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(8);
         CountDownLatch start = new CountDownLatch(1);
@@ -421,6 +440,30 @@ class RoomPresenceServiceTest {
                 .isInstanceOf(RoomWebSocketException.class)
                 .hasMessage("게임 시작에는 최대 8명의 참가자만 허용됩니다.");
         verify(roomService, never()).startGame(5L);
+    }
+
+    @Test
+    void usesTheCurrentFivePlayersWhenTheSixthLeavesBeforeStart() {
+        for (int index = 0; index < 6; index++) {
+            long userId = 10L + index;
+            presenceService.join(1L, "threshold-session-" + index, principal(userId, "user" + userId));
+        }
+        presenceService.leave("threshold-session-5");
+
+        for (int index = 0; index < 5; index++) {
+            presenceService.updateReady(
+                    1L,
+                    "threshold-session-" + index,
+                    new RoomReadyRequest(true));
+        }
+        when(roomService.startGame(1L)).thenReturn(true);
+
+        RoomPresenceState state = presenceService.startGame(1L, "threshold-session-0");
+
+        assertThat(state.status()).isEqualTo("PLAYING");
+        assertThat(state.participants()).hasSize(5);
+        assertThat(state.participants()).allSatisfy(participant ->
+                assertThat(participant.ready()).isTrue());
     }
 
     private static RoomSummary room(long roomId, long hostUserId) {
