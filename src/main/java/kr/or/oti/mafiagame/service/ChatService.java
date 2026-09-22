@@ -57,8 +57,9 @@ public class ChatService {
 
         String content = normalizeContent(request);
         ChatChannel requestedChannel = channel == null ? ChatChannel.PUBLIC : channel;
-        if (roomGameService == null && requestedChannel == ChatChannel.MAFIA) {
-            throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
+        if (roomGameService == null
+                && (requestedChannel == ChatChannel.MAFIA || requestedChannel == ChatChannel.DEAD)) {
+            throw new RoomWebSocketException("해당 채팅 채널을 사용할 수 없습니다.");
         }
         if (roomGameService != null) {
             roomGameService.validateChat(

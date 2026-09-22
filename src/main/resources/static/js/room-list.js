@@ -48,7 +48,27 @@
 
   if (patchNotesModalElement && PatchNotesModal && !isHiddenToday()) {
     const patchNotesModal = PatchNotesModal.getOrCreateInstance(patchNotesModalElement);
+    let patchNotesCloseRequested = false;
+    const patchNotesCloseButton = patchNotesModalElement.querySelector(
+      '[data-bs-dismiss="modal"]'
+    );
+
+    // Bootstrap ignores hide() while the opening fade transition is running. Keep a close
+    // request and replay it after shown.bs.modal so a fast click cannot leave the dialog open.
+    patchNotesModalElement.addEventListener('shown.bs.modal', () => {
+      if (patchNotesCloseRequested) {
+        patchNotesCloseRequested = false;
+        patchNotesModal.hide();
+      }
+    });
     patchNotesModalElement.addEventListener('hidden.bs.modal', rememberPatchNotesPreference);
+    patchNotesModalElement.addEventListener('hidden.bs.modal', () => {
+      patchNotesCloseRequested = false;
+    });
+    patchNotesCloseButton?.addEventListener('click', () => {
+      patchNotesCloseRequested = true;
+      patchNotesModal.hide();
+    });
     window.setTimeout(() => patchNotesModal.show(), 150);
   }
 

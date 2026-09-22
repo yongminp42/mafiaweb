@@ -15,12 +15,16 @@ public record ChatMessage(
     }
 
     public static ChatMessage system(long roomId, String content) {
+        return system(roomId, content, ChatChannel.PUBLIC);
+    }
+
+    public static ChatMessage system(long roomId, String content, ChatChannel channel) {
         return new ChatMessage(
                 roomId,
                 "SYSTEM",
                 "게임 안내",
                 content,
-                ChatChannel.PUBLIC,
+                channel == null ? ChatChannel.PUBLIC : channel,
                 Instant.now());
     }
 }

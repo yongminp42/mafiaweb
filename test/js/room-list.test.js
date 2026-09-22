@@ -49,6 +49,20 @@ function installPatchNotesModalStub(dom) {
 
     show() {
       this.showCount += 1;
+      this.transitioning = true;
+    }
+
+    hide() {
+      if (this.transitioning) {
+        return;
+      }
+      this.hideCount = (this.hideCount || 0) + 1;
+      this.element.dispatchEvent(new this.element.ownerDocument.defaultView.Event('hidden.bs.modal'));
+    }
+
+    finishShowTransition() {
+      this.transitioning = false;
+      this.element.dispatchEvent(new this.element.ownerDocument.defaultView.Event('shown.bs.modal'));
     }
 
     static getOrCreateInstance(element) {
@@ -405,5 +419,31 @@ test('patch notes content changes invalidate today\'s hide preference', () => {
     assert.equal(updatedDom.window.localStorage.getItem(PATCH_NOTES_STORAGE_KEY), null);
   } finally {
     updatedDom.window.close();
+  }
+});
+
+test('patch notes close requested during the opening transition is retried after shown', () => {
+  const dom = createDom(patchNotesMarkup('transition-safe patch notes'));
+  const modalInstances = installPatchNotesModalStub(dom);
+  const scheduledCallbacks = [];
+  dom.window.setTimeout = callback => {
+    scheduledCallbacks.push(callback);
+    return scheduledCallbacks.length;
+  };
+
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+
+    scheduledCallbacks[0]();
+    const modal = modalInstances[0];
+    assert.equal(modal.showCount, 1);
+    dom.window.document.querySelector('[data-bs-dismiss="modal"]').click();
+    assert.equal(modal.hideCount || 0, 0);
+
+    modal.finishShowTransition();
+    assert.equal(modal.hideCount, 1);
+  } finally {
+    dom.window.close();
   }
 });

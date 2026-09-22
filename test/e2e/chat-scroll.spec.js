@@ -83,6 +83,10 @@ test('role slot is visible before game and chat scrolls without growing the page
     expect(chatTypography.textWidth).toBeLessThanOrEqual(chatTypography.availableWidth);
     const inputBox = await input.boundingBox();
     expect(inputBox?.height).toBeGreaterThanOrEqual(40);
+    await page.screenshot({
+      path: path.join(artifactDirectory, 'waiting-room.png'),
+      fullPage: false
+    });
 
     const readMetrics = () => page.locator('#messages').evaluate(messages => ({
       clientHeight: messages.clientHeight,
@@ -118,9 +122,14 @@ test('role slot is visible before game and chat scrolls without growing the page
       fullPage: false
     });
   } finally {
+    await page.screenshot({
+      path: path.join(artifactDirectory, 'final-state.png'),
+      fullPage: false
+    }).catch(() => {});
     await context.close();
-    if (video) {
-      await video.saveAs(path.join(artifactDirectory, 'chat-scroll.webm'));
+    if (!video) {
+      throw new Error('QA evidence video is not available for the chat-scroll scenario.');
     }
+    await video.saveAs(path.join(artifactDirectory, 'chat-scroll.webm'));
   }
 });

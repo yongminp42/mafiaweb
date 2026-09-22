@@ -133,6 +133,7 @@
             <select class="form-select form-select-sm" id="chatChannel" aria-label="채팅 채널">
               <option value="PUBLIC">전체 채널</option>
               <option value="MAFIA" hidden disabled>마피아 채널</option>
+              <option value="DEAD" hidden disabled>사망자 채널</option>
             </select>
             <input class="form-control" name="content" maxlength="300" placeholder="메시지 입력"
                    aria-label="채팅 메시지" autocomplete="off">
@@ -220,8 +221,9 @@
         </div>
       </div>
       <div id="nightResultPanel" class="alert alert-info small mt-3 mb-0" hidden>
-        <strong>경찰 조사 결과</strong>
+        <strong id="nightResultTitle">경찰 조사 결과</strong>
         <span id="nightResultLabel"></span>
+        <span id="nightResultMafiaList" class="d-block mt-1" hidden></span>
       </div>
       <p id="gameActionStatus" class="text-secondary small mt-3 mb-0"></p>
     </div>

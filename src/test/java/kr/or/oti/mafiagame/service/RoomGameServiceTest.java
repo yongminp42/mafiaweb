@@ -99,7 +99,7 @@ class RoomGameServiceTest {
 
     @Test
     void assignsExactRoleCountsAtTheSupportedPlayerBoundaries() {
-        for (int playerCount : List.of(4, 5, 6, 8)) {
+        for (int playerCount : List.of(4, 5, 6, 7, 8)) {
             clearInvocations(messagingTemplate);
 
             gameService.startGame(
@@ -115,14 +115,16 @@ class RoomGameServiceTest {
             List<String> roles = roleCaptor.getAllValues().stream()
                     .map(GameRoleAssignment::role)
                     .toList();
-            int expectedMafiaCount = playerCount >= 6 ? 2 : 1;
             assertThat(roles).hasSize(playerCount);
-            assertThat(roles.stream().filter("MAFIA"::equals).toList())
-                    .hasSize(expectedMafiaCount);
-            assertThat(roles.stream().filter("DOCTOR"::equals).toList()).hasSize(1);
-            assertThat(roles.stream().filter("POLICE"::equals).toList()).hasSize(1);
-            assertThat(roles.stream().filter("CITIZEN"::equals).toList())
-                    .hasSize(playerCount - expectedMafiaCount - 2);
+            List<String> expectedRoles = switch (playerCount) {
+                case 4 -> List.of("MAFIA", "POLICE", "DOCTOR", "CITIZEN");
+                case 5 -> List.of("MAFIA", "SPY", "POLICE", "DOCTOR", "CITIZEN");
+                case 6 -> List.of("MAFIA", "SPY", "POLICE", "DOCTOR", "SOLDIER", "CITIZEN");
+                case 7 -> List.of("MAFIA", "MAFIA", "SPY", "POLICE", "DOCTOR", "SOLDIER", "CITIZEN");
+                case 8 -> List.of("MAFIA", "MAFIA", "SPY", "POLICE", "DOCTOR", "SOLDIER", "MEDIUM", "CITIZEN");
+                default -> throw new IllegalArgumentException("unexpected player count");
+            };
+            assertThat(roles).containsExactlyInAnyOrderElementsOf(expectedRoles);
         }
     }
 
@@ -656,13 +658,14 @@ class RoomGameServiceTest {
 
     @Test
     void removesAQueuedNightActionWhenAPlayerLeavesAfterReconnectGrace() throws Exception {
-        startNightVote(participantsForCount(6), principalNamesForCount(6));
+        startNightVote(participantsForCount(7), principalNamesForCount(7));
         setRole(1L, GameRole.MAFIA);
         setRole(2L, GameRole.MAFIA);
-        setRole(3L, GameRole.DOCTOR);
+        setRole(3L, GameRole.SPY);
         setRole(4L, GameRole.POLICE);
-        setRole(5L, GameRole.CITIZEN);
-        setRole(6L, GameRole.CITIZEN);
+        setRole(5L, GameRole.DOCTOR);
+        setRole(6L, GameRole.SOLDIER);
+        setRole(7L, GameRole.CITIZEN);
         gameService.submitAction(ROOM_ID, principal(1L, "user1"),
                 new GameActionRequest(5L, null, "MAFIA_KILL"));
 
@@ -732,13 +735,23 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void endsSixPlayerGameAfterBothMafiaAreExecutedByMajorityVotes() throws Exception {
-        assertThatAllMafiaCanBeExecutedByMajority(6);
+    void endsFivePlayerGameAfterMafiaAndSpyAreExecutedByMajorityVotes() throws Exception {
+        assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(5);
     }
 
     @Test
-    void endsEightPlayerGameAfterBothMafiaAreExecutedByMajorityVotes() throws Exception {
-        assertThatAllMafiaCanBeExecutedByMajority(8);
+    void endsSixPlayerGameAfterMafiaAndSpyAreExecutedByMajorityVotes() throws Exception {
+        assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(6);
+    }
+
+    @Test
+    void endsSevenPlayerGameAfterBothMafiaAndSpyAreExecutedByMajorityVotes() throws Exception {
+        assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(7);
+    }
+
+    @Test
+    void endsEightPlayerGameAfterBothMafiaAndSpyAreExecutedByMajorityVotes() throws Exception {
+        assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(8);
     }
 
     @Test
@@ -765,6 +778,182 @@ class RoomGameServiceTest {
         assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("시민");
         verify(messagingTemplate, times(1)).convertAndSendToUser(
                 anyString(), eq("/queue/night-result"), any(GameInvestigationResult.class));
+    }
+
+    @Test
+    void letsSpyJoinMafiaChatAndNotifiesLivingMafiaWhenSpyFindsMafia() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.SPY);
+        setRole(3L, GameRole.POLICE);
+        setRole(4L, GameRole.CITIZEN);
+        clearInvocations(messagingTemplate);
+
+        assertThatThrownBy(() -> gameService.validateChat(ROOM_ID, 2L, ChatChannel.MAFIA))
+                .isInstanceOf(RoomWebSocketException.class);
+
+        gameService.submitAction(ROOM_ID, principal(2L, "bob"),
+                new GameActionRequest(1L, null, "SPY_INVESTIGATE"));
+        advanceCurrentPhase();
+
+        assertThat(gameService.canAccessMafiaChat(ROOM_ID, 2L)).isTrue();
+        assertThatCode(() -> gameService.validateChat(ROOM_ID, 2L, ChatChannel.MAFIA))
+                .doesNotThrowAnyException();
+
+        ArgumentCaptor<GameInvestigationResult> investigationCaptor =
+                ArgumentCaptor.forClass(GameInvestigationResult.class);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("bob@example.com"),
+                eq("/queue/night-result"),
+                investigationCaptor.capture());
+        assertThat(investigationCaptor.getValue().role()).isEqualTo("MAFIA");
+        assertThat(investigationCaptor.getValue().roleLabel()).isEqualTo("마피아");
+        assertThat(investigationCaptor.getValue().mafiaPlayers())
+                .extracting(player -> player.nickname())
+                .containsExactly("alice");
+
+        ArgumentCaptor<ChatMessage> chatCaptor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messagingTemplate, times(2)).convertAndSendToUser(
+                anyString(), eq("/queue/mafia-chat"), chatCaptor.capture());
+        assertThat(chatCaptor.getAllValues())
+                .allSatisfy(message -> {
+                    assertThat(message.type()).isEqualTo("SYSTEM");
+                    assertThat(message.channel()).isEqualTo(ChatChannel.MAFIA);
+                    assertThat(message.content()).contains("접선");
+                });
+
+        clearInvocations(messagingTemplate);
+        gameService.broadcastCurrentState(ROOM_ID, principal(2L, "bob"));
+        ArgumentCaptor<GameRoleAssignment> roleCaptor =
+                ArgumentCaptor.forClass(GameRoleAssignment.class);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("bob@example.com"), eq("/queue/game-role"), roleCaptor.capture());
+        assertThat(roleCaptor.getValue().mafiaChatUnlocked()).isTrue();
+    }
+
+    @Test
+    void givesSpyOnlyTheExactRoleAndKeepsMafiaChatLockedForNonMafiaTarget() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.SPY);
+        setRole(3L, GameRole.POLICE);
+        setRole(4L, GameRole.CITIZEN);
+        clearInvocations(messagingTemplate);
+
+        gameService.submitAction(ROOM_ID, principal(2L, "bob"),
+                new GameActionRequest(4L, null, "SPY_INVESTIGATE"));
+        advanceCurrentPhase();
+
+        assertThat(gameService.canAccessMafiaChat(ROOM_ID, 2L)).isFalse();
+        ArgumentCaptor<GameInvestigationResult> investigationCaptor =
+                ArgumentCaptor.forClass(GameInvestigationResult.class);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("bob@example.com"),
+                eq("/queue/night-result"),
+                investigationCaptor.capture());
+        assertThat(investigationCaptor.getValue().role()).isEqualTo("CITIZEN");
+        assertThat(investigationCaptor.getValue().roleLabel()).isEqualTo("시민");
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                anyString(), eq("/queue/mafia-chat"), any(ChatMessage.class));
+    }
+
+    @Test
+    void sendsMafiaChatOnlyToLivingMafiaPlayersBeforeSpyContact() throws Exception {
+        startNightVote(participantsForCount(8), principalNamesForCount(8));
+        assignExactRolesForCount(8);
+        clearInvocations(messagingTemplate);
+
+        gameService.broadcastMafiaChat(new ChatMessage(
+                ROOM_ID,
+                "CHAT",
+                "alice",
+                "private-mafia-message",
+                ChatChannel.MAFIA,
+                Instant.now()));
+
+        ArgumentCaptor<String> principalCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messagingTemplate, times(2)).convertAndSendToUser(
+                principalCaptor.capture(),
+                eq("/queue/mafia-chat"),
+                any(ChatMessage.class));
+        assertThat(principalCaptor.getAllValues())
+                .containsExactlyInAnyOrder("user1@example.com", "user2@example.com");
+    }
+
+    @Test
+    void revealsSoldierAndConsumesItsOneTimeShieldWhenMafiaAttacks() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.SOLDIER);
+        setRole(3L, GameRole.DOCTOR);
+        setRole(4L, GameRole.CITIZEN);
+
+        gameService.submitAction(ROOM_ID, principal(1L, "alice"),
+                new GameActionRequest(2L, null, "MAFIA_KILL"));
+        clearInvocations(messagingTemplate);
+        advanceCurrentPhase();
+
+        assertThat(isAlive(2L)).isTrue();
+        assertThat(currentPhase()).isEqualTo("DAY_DISCUSSION");
+        assertThat(latestPublicState().message())
+                .contains("군인의 능력")
+                .contains("군인임이 공개");
+        ArgumentCaptor<Object> publicCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(
+                eq("/topic/rooms/1/chat"), publicCaptor.capture());
+        assertThat(publicCaptor.getAllValues())
+                .filteredOn(ChatMessage.class::isInstance)
+                .extracting(message -> ((ChatMessage) message).content())
+                .anySatisfy(content -> assertThat(content)
+                        .contains("군인의 능력")
+                        .contains("군인임이 공개"));
+
+        advanceCurrentPhase();
+        advanceCurrentPhase();
+        gameService.submitAction(ROOM_ID, principal(1L, "alice"),
+                new GameActionRequest(2L, null, "MAFIA_KILL"));
+        advanceCurrentPhase();
+
+        assertThat(isAlive(2L)).isFalse();
+    }
+
+    @Test
+    void letsMediumInvestigateDeadPlayersAndUseTheDeadChannel() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.MEDIUM);
+        setRole(3L, GameRole.CITIZEN);
+        setRole(4L, GameRole.CITIZEN);
+        setAlive(4L, false);
+        clearInvocations(messagingTemplate);
+
+        assertThatCode(() -> gameService.validateChat(ROOM_ID, 2L, ChatChannel.DEAD))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> gameService.validateChat(ROOM_ID, 3L, ChatChannel.DEAD))
+                .isInstanceOf(RoomWebSocketException.class);
+
+        gameService.submitAction(ROOM_ID, principal(2L, "bob"),
+                new GameActionRequest(4L, null, "MEDIUM_INVESTIGATE"));
+        advanceCurrentPhase();
+
+        ArgumentCaptor<GameInvestigationResult> investigationCaptor =
+                ArgumentCaptor.forClass(GameInvestigationResult.class);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("bob@example.com"),
+                eq("/queue/night-result"),
+                investigationCaptor.capture());
+        assertThat(investigationCaptor.getValue().role()).isEqualTo("CITIZEN");
+        assertThat(investigationCaptor.getValue().roleLabel()).isEqualTo("시민");
+
+        ChatMessage message = new ChatMessage(
+                ROOM_ID, "CHAT", "dave", "dead-only", ChatChannel.DEAD, Instant.now());
+        gameService.broadcastDeadChat(message, 4L);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("bob@example.com"), eq("/queue/dead-chat"), eq(message));
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("dave@example.com"), eq("/queue/dead-chat"), eq(message));
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                eq("carol@example.com"), eq("/queue/dead-chat"), eq(message));
     }
 
     @Test
@@ -910,14 +1099,35 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void rejectsDeadAndDepartedNightActionTargets() throws Exception {
-        startNightVote(participantsForCount(6), principalNamesForCount(6));
-        setRole(1L, GameRole.MAFIA);
+    void validatesSpyAndMediumNightActionTargetsAndBlocksSpyKilling() throws Exception {
+        startNightVote(nightParticipants(), principalNamesForFourPlayers());
+        setRole(1L, GameRole.SPY);
         setRole(2L, GameRole.MAFIA);
-        setRole(3L, GameRole.DOCTOR);
-        setRole(4L, GameRole.POLICE);
-        setRole(5L, GameRole.CITIZEN);
-        setRole(6L, GameRole.CITIZEN);
+        setRole(3L, GameRole.MEDIUM);
+        setRole(4L, GameRole.CITIZEN);
+
+        assertThatThrownBy(() -> gameService.submitAction(
+                ROOM_ID,
+                principal(1L, "alice"),
+                new GameActionRequest(4L, null, "MAFIA_KILL")))
+                .isInstanceOf(RoomWebSocketException.class);
+        assertThatThrownBy(() -> gameService.submitAction(
+                ROOM_ID,
+                principal(3L, "carol"),
+                new GameActionRequest(4L, null, "MEDIUM_INVESTIGATE")))
+                .isInstanceOf(RoomWebSocketException.class);
+
+        gameService.submitAction(ROOM_ID, principal(1L, "alice"),
+                new GameActionRequest(2L, null, "SPY_INVESTIGATE"));
+        setAlive(4L, false);
+        gameService.submitAction(ROOM_ID, principal(3L, "carol"),
+                new GameActionRequest(4L, null, "MEDIUM_INVESTIGATE"));
+    }
+
+    @Test
+    void rejectsDeadAndDepartedNightActionTargets() throws Exception {
+        startNightVote(participantsForCount(8), principalNamesForCount(8));
+        assignExactRolesForCount(8);
 
         setAlive(5L, false);
         assertThatThrownBy(() -> gameService.submitAction(
@@ -938,34 +1148,26 @@ class RoomGameServiceTest {
 
     @Test
     void resolvesDifferentMafiaTargetsToOneOfTheSubmittedTargets() throws Exception {
-        startNightVote(nightParticipants(), principalNamesForFourPlayers());
-        setRole(1L, GameRole.MAFIA);
-        setRole(2L, GameRole.MAFIA);
-        setRole(3L, GameRole.DOCTOR);
-        setRole(4L, GameRole.CITIZEN);
+        startNightVote(participantsForCount(7), principalNamesForCount(7));
+        assignExactRolesForCount(7);
 
         gameService.submitAction(ROOM_ID, principal(1L, "alice"),
-                new GameActionRequest(3L, null, "MAFIA_KILL"));
-        gameService.submitAction(ROOM_ID, principal(2L, "bob"),
                 new GameActionRequest(4L, null, "MAFIA_KILL"));
+        gameService.submitAction(ROOM_ID, principal(2L, "bob"),
+                new GameActionRequest(7L, null, "MAFIA_KILL"));
         advanceCurrentPhase();
 
         RoomGameState result = latestPublicState();
         assertThat(result.players())
-                .filteredOn(player -> player.userId() == 3L || player.userId() == 4L)
+                .filteredOn(player -> player.userId() == 4L || player.userId() == 7L)
                 .extracting(player -> player.alive())
                 .containsExactlyInAnyOrder(true, false);
     }
 
     @Test
     void countsOnlyTheSubmittedMafiaActionWhenTheOtherMafiaDoesNothing() throws Exception {
-        startNightVote(participantsForCount(6), principalNamesForCount(6));
-        setRole(1L, GameRole.MAFIA);
-        setRole(2L, GameRole.MAFIA);
-        setRole(3L, GameRole.DOCTOR);
-        setRole(4L, GameRole.POLICE);
-        setRole(5L, GameRole.CITIZEN);
-        setRole(6L, GameRole.CITIZEN);
+        startNightVote(participantsForCount(7), principalNamesForCount(7));
+        assignExactRolesForCount(7);
 
         gameService.submitAction(ROOM_ID, principal(1L, "user1"),
                 new GameActionRequest(5L, null, "MAFIA_KILL"));
@@ -977,27 +1179,22 @@ class RoomGameServiceTest {
 
     @Test
     void resolvesConcurrentNightActionsFromBothMafiaWithoutDroppingAnAction() throws Exception {
-        startNightVote(participantsForCount(6), principalNamesForCount(6));
-        setRole(1L, GameRole.MAFIA);
-        setRole(2L, GameRole.MAFIA);
-        setRole(3L, GameRole.DOCTOR);
-        setRole(4L, GameRole.POLICE);
-        setRole(5L, GameRole.CITIZEN);
-        setRole(6L, GameRole.CITIZEN);
+        startNightVote(participantsForCount(7), principalNamesForCount(7));
+        assignExactRolesForCount(7);
 
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Boolean> first = executor.submit(
-                    () -> submitNightActionAfter(start, 1L, 5L));
+                    () -> submitNightActionAfter(start, 1L, 4L));
             Future<Boolean> second = executor.submit(
-                    () -> submitNightActionAfter(start, 2L, 6L));
+                    () -> submitNightActionAfter(start, 2L, 7L));
             start.countDown();
 
             assertThat(List.of(first.get(), second.get())).containsExactly(true, true);
             advanceCurrentPhase();
 
-            assertThat(List.of(isAlive(5L), isAlive(6L)))
+            assertThat(List.of(isAlive(4L), isAlive(7L)))
                     .containsExactlyInAnyOrder(true, false);
         } finally {
             executor.shutdownNow();
@@ -1006,20 +1203,17 @@ class RoomGameServiceTest {
 
     @Test
     void resolvesTheSharedTargetWhenBothMafiaSelectTheSamePlayer() throws Exception {
-        startNightVote(nightParticipants(), principalNamesForFourPlayers());
-        setRole(1L, GameRole.MAFIA);
-        setRole(2L, GameRole.MAFIA);
-        setRole(3L, GameRole.DOCTOR);
-        setRole(4L, GameRole.CITIZEN);
+        startNightVote(participantsForCount(7), principalNamesForCount(7));
+        assignExactRolesForCount(7);
 
         gameService.submitAction(ROOM_ID, principal(1L, "alice"),
-                new GameActionRequest(4L, null, "MAFIA_KILL"));
+                new GameActionRequest(7L, null, "MAFIA_KILL"));
         gameService.submitAction(ROOM_ID, principal(2L, "bob"),
-                new GameActionRequest(4L, null, "MAFIA_KILL"));
+                new GameActionRequest(7L, null, "MAFIA_KILL"));
         advanceCurrentPhase();
 
         assertThat(latestPublicState().players())
-                .filteredOn(player -> player.userId() == 4L)
+                .filteredOn(player -> player.userId() == 7L)
                 .singleElement()
                 .satisfies(player -> assertThat(player.alive()).isFalse());
     }
@@ -1089,34 +1283,80 @@ class RoomGameServiceTest {
         }
     }
 
-        private void assertThatAllMafiaCanBeExecutedByMajority(int playerCount) throws Exception {
-                List<RoomParticipant> gameParticipants = participantsForCount(playerCount);
-                gameService.startGame(ROOM_ID, gameParticipants, principalNamesForCount(playerCount));
-                setRole(1L, GameRole.MAFIA);
-                setRole(2L, GameRole.MAFIA);
-                for (long userId = 3L; userId <= playerCount; userId++) {
-                        setRole(userId, userId == 3L ? GameRole.DOCTOR
-                                        : userId == 4L ? GameRole.POLICE : GameRole.CITIZEN);
-                }
+    private void assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(int playerCount)
+            throws Exception {
+        List<RoomParticipant> gameParticipants = participantsForCount(playerCount);
+        gameService.startGame(ROOM_ID, gameParticipants, principalNamesForCount(playerCount));
+        assignExactRolesForCount(playerCount);
 
-                advanceCurrentPhase();
-                submitNominationAndMajorityExecution(1L, 2L, playerCount);
+        List<Long> mafiaTeamIds = playerCount <= 6
+                ? List.of(2L, 1L)
+                : List.of(2L, 1L, 3L);
+        List<Long> nominatorIds = List.of(1L, 4L, 5L);
+
+        advanceCurrentPhase();
+        for (int index = 0; index < mafiaTeamIds.size(); index++) {
+            long targetId = mafiaTeamIds.get(index);
+            submitNominationAndMajorityExecution(
+                    nominatorIds.get(index), targetId, playerCount);
+
+            if (index < mafiaTeamIds.size() - 1) {
                 advanceCurrentPhase();
                 assertThat(latestPublicState().phase()).isEqualTo("DAY_DISCUSSION");
                 assertThat(latestPublicState().gameOver()).isFalse();
-                assertThat(isAlive(1L)).isTrue();
-                assertThat(isAlive(2L)).isFalse();
-
+                assertThat(isAlive(targetId)).isFalse();
                 advanceCurrentPhase();
-                submitNominationAndMajorityExecution(3L, 1L, playerCount);
-
-                RoomGameState result = latestPublicState();
-                assertThat(result.phase()).isEqualTo("FINISHED");
-                assertThat(result.gameOver()).isTrue();
-                assertThat(result.winningFaction()).isEqualTo("CITIZEN");
-                assertThat(isAlive(1L)).isFalse();
-                assertThat(isAlive(2L)).isFalse();
+            }
         }
+
+        RoomGameState result = latestPublicState();
+        assertThat(result.phase()).isEqualTo("FINISHED");
+        assertThat(result.gameOver()).isTrue();
+        assertThat(result.winningFaction()).isEqualTo("CITIZEN");
+        for (long mafiaId : mafiaTeamIds) {
+            assertThat(isAlive(mafiaId)).isFalse();
+        }
+    }
+
+    private void assignExactRolesForCount(int playerCount) throws Exception {
+        List<GameRole> roles = switch (playerCount) {
+            case 5 -> List.of(
+                    GameRole.MAFIA,
+                    GameRole.SPY,
+                    GameRole.POLICE,
+                    GameRole.DOCTOR,
+                    GameRole.CITIZEN);
+            case 6 -> List.of(
+                    GameRole.MAFIA,
+                    GameRole.SPY,
+                    GameRole.POLICE,
+                    GameRole.DOCTOR,
+                    GameRole.SOLDIER,
+                    GameRole.CITIZEN);
+            case 7 -> List.of(
+                    GameRole.MAFIA,
+                    GameRole.MAFIA,
+                    GameRole.SPY,
+                    GameRole.POLICE,
+                    GameRole.DOCTOR,
+                    GameRole.SOLDIER,
+                    GameRole.CITIZEN);
+            case 8 -> List.of(
+                    GameRole.MAFIA,
+                    GameRole.MAFIA,
+                    GameRole.SPY,
+                    GameRole.POLICE,
+                    GameRole.DOCTOR,
+                    GameRole.SOLDIER,
+                    GameRole.MEDIUM,
+                    GameRole.CITIZEN);
+            default -> throw new IllegalArgumentException("Unsupported role fixture: " + playerCount);
+        };
+
+        for (int index = 0; index < roles.size(); index++) {
+            setRole(index + 1L, roles.get(index));
+        }
+    }
 
         private void submitNominationAndMajorityExecution(
                         long nominatorId, long nomineeId, int playerCount) throws Exception {

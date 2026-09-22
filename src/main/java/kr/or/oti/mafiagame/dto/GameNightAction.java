@@ -4,8 +4,10 @@ import java.util.Arrays;
 
 public enum GameNightAction {
     MAFIA_KILL(GameRole.MAFIA),
+    SPY_INVESTIGATE(GameRole.SPY),
     DOCTOR_PROTECT(GameRole.DOCTOR),
-    POLICE_INVESTIGATE(GameRole.POLICE);
+    POLICE_INVESTIGATE(GameRole.POLICE),
+    MEDIUM_INVESTIGATE(GameRole.MEDIUM);
 
     private final GameRole requiredRole;
 
