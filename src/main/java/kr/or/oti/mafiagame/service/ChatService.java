@@ -4,6 +4,7 @@ import java.security.Principal;
 import java.time.Instant;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 
 import kr.or.oti.mafiagame.dto.ChatChannel;
@@ -30,7 +31,7 @@ public class ChatService {
         this.roomGameService = roomGameService;
     }
 
-    public ChatMessage createMessage(
+    public @NonNull ChatMessage createMessage(
             long roomId,
             ChatMessageRequest request,
             Principal principal,
@@ -38,7 +39,7 @@ public class ChatService {
         return createMessage(roomId, request, principal, sessionId, ChatChannel.PUBLIC);
     }
 
-    public ChatMessage createMessage(
+    public @NonNull ChatMessage createMessage(
             long roomId,
             ChatMessageRequest request,
             Principal principal,

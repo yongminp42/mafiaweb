@@ -12,6 +12,8 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.lang.NonNull;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 import kr.or.oti.mafiagame.service.RoomPresenceService;
@@ -35,7 +37,7 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
     }
 
     @Override
-    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+    public Message<?> preSend(@NonNull Message<?> message, @NonNull MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
         if (accessor == null || accessor.getCommand() == null) {
             return message;
@@ -51,9 +53,9 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
     }
 
     private void authorizeSubscription(
-            Message<?> message,
-            StompHeaderAccessor accessor,
-            String destination) {
+            @NonNull Message<?> message,
+            @NonNull StompHeaderAccessor accessor,
+            @Nullable String destination) {
         if (LOBBY_TOPIC.equals(destination)) {
             return;
         }
@@ -75,9 +77,9 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
     }
 
     private void authorizeSend(
-            Message<?> message,
-            StompHeaderAccessor accessor,
-            String destination) {
+            @NonNull Message<?> message,
+            @NonNull StompHeaderAccessor accessor,
+            @Nullable String destination) {
         if (LOBBY_SEND.equals(destination)) {
             return;
         }
@@ -98,14 +100,14 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
         // application error without closing the WebSocket for an invalid channel.
     }
 
-    private void requirePrincipal(Message<?> message, StompHeaderAccessor accessor) {
+    private void requirePrincipal(@NonNull Message<?> message, @NonNull StompHeaderAccessor accessor) {
         Principal principal = accessor.getUser();
         if (principal == null) {
             throw denied(message, "로그인 후 이용해 주세요.");
         }
     }
 
-    private MessageDeliveryException denied(Message<?> message, String reason) {
+    private MessageDeliveryException denied(@NonNull Message<?> message, @NonNull String reason) {
         return new MessageDeliveryException(message, reason);
     }
 }

@@ -38,9 +38,12 @@ public class RoomController {
                 .map(room -> room.withPlayerCount(liveCounts.getOrDefault(room.roomId(), 0)))
                 .toList();
         model.addAttribute("rooms", rooms);
-        int roomPlayerCount = liveCounts.values().stream()
-                .mapToInt(Integer::intValue)
-                .sum();
+        int roomPlayerCount = 0;
+        for (Integer count : liveCounts.values()) {
+            if (count != null) {
+                roomPlayerCount += count.intValue();
+            }
+        }
         int onlinePlayerCount = Math.max(
                 roomPresenceService.currentOnlinePlayerCount(),
                 roomPlayerCount);

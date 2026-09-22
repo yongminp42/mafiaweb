@@ -836,6 +836,48 @@ test('chat marks public, mafia, and dead messages with separate channel classes'
   }
 });
 
+test('chat renders system phase guidance as a distinct message', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined', subscription: 'room-joined' },
+      JSON.stringify({
+        roomId: 7,
+        participants: [{ userId: 10, nickname: 'alice', host: true, ready: false }]
+      })
+    ));
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/chat', subscription: 'room-chat' },
+      JSON.stringify({
+        type: 'SYSTEM',
+        sender: '게임 안내',
+        content: '【낮 토론 안내】 낮이 시작되었습니다. 지목 투표를 준비하세요.'
+      })
+    ));
+
+    const message = dom.window.document.querySelector('.chat-message');
+    assert.equal(message.dataset.channel, 'SYSTEM');
+    assert.equal(message.classList.contains('system'), true);
+    assert.equal(message.classList.contains('channel-system'), true);
+    assert.equal(message.querySelector('.chat-message-sender').textContent, '게임 안내');
+    assert.equal(
+      message.querySelector('.chat-message-bubble').textContent,
+      '【낮 토론 안내】 낮이 시작되었습니다. 지목 투표를 준비하세요.'
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('chat resets room admission while reconnecting and rejects a failed rejoin', () => {
   const dom = createDom(chatMarkup());
   const scheduledCallbacks = [];

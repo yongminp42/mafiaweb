@@ -1,135 +1,87 @@
 # MAFIAGAME
 
-Spring Boot와 Thymeleaf로 구현한 브라우저 기반 실시간 마피아 게임 프로젝트입니다. 별도의 프로그램 설치 없이 4~8명의 사용자가 웹 브라우저에서 방에 모여 대기방 준비, 방장 게임 시작, 개인 역할 확인, 서버 기준 페이즈 자동 전환(낮·지목 투표·처형 투표·밤), 역할별 밤 행동 및 승패 판정을 거쳐 결과를 확인하고 같은 게임방에서 다시 대기하여 반복 플레이할 수 있도록 구현되어 있습니다.
+> 현재 버전: **0.1.1-alpha**
 
-상세 요구사항과 전체 개발 체크리스트는 [docs/MAFIAGAME_MVP.md](./docs/MAFIAGAME_MVP.md)를 기준으로 합니다.
+MAFIAGAME은 웹 브라우저에서 여러 명이 실시간으로 플레이하는 소셜 추리 게임입니다. Spring Boot 서버가 게임 상태와 페이즈 타이머를 관리하고, Thymeleaf 화면과 STOMP WebSocket이 참가자·채팅·투표·역할 정보를 실시간으로 동기화합니다.
 
-## 문서 안내
+## 어떤 게임인가요?
 
-프로젝트 관련 문서는 [`docs/`](./docs/) 폴더에서 관리합니다.
+마피아 게임은 참가자에게 비밀 역할을 나누어 주고, 낮에는 토론과 투표로 마피아를 찾아내며, 밤에는 각 역할의 행동으로 다음 날의 결과를 만드는 게임입니다. 다른 참가자의 역할을 직접 확인할 수 없기 때문에 공개 대화, 투표 결과, 밤의 사망·보호 결과를 조합해 추리해야 합니다.
 
-| 문서 | 용도 및 설명 |
-| --- | --- |
-| [MAFIAGAME_MVP.md](./docs/MAFIAGAME_MVP.md) | MVP의 목표, 핵심 게임 규칙, 기능 범위, 게임 진행 흐름, 승리 조건, 완료 기준과 검증 체크리스트를 정의한 기획·개발 문서 |
-| [PROJECT_LEARNING_GUIDE.md](./docs/PROJECT_LEARNING_GUIDE.md) | 현재 프로젝트의 구조, 기술 스택, 주요 클래스와 코드 흐름을 학습 목적으로 설명하는 개발 가이드 |
-| [LOGIN.md](./docs/LOGIN.md) | 회원가입·로그인·로그아웃 동작, DB 준비 사항과 인증 관련 검증 방법을 설명하는 기능 문서 |
-| [MAFIAGAME_QA_REPORT_CONSOLIDATED_2026-09-18.md](./docs/QA_report/MAFIAGAME_QA_REPORT_CONSOLIDATED_2026-09-18.md) | 프로젝트 QA 및 E2E 테스트 결과를 종합 정리한 QA 보고서 |
+MAFIAGAME의 MVP는 한 방에 **4~8명**이 참여하는 방식입니다. 방장은 참가자 전원이 준비된 상태에서 게임을 시작할 수 있고, 게임이 끝나면 같은 방이 다시 `WAITING` 상태로 초기화되어 재플레이할 수 있습니다. 현재 MVP에는 관전자 모드를 포함하지 않습니다.
 
-## 핵심 게임 규칙 및 역할
+### 역할
 
-### 1. 역할 (Roles)
-
-| 역할 | 진영 | 주요 행동 및 규칙 |
+| 역할 | 진영 | 핵심 행동 |
 | --- | --- | --- |
-| **마피아** (`MAFIA`) | 마피아 | 밤마다 생존 플레이어 1명을 제거 대상으로 지목합니다. 마피아가 여러 명인 경우 최다 지목 대상(동률 시 무작위 1인)을 최종 제거합니다. |
-| **경찰** (`POLICE`) | 시민 | 밤마다 생존 플레이어 1명을 조사하여 마피아(`MAFIA`)인지 시민 진영(`CITIZEN`)인지 판별합니다. 조사 결과는 경찰 본인에게만 비공개 전달됩니다. |
-| **의사** (`DOCTOR`) | 시민 | 밤마다 생존 플레이어 1명을 선택하여 보호합니다. 마피아의 최종 제거 대상과 일치할 경우 해당 플레이어는 사망하지 않습니다. |
-| **시민** (`CITIZEN`) | 시민 | 특수 밤 행동은 없으며, 낮 토론과 지목/처형 투표를 통해 마피아를 색출합니다. |
+| 마피아 (`MAFIA`) | 마피아 | 밤에 제거할 대상을 선택하고, 마피아 채널에서 동료와 협력합니다. |
+| 경찰 (`POLICE`) | 시민 | 밤에 한 명을 조사하여 마피아인지 확인합니다. 결과는 경찰 본인에게만 전달됩니다. |
+| 의사 (`DOCTOR`) | 시민 | 밤에 한 명을 보호하여 마피아의 제거를 막습니다. 자기 자신도 보호할 수 있습니다. |
+| 시민 (`CITIZEN`) | 시민 | 특수 밤 행동 없이 낮 토론과 투표로 마피아를 찾아냅니다. |
 
-- **사망자 규칙**: 사망한 플레이어는 이후 투표 및 밤 행동에 참여할 수 없습니다.
-- **역할 비공개 원칙**: 역할은 게임 시작 시 개인 큐(`/user/queue/game-role`)로만 전달되며 공개 브로드캐스트 토픽에는 노출되지 않습니다.
+역할은 개인 WebSocket 큐로만 전달되며 공개 게임 상태에는 노출되지 않습니다. 사망한 참가자는 이후 투표와 역할 행동에 참여할 수 없습니다.
 
-### 2. 게임 페이즈 및 진행 흐름
-
-서버가 단일 게임 상태 모델과 타이머를 엄격하게 관리합니다.
+### 게임 진행
 
 ```text
-WAITING (대기방)
-  → [방장 시작 + 4인 이상 + 전원 Ready]
+WAITING
+  → ROLE_ASSIGNMENT (역할 확인, 최대 15초 또는 전원 확인)
   → DAY_DISCUSSION (낮 토론, 60초)
-  → NOMINATION_VOTE (지목 투표, 15초)
-  → EXECUTION_VOTE (처형 투표, 15초 / 최다 지목 동률 또는 무투표 시 처형 건너뛰고 NIGHT로 이동)
-  → NIGHT (밤 행동, 30초: 마피아 제거 / 의사 보호 / 경찰 조사)
-  → 승패 판정 후 DAY_DISCUSSION (다음 날 낮 순환) 또는 FINISHED (결과 확인 및 대기방 복귀)
+  → NOMINATION_VOTE (지목 투표, 20초)
+  → FINAL_DEFENSE (단독 지목 시 최종 변론, 20초)
+  → EXECUTION_VOTE (처형 찬반 투표, 20초)
+  → NIGHT (마피아·의사·경찰 행동, 35초)
+  → 다음 날 또는 FINISHED
 ```
 
-### 3. 투표 규칙
+- 지목 투표는 생존자만 참여할 수 있고 자기 자신을 지목할 수 없습니다.
+- 지목 동률 또는 무투표이면 처형 투표 없이 밤으로 넘어갑니다.
+- 최종 변론에서는 지목된 참가자만 공개 채팅을 사용할 수 있습니다.
+- 처형 후보자는 처형 투표를 할 수 없으며, 찬성이 반대보다 많을 때 처형됩니다.
+- 시민 진영은 모든 마피아가 사망하면 승리합니다.
+- 마피아 진영은 생존 마피아 수가 생존 시민 진영 수보다 많아지면 승리합니다.
+- 게임 종료 시 승리 진영, 본인 역할, 생존 여부와 전체 역할 결과를 확인할 수 있습니다.
 
-- **지목 투표 (`NOMINATION_VOTE`)**:
-  - 생존자만 투표할 수 있으며, 자기 자신은 지목할 수 없습니다.
-  - 최다 득표자 1인이 단독일 경우 처형 후보(`nominatedUserId`)로 확정됩니다.
-  - 최다 득표자가 동률이거나 투표가 없으면 처형 투표를 건너뛰고 즉시 밤(`NIGHT`)으로 전환됩니다.
-- **처형 투표 (`EXECUTION_VOTE`)**:
-  - 지목된 처형 후보자는 투표권이 없습니다.
-  - 찬성 표가 반대 표보다 많을 때(`찬성 > 반대`) 처형이 집행되어 플레이어가 탈락(`alive: false`) 처리됩니다.
-  - 동률이거나 반대가 많으면 처형되지 않고 생존합니다.
+## 주요 기능
 
-### 4. 승리 조건
-
-투표 및 밤 행동 처리 직후 서버에서 승패를 즉시 판정합니다.
-
-- **시민 진영 승리**: 모든 마피아가 사망한 경우 (`mafiaAlive == 0`)
-- **마피아 진영 승리**: 생존 마피아 수가 생존 시민 진영 수보다 많아진 경우 (`mafiaAlive > citizenFactionAlive`)
-- **결과 후 재대기**: 게임 종료(`FINISHED`) 시 승리 진영, 본인 역할, 생존 여부를 확인한 후 게임방 상태가 자동으로 `WAITING`으로 복귀하고 모든 참가자의 Ready가 초기화되어 같은 방에서 바로 재플레이할 수 있습니다.
-
-## 현재 구현 범위
-
-- **회원 인증 및 보안 접근 제어**
-  - 회원가입, 로그인, 로그아웃 및 BCrypt 비밀번호 단방향 암호화
-  - Spring Security 및 인터셉터 기반 보호 URL/WebSocket 목적지 인가
-- **게임 로비 및 방 관리**
-  - MariaDB/MyBatis 기반 영속 데이터 처리 (방 목록, 상태 필터, 제목 검색)
-  - 4~8명 정원 및 선택적 비밀번호 방 생성/입장 검증
-  - 실시간 로비 온라인 접속자 수의 중복 없는 집계 및 표시
-- **실시간 대기방 동기화**
-  - STOMP WebSocket 기반 참가자 목록, 준비(Ready) 상태, 방장 표시 동기화
-  - 동일 사용자의 다중 탭/세션 중복 제거 및 타 방 이동 시 이전 세션 자동 정리
-  - 방장 퇴장 시 자동 방장 위임 및 빈 방 자동 정리 (15초 유예 시간)
-  - 대기방 실시간 공개 채팅
-- **게임 시작 검증 및 서버 상태 전이**
-  - 방장 전용 게임 시작 버튼 제어 및 최소 4명·전원 Ready 서버 검증
-  - 조건 충족 시 `WAITING` → `PLAYING` 전환 및 참가자 전원 실시간 방송
-- **서버 주도 페이즈 및 타이머**
-  - 서버 기준 낮(60초) → 지목 투표(15초) → 처형 투표(15초) → 밤(30초) 자동 순환
-  - 서버 종료 시각(`phaseEndsAt`) 전달을 통한 브라우저 간 타이머 2초 이내 동기화
-  - 새로고침 및 재접속 시 현재 페이즈/남은 시간/본인 역할 즉시 복구
-- **투표, 밤 행동 및 승패 루프**
-  - 지목 투표 및 처형 투표 다수결/탈락 처리
-  - 마피아 제거, 의사 보호(사망 면제), 경찰 조사 결과 개인 큐 통보
-  - 승패 판정 후 결과 표시 및 동일 방 `WAITING` 리셋
-
-## 후속 추가 기능 (Should Have / Won't Have)
-
-- 마피아 전용 밤 비밀채팅
-- 낮 건너뛰기 조기 투표
-- 초대 URL / 초대 코드
-- 게임 이력 저장 및 전적/랭킹
-- 음성 채팅 및 관전자 모드 (MVP 제외 범위)
+- 회원가입·로그인·로그아웃 및 Spring Security 기반 접근 제어
+- 4~8명 게임방 생성, 입장, 검색, 정원 검증
+- 방장·참가자·Ready 상태의 실시간 동기화
+- 공개 채팅, 마피아 채팅, 사망자 채팅의 서버 측 분리
+- 서버 기준 페이즈 전환과 `phaseEndsAt` 기반 타이머 동기화
+- 역할별 밤 행동, 승패 즉시 판정, 결과 표시 및 같은 방 재플레이
+- 새로고침·재접속·일시적인 연결 종료 후 상태 복구
+- 각 페이즈의 결과와 마피아 게임 안내를 공개 `SYSTEM` 메시지로 표시
+- 로비 진입 시 패치노트 팝업 표시 및 패치노트 내용이 바뀌었을 때 오늘 하루 숨김 설정 무효화
 
 ## 기술 스택
 
 | 구분 | 기술 |
 | --- | --- |
-| Language | Java 17 |
-| Framework | Spring Boot 3.5.16 |
-| Web | Spring MVC, Thymeleaf |
+| Backend | Java 17, Spring Boot 3.5.16, Spring MVC, Thymeleaf |
 | Security | Spring Security, BCrypt |
 | Realtime | Spring WebSocket, STOMP |
-| Data access | MyBatis Spring Boot Starter 3.0.5 |
-| Database | MariaDB (로컬 23306), H2 In-Memory (테스트용) |
-| Frontend | HTML5, CSS3, Bootstrap 5.3.8, Vanilla JavaScript (ES6) |
+| Data | MyBatis Spring Boot Starter 3.0.5, MariaDB, H2 테스트 DB |
+| Frontend | HTML5, CSS3, Bootstrap 5.3.8, Vanilla JavaScript |
 | Build | Gradle Wrapper 8.14.5 |
-| Test | JUnit 5, Mockito, Node.js built-in test runner, jsdom, Playwright |
+| Test | JUnit 5, Mockito, Node.js test runner, jsdom, Playwright |
 
 ## 실행 방법
 
 ### 사전 요구사항
 
 - JDK 17
-- Node.js (v18+)와 npm
-- MariaDB (포트 23306 또는 환경 설정 기준)
+- Node.js 18 이상 및 npm
+- MariaDB — 기본 URL은 `jdbc:mariadb://localhost:23306/mafiaweb`
 
-DB 접속 정보는 환경 변수로 설정할 수 있습니다.
+DB 계정은 환경 변수로 지정합니다.
 
 ```powershell
-# 로컬 개발 예시: 애플리케이션 전용 DB 계정을 사용하세요.
 $env:DB_USERNAME = "mafia_app"
 $env:DB_PASSWORD = "replace-with-a-strong-local-password"
 ```
 
 ### Windows
-
-의존성을 설치한 뒤 테스트 및 애플리케이션을 실행합니다.
 
 ```powershell
 npm ci
@@ -145,75 +97,96 @@ npm ci
 ./gradlew bootRun
 ```
 
-실행 후 브라우저에서 [http://localhost:8080](http://localhost:8080)으로 접속할 수 있습니다.
+실행 후 [http://localhost:8080](http://localhost:8080)에 접속합니다.
 
-## 환경 변수와 기본 설정
-
-`src/main/resources/application.properties`의 기본 설정:
-
-| 항목 | 기본값 |
-| --- | --- |
-| URL | `jdbc:mariadb://localhost:23306/mafiaweb` |
-| 사용자명 | `DB_USERNAME` (로컬 개발용 애플리케이션 계정 권장) |
-| 비밀번호 | `DB_PASSWORD` (강력한 비밀번호 사용) |
-| 빈 방 정리 유예 시간 | `15s` (`mafiagame.room.empty-cleanup-delay`) |
-
-## 주요 URL
-
-| URL | 설명 |
-| --- | --- |
-| `/` 또는 `/rooms` | 게임 로비 (방 목록, 검색, 온라인 인원) |
-| `/rooms/new` | 게임방 생성 |
-| `/rooms/{roomId}` | 대기방 및 게임 진행 화면 |
-| `/login` | 로그인 |
-| `/signup` | 회원가입 |
-
-## 프로젝트 구조
-
-```text
-docs/               # MVP 문서, 학습 가이드, 인증 문서 및 QA 보고서
-src/main/java/kr/or/oti/mafiagame/
-├── config/       # Spring Security, WebSocket 설정 및 인터셉터
-├── controller/   # 인증, 로비, 방, 대기방 상태, 게임 진행, 채팅 컨트롤러
-├── dao/          # MyBatis Mapper 인터페이스
-├── domain/       # User, Room, UserStats 엔티티
-├── dto/          # 게임 페이즈, 투표/행동 요청, 프레즌스 등 DTO
-├── exception/    # WebSocket 및 게임 도메인 예외
-├── security/     # CustomUserDetails, 권한 검증 및 세션 관리
-└── service/      # 인증, 방 관리, 프레즌스(대기방), 게임 엔진(RoomGameService), 채팅 서비스
-
-src/main/resources/
-├── mappers/      # MyBatis XML 매퍼 파일
-├── static/       # CSS 및 클라이언트 JS (chat.js, room-list.js, stomp-client.js)
-└── templates/    # Thymeleaf 화면 템플릿
-
-test/
-├── java/         # Java 단위 및 슬라이스 테스트
-├── js/           # JavaScript STOMP 클라이언트 및 렌더링 단위 테스트
-└── e2e/          # Playwright 기반 4~8인 다중 세션 E2E 통합 테스트
-```
-
-## 검증 및 테스트 실행
-
-### 1. 전체 단위 테스트 (Java + JS)
+### 테스트 명령
 
 ```powershell
-npm ci
+# Java + JavaScript 테스트
 .\gradlew.bat test
-```
 
-### 2. JavaScript 단위 테스트
-
-```powershell
+# JavaScript 테스트만
 npm run test:js
-```
 
-### 3. Playwright 다중 브라우저 E2E 테스트
-
-로컬 서버(`http://127.0.0.1:8080`) 기동 상태에서 실행:
-
-```powershell
-npx playwright install chromium
-$env:PLAYER_COUNTS = "4"
+# Playwright 핵심 E2E
+$env:PLAYER_COUNTS = "4,5,6,8"
 npm run test:e2e -- --workers=1
 ```
+
+## 문서
+
+- [MVP 요구사항 및 게임 규칙](./docs/MAFIAGAME_MVP.md)
+- [0.1.0-alpha 기준 프로젝트 개요](./docs/PROJECT_OVERVIEW_0.1.0-alpha.md)
+- [프로젝트 학습 가이드](./docs/PROJECT_LEARNING_GUIDE.md)
+- [로그인·DB 설정 문서](./docs/LOGIN.md)
+- [재사용 QA 실행 스크립트](./docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md)
+- [2026-09-22 QA 보고서](./docs/QA_report/MAFIAGAME_QA_REPORT_2026-09-22_qa-20260922-111137.md)
+
+## 패치노트
+
+### 0.1.0-alpha — 초기 MVP 기준 버전
+
+`0.1.0-alpha`는 MAFIAGAME의 실시간 마피아 게임 플레이를 처음 구성한 기준 버전입니다.
+
+- 회원가입, 로그인, 로그아웃과 보호된 게임방 접근을 구현했습니다.
+- 게임 로비에서 방 목록을 확인하고 방을 검색·생성·입장할 수 있도록 했습니다.
+- 4~8명 정원, 방장 권한, 참가자 목록, Ready 상태를 구현했습니다.
+- Spring WebSocket/STOMP 기반으로 참가자·방 상태·채팅을 실시간 동기화했습니다.
+- 마피아·경찰·의사·시민 역할과 역할별 비공개 정보를 구현했습니다.
+- 낮 토론, 지목 투표, 최종 변론, 처형 투표, 밤 행동, 승패 판정의 기본 게임 루프를 구현했습니다.
+- 마피아 제거, 의사 보호, 경찰 조사와 시민·마피아 승리 조건을 서버에서 판정하도록 했습니다.
+- 게임 결과를 표시한 뒤 Ready 상태를 초기화하고 같은 방에서 다시 플레이할 수 있도록 했습니다.
+- 새로고침과 재접속 시 서버의 현재 게임 상태를 복구하도록 했습니다.
+- Java 단위 테스트와 브라우저 기반 JavaScript 테스트를 마련하고, 4~8인 다중 세션 E2E 흐름을 구성했습니다.
+
+### 0.1.1-alpha — 페이즈 안내·안정성·QA 강화
+
+`0.1.1-alpha`는 기존 MVP 플레이 흐름을 유지하면서 게임 진행 안내, null 타입 안정성, 채팅 UI와 검증 체계를 보강한 버전입니다.
+
+#### 게임 진행 안내 시스템 메시지
+
+- `ChatMessage.system()`을 추가하여 `SYSTEM` 타입, `PUBLIC` 채널, `게임 안내` 발신자를 사용하는 시스템 메시지를 만들 수 있게 했습니다.
+- 게임 시작 및 실제 페이즈 전환 시 게임방 공개 토픽(`/topic/rooms/{roomId}/chat`)으로 안내 메시지를 한 번씩 발행합니다.
+- 상태 동기화, 재접속, 중복 액션, 타이머 갱신 때문에 동일 페이즈 안내가 중복 발행되지 않도록 했습니다.
+- 다음 페이즈별 안내를 추가했습니다.
+  - `ROLE_ASSIGNMENT`: 개인 역할 확인과 역할 공개 금지
+  - `DAY_DISCUSSION`: 밤 결과 확인, 토론, 지목 투표 준비
+  - `NOMINATION_VOTE`: 한 명 지목 규칙과 동률 시 밤 전환
+  - `FINAL_DEFENSE`: 지목된 참가자만 공개 발언 가능
+  - `EXECUTION_VOTE`: 처형 후보자 투표 제외와 찬반 다수결
+  - `NIGHT`: 마피아 제거, 의사 보호, 경찰 조사, 시민 대기 안내
+  - `FINISHED`: 게임 종료와 전체 결과 확인 안내
+- 밤 사망·보호 결과, 처형 결과, 승리 문구 등 서버가 계산한 전환 결과도 해당 페이즈 안내에 함께 표시합니다.
+- 역할, 경찰 조사 대상과 결과 같은 비공개 정보는 공개 시스템 메시지에 포함하지 않습니다.
+
+#### 채팅 화면 개선
+
+- 클라이언트가 `CHAT`뿐 아니라 `SYSTEM` WebSocket 메시지도 처리하도록 했습니다.
+- 시스템 메시지에 `.chat-message.system`, `.channel-system` 클래스를 부여하여 일반·마피아·사망자 채팅과 구분했습니다.
+- 시스템 메시지는 `게임 안내` 발신자와 안내 아이콘으로 표시하고, HTML이 아닌 text content로만 렌더링합니다.
+- 공개·마피아·사망자·시스템 채널의 메시지 클래스를 명확히 정규화해 채널별 스타일 적용을 안정화했습니다.
+- 시스템 안내용 배경, 테두리, 아이콘, 안내 문구 스타일을 추가했습니다.
+
+#### null 타입 안정성과 서버 코드 정리
+
+- `ChannelInterceptor`, WebSocket 설정, 채팅 서비스의 Spring `@NonNull` 계약을 명시했습니다.
+- WebSocket 인가 인터셉터의 메시지·채널·STOMP accessor·예외 생성 경로에 non-null 계약을 적용했습니다.
+- `RoomController`, `RoomGameRules`의 함수형 컬렉션 처리에서 발생하던 `ToIntFunction`·`Function<Map.Entry<...>>` null 타입 경고를 정리했습니다.
+- `RoomPresenceService`에서 참가자 맵이 비어 있거나 null일 때의 조회·정리 경로를 안전하게 처리했습니다.
+- 목적지 문자열 생성과 결과 반환 타입을 명시해 IDE null 분석이 실제 계약과 일치하도록 했습니다.
+- 테스트에서 리플렉션으로 사용하는 페이즈 진행 메서드에는 용도를 명시하여 불필요 사용 경고를 정리했습니다.
+
+#### 테스트·QA 업데이트
+
+- WebSocket 인가 테스트에 null principal, 공개/마피아 채널, 방 입장과 구독 권한 검증을 보강했습니다.
+- `RoomGameServiceTest`에 게임 시작과 페이즈 전환 시 `SYSTEM` 메시지가 공개 발행되는지 검증하는 테스트를 추가했습니다.
+- JavaScript 테스트에 시스템 메시지의 채널 클래스·발신자·text-only 렌더링을 추가했습니다.
+- 패치노트 팝업의 최초 표시, 같은 날 숨김, 내용 변경 시 숨김 설정 무효화 테스트를 추가했습니다.
+- Playwright 추적에 시스템 메시지를 수집하고 역할 배정부터 게임 종료까지 각 페이즈 안내를 확인하도록 했습니다.
+- 재사용 QA 문서에 MVP 검증 항목을 40번까지 정리하고, 4.3절에 페이즈 시스템 메시지의 공개 범위·중복 방지·문구·DOM 검증 기준을 추가했습니다.
+- 실제 QA 실행 결과 Java 테스트 성공, JavaScript 29/29 통과, 핵심 E2E 6/6 통과, UI 회귀 2/2 통과를 확인했습니다.
+
+#### 릴리스 버전
+
+- Gradle 프로젝트 버전을 `0.1.0-alpha`에서 `0.1.1-alpha`로 변경했습니다.
+- 이번 버전은 기존 게임 규칙과 데이터 구조를 유지하면서 사용자 안내와 안정성, 자동 검증을 강화하는 알파 업데이트입니다.

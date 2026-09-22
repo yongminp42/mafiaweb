@@ -115,6 +115,22 @@ async function waitForOneOfPhases(pages, phases, timeout = 20_000) {
   );
 }
 
+async function dismissPatchNotes(page) {
+  const modal = page.locator('#patchNotesModal');
+  if (await modal.count() === 0) {
+    return;
+  }
+
+  try {
+    await expect(modal).toBeVisible({ timeout: 2_000 });
+  } catch {
+    return;
+  }
+
+  await modal.locator('[data-bs-dismiss="modal"]').click();
+  await expect(modal).toBeHidden({ timeout: 5_000 });
+}
+
 async function waitUntil(predicate, timeout, description) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -154,6 +170,7 @@ function attachGameTrace(page) {
   const trace = {
     gameStates: [],
     presenceStates: [],
+    systemMessages: [],
     errors: []
   };
 
@@ -178,6 +195,11 @@ function attachGameTrace(page) {
           const message = JSON.parse(frame.body.trim());
           if (destination.endsWith('/game')) {
             trace.gameStates.push({
+              receivedAt: Date.now(),
+              ...message
+            });
+          } else if (destination.endsWith('/chat') && message.type === 'SYSTEM') {
+            trace.systemMessages.push({
               receivedAt: Date.now(),
               ...message
             });
@@ -324,6 +346,7 @@ async function joinRoomFromLobby(page, roomUrl, timeout = 30_000) {
   // 방 생성 직후 로비 WebSocket이 목록 갱신을 예약할 수 있으므로,
   // 목록에 실제 입장 링크가 나타난 뒤 클릭해 이동 경합을 피한다.
   await expect(joinButton).toBeVisible({ timeout });
+  await dismissPatchNotes(page);
   await joinButton.click();
   await expect(page).toHaveURL(roomUrl, { timeout });
 }
@@ -646,6 +669,22 @@ async function startReplayGame(pages, traces) {
   );
 }
 
+function firstSystemMessage(trace, title, occurrence = 0) {
+  return trace.systemMessages.filter(message =>
+    typeof message.content === 'string' && message.content.includes(title)
+  )[occurrence];
+}
+
+async function waitForSystemMessage(traces, title, timeout = 15_000) {
+  await Promise.all(traces.map(trace =>
+    waitUntil(
+      () => firstSystemMessage(trace, title),
+      timeout,
+      title + ' system message'
+    )
+  ));
+}
+
 for (const playerCount of PLAYER_COUNTS) {
   test.describe.serial('MVP ' + playerCount + '인 핵심 게임 흐름', () => {
     test('인증부터 한 사이클까지 동기화 검증', async ({ browser }) => {
@@ -748,6 +787,7 @@ for (const playerCount of PLAYER_COUNTS) {
         );
 
         await waitForPhase(pages, PHASE_LABELS.ROLE, 20_000);
+        await waitForSystemMessage(traces, '\uC5ED\uD560 \uD655\uC778');
         const roleState = await waitForGameState(traces[0], 'ROLE_ASSIGNMENT');
         expect(roleState.players.every(player => player.role == null)).toBeTruthy();
 
@@ -798,6 +838,7 @@ for (const playerCount of PLAYER_COUNTS) {
 
         await waitForPhase(pages, PHASE_LABELS.DAY, 20_000);
         const dayState = await waitForGameState(traces[0], 'DAY_DISCUSSION');
+        await waitForSystemMessage(traces, '\uB0AE \uD1A0\uB860');
         expect(dayState.receivedAt).toBeLessThan(roleState.phaseEndsAt);
         expect(dayState.receivedAt - roleState.receivedAt).toBeLessThan(8_000);
         expect(dayState.phaseEndsAt - dayState.receivedAt).toBeGreaterThan(55_000);
@@ -837,6 +878,7 @@ for (const playerCount of PLAYER_COUNTS) {
         await waitForPhase(pages, PHASE_LABELS.NOMINATION, 70_000);
         await assertTimersAreSynchronized(pages);
         const nominationState = await waitForGameState(traces[0], 'NOMINATION_VOTE');
+        await waitForSystemMessage(traces, '\uC9C0\uBAA9 \uD22C\uD45C');
         expect(nominationState.receivedAt - dayState.receivedAt).toBeGreaterThanOrEqual(55_000);
         expect(nominationState.phaseEndsAt - nominationState.receivedAt)
           .toBeGreaterThanOrEqual(19_000);
@@ -862,6 +904,7 @@ for (const playerCount of PLAYER_COUNTS) {
 
         await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
         const defenseState = await waitForGameState(traces[0], 'FINAL_DEFENSE');
+        await waitForSystemMessage(traces, '\uCD5C\uC885 \uBCC0\uB860');
         expect(defenseState.nominatedUserId).toBe(initialExecutionTargetId);
         expect(defenseState.phaseEndsAt - nominationState.phaseEndsAt)
           .toBeGreaterThanOrEqual(19_000);
@@ -891,6 +934,7 @@ for (const playerCount of PLAYER_COUNTS) {
 
         await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
         const executionState = await waitForGameState(traces[0], 'EXECUTION_VOTE');
+        await waitForSystemMessage(traces, '\uCC98\uD615 \uD22C\uD45C');
         expect(executionState.receivedAt - defenseState.receivedAt).toBeGreaterThanOrEqual(18_000);
         expect(executionState.nominatedUserId).toBe(initialExecutionTargetId);
         expect(executionState.phaseEndsAt - defenseState.phaseEndsAt)
@@ -915,6 +959,7 @@ for (const playerCount of PLAYER_COUNTS) {
         await waitForPhase(pages, PHASE_LABELS.NIGHT, 25_000);
         await assertTimersAreSynchronized(pages);
         const nightState = await waitForGameState(traces[0], 'NIGHT');
+        await waitForSystemMessage(traces, '\uBC24 \uC548\uB0B4');
         expect(nightState.receivedAt - executionState.receivedAt).toBeGreaterThanOrEqual(18_000);
         expect(nightState.phaseEndsAt - executionState.phaseEndsAt)
           .toBeGreaterThanOrEqual(34_000);
@@ -1107,6 +1152,7 @@ for (const playerCount of PLAYER_COUNTS) {
         );
 
         await waitForPhase(pages, PHASE_LABELS.FINISHED, 20_000);
+        await waitForSystemMessage(traces, '\uAC8C\uC784 \uC885\uB8CC');
         const finishedState = await waitForGameState(
           traces[0],
           'FINISHED',

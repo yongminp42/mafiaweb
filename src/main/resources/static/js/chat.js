@@ -376,7 +376,7 @@
           renderParticipants(message.participants, message.status);
           return;
         }
-        if (message.type === 'CHAT') {
+        if (message.type === 'CHAT' || message.type === 'SYSTEM') {
           appendMessage(message, getMessageChannel(message, frame));
         }
       } catch (error) {
@@ -394,6 +394,10 @@
     const headers = frame?.headers || {};
     const destination = String(headers.destination || '');
     const subscription = String(headers.subscription || '');
+
+    if (String(message?.type || '').toUpperCase() === 'SYSTEM') {
+      return 'SYSTEM';
+    }
 
     // Dead-player messages use the public payload shape but are delivered through
     // a private subscription, so the destination is the source of truth here.
@@ -413,17 +417,23 @@
 
   function appendMessage(message, channel = 'PUBLIC') {
     const senderName = String(message.sender || '알 수 없음').trim() || '알 수 없음';
-    const isOwnMessage = senderName === nickname;
-    const normalizedChannel = ['PUBLIC', 'MAFIA', 'DEAD'].includes(channel) ? channel : 'PUBLIC';
+    const isSystemMessage = String(message?.type || '').toUpperCase() === 'SYSTEM'
+      || channel === 'SYSTEM';
+    const isOwnMessage = !isSystemMessage && senderName === nickname;
+    const normalizedChannel = ['PUBLIC', 'MAFIA', 'DEAD', 'SYSTEM'].includes(channel)
+      ? channel
+      : 'PUBLIC';
     const item = document.createElement('article');
-    item.className = `chat-message ${isOwnMessage ? 'own' : 'other'} channel-${normalizedChannel.toLowerCase()}`;
+    item.className = `chat-message ${isSystemMessage ? 'system' : (isOwnMessage ? 'own' : 'other')} channel-${normalizedChannel.toLowerCase()}`;
     item.dataset.sender = senderName;
     item.dataset.channel = normalizedChannel;
 
     const avatar = document.createElement('div');
-    avatar.className = `chat-avatar chat-avatar-${getSenderColor(senderName)}`;
+    avatar.className = isSystemMessage
+      ? 'chat-system-icon'
+      : `chat-avatar chat-avatar-${getSenderColor(senderName)}`;
     avatar.setAttribute('aria-hidden', 'true');
-    avatar.textContent = getSenderInitial(senderName);
+    avatar.textContent = isSystemMessage ? '!' : getSenderInitial(senderName);
 
     const messageBody = document.createElement('div');
     messageBody.className = 'chat-message-body';

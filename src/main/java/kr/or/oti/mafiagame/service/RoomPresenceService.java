@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import jakarta.annotation.PreDestroy;
 
 import org.springframework.context.event.EventListener;
+import org.springframework.lang.NonNull;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.beans.factory.annotation.Value;
@@ -308,6 +309,9 @@ public class RoomPresenceService {
             readLock.unlock();
         }
 
+        if (counts == null) {
+            throw new IllegalStateException("온라인 방 인원 목록을 만들지 못했습니다.");
+        }
         messagingTemplate.convertAndSend(LOBBY_PRESENCE_DESTINATION, counts);
         broadcastOnlinePlayerCount(onlinePlayerCount);
     }
@@ -329,7 +333,9 @@ public class RoomPresenceService {
             }
 
             Map<String, ParticipantPresence> participants = participantsByRoom.get(roomId);
-            ParticipantPresence participant = participants == null ? null : participants.get(participantKey);
+            ParticipantPresence participant = participants == null
+                    ? null
+                    : participants.get(participantKey);
             if (participant == null || !participant.sessions.contains(sessionId)) {
                 throw new RoomWebSocketException("게임방 참가자 정보를 찾을 수 없습니다.");
             }
@@ -383,7 +389,10 @@ public class RoomPresenceService {
             }
 
             Map<String, ParticipantPresence> participants = participantsByRoom.get(roomId);
-            ParticipantPresence participant = participants == null ? null : participants.get(participantKey);
+            if (participants == null) {
+                throw new RoomWebSocketException("게임방 참가자 정보를 찾을 수 없습니다.");
+            }
+            ParticipantPresence participant = participants.get(participantKey);
             if (participant == null || !participant.sessions.contains(sessionId)) {
                 throw new RoomWebSocketException("게임방 참가자 정보를 찾을 수 없습니다.");
             }
@@ -540,7 +549,8 @@ public class RoomPresenceService {
         Long departedUserId = participantLeaves && participant != null ? participant.userId : null;
         boolean retainForReconnect = participantLeaves
                 && "PLAYING".equals(roomStatusByRoom.getOrDefault(roomId, "WAITING"));
-        boolean hostLeaves = participantLeaves
+        boolean hostLeaves = participant != null
+                && participant.sessions.size() == 1
                 && Objects.equals(hostUserByRoom.get(roomId), participant.userId)
                 && participants.size() > 1;
         ParticipantPresence successor = hostLeaves
@@ -720,12 +730,20 @@ public class RoomPresenceService {
     private void broadcast(RoomPresenceState state) {
         // 방 참가자 화면에는 방별 상태를, 로비에는 방 인원과 전체 온라인 인원을 각각 보낸다.
         messagingTemplate.convertAndSend(
-                PRESENCE_DESTINATION.formatted(state.roomId()),
+                formatDestination(PRESENCE_DESTINATION, state.roomId()),
                 state);
         messagingTemplate.convertAndSend(
                 LOBBY_PRESENCE_DESTINATION,
                 new RoomPresenceCount(state.roomId(), state.participants().size()));
         broadcastOnlinePlayerCount();
+    }
+
+    private static @NonNull String formatDestination(String template, long roomId) {
+        String destination = template.formatted(roomId);
+        if (destination == null) {
+            throw new IllegalStateException("WebSocket destination must not be null.");
+        }
+        return destination;
     }
 
     private void broadcastOnlinePlayerCount() {
@@ -809,12 +827,15 @@ public class RoomPresenceService {
             if (participants == null) {
                 notify = true;
             } else {
-                String participantKey = participants.entrySet().stream()
-                        .filter(entry -> entry.getValue().userId == userId
-                                && entry.getValue().sessions.isEmpty())
-                        .map(Map.Entry::getKey)
-                        .findFirst()
-                        .orElse(null);
+                String participantKey = null;
+                for (Map.Entry<String, ParticipantPresence> entry : participants.entrySet()) {
+                    ParticipantPresence participant = entry.getValue();
+                    if (participant != null && participant.userId == userId
+                            && participant.sessions.isEmpty()) {
+                        participantKey = entry.getKey();
+                        break;
+                    }
+                }
                 if (participantKey == null) {
                     notify = participants.values().stream()
                             .noneMatch(participant -> participant.userId == userId);

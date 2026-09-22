@@ -83,7 +83,8 @@ final class RoomGameRules {
             GameRulePlayer target = players.get(vote.getValue());
             if (voter != null && voter.alive() && target != null && target.alive()
                     && !Objects.equals(voter.userId(), target.userId())) {
-                voteCounts.merge(target.userId(), 1, Integer::sum);
+                Integer previousCount = voteCounts.get(target.userId());
+                voteCounts.put(target.userId(), previousCount == null ? 1 : previousCount + 1);
             }
         }
         return findUniqueLeader(voteCounts);
@@ -144,18 +145,29 @@ final class RoomGameRules {
             }
             GameRulePlayer target = players.get(action.targetUserId());
             if (target != null && target.alive() && target.role() != GameRole.MAFIA) {
-                targetCounts.merge(action.targetUserId(), 1, Integer::sum);
+                Integer previousCount = targetCounts.get(action.targetUserId());
+                targetCounts.put(
+                        action.targetUserId(),
+                        previousCount == null ? 1 : previousCount + 1);
             }
         }
         if (targetCounts.isEmpty()) {
             return null;
         }
 
-        int highest = targetCounts.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-        List<Long> leaders = targetCounts.entrySet().stream()
-                .filter(entry -> entry.getValue() == highest)
-                .map(Map.Entry::getKey)
-                .toList();
+        int highest = 0;
+        for (Integer count : targetCounts.values()) {
+            if (count != null) {
+                highest = Math.max(highest, count.intValue());
+            }
+        }
+        List<Long> leaders = new ArrayList<>();
+        for (Map.Entry<Long, Integer> entry : targetCounts.entrySet()) {
+            Integer count = entry.getValue();
+            if (count != null && count.intValue() == highest) {
+                leaders.add(entry.getKey());
+            }
+        }
         return leaders.get(random.nextInt(leaders.size()));
     }
 
@@ -164,11 +176,19 @@ final class RoomGameRules {
             return null;
         }
 
-        int highest = voteCounts.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-        List<Long> leaders = voteCounts.entrySet().stream()
-                .filter(entry -> entry.getValue() == highest)
-                .map(Map.Entry::getKey)
-                .toList();
+        int highest = 0;
+        for (Integer count : voteCounts.values()) {
+            if (count != null) {
+                highest = Math.max(highest, count.intValue());
+            }
+        }
+        List<Long> leaders = new ArrayList<>();
+        for (Map.Entry<Long, Integer> entry : voteCounts.entrySet()) {
+            Integer count = entry.getValue();
+            if (count != null && count.intValue() == highest) {
+                leaders.add(entry.getKey());
+            }
+        }
         return leaders.size() == 1 ? leaders.get(0) : null;
     }
 
