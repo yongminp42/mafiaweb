@@ -1,4 +1,57 @@
 (() => {
+  const patchNotesModalElement = document.querySelector('#patchNotesModal');
+  const patchNotesHideToday = document.querySelector('#patchNotesHideToday');
+  const patchNotesContent = patchNotesModalElement?.querySelector('.patch-notes-content');
+  const PatchNotesModal = window.bootstrap?.Modal;
+  const patchNotesStorageKey = 'mafiagame.patch-notes.preference';
+
+  function getTodayKey() {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const date = String(today.getDate()).padStart(2, '0');
+    return `${today.getFullYear()}-${month}-${date}`;
+  }
+
+  function getPatchNotesFingerprint() {
+    return patchNotesContent?.textContent.replace(/\s+/g, ' ').trim() || '';
+  }
+
+  function readPatchNotesPreference() {
+    try {
+      const storedPreference = window.localStorage.getItem(patchNotesStorageKey);
+      return storedPreference ? JSON.parse(storedPreference) : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function isHiddenToday() {
+    const preference = readPatchNotesPreference();
+    return preference?.date === getTodayKey()
+      && preference?.content === getPatchNotesFingerprint();
+  }
+
+  function rememberPatchNotesPreference() {
+    try {
+      if (patchNotesHideToday?.checked) {
+        window.localStorage.setItem(patchNotesStorageKey, JSON.stringify({
+          date: getTodayKey(),
+          content: getPatchNotesFingerprint()
+        }));
+      } else {
+        window.localStorage.removeItem(patchNotesStorageKey);
+      }
+    } catch (error) {
+      // Private browsing or a blocked storage area should not prevent the modal from closing.
+    }
+  }
+
+  if (patchNotesModalElement && PatchNotesModal && !isHiddenToday()) {
+    const patchNotesModal = PatchNotesModal.getOrCreateInstance(patchNotesModalElement);
+    patchNotesModalElement.addEventListener('hidden.bs.modal', rememberPatchNotesPreference);
+    window.setTimeout(() => patchNotesModal.show(), 150);
+  }
+
   const cards = new Map(
     [...document.querySelectorAll('.room-card')]
       .map(card => [Number(card.dataset.roomId), card])

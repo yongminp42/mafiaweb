@@ -1100,3 +1100,61 @@ a {
     font-size: 9px;
   }
 }
+
+.patch-notes-modal .modal-dialog {
+  max-width: 560px;
+}
+
+.patch-notes-modal .modal-content {
+  border-radius: 1.25rem;
+  overflow: hidden;
+}
+
+.patch-notes-header {
+  background: var(--mafia-navy);
+  color: #fff;
+  padding: 1.5rem 1.5rem 1.25rem;
+}
+
+.patch-notes-header .eyebrow {
+  letter-spacing: .16em;
+}
+
+.patch-note-item {
+  padding: 1rem 1.1rem;
+  border: 1px solid #eceef2;
+  border-radius: .9rem;
+  background: #fbfbfc;
+}
+
+.patch-note-item + .patch-note-item {
+  margin-top: .75rem;
+}
+
+.patch-notes-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem 1.25rem;
+  background: #fbfbfc;
+}
+
+@media (max-width: 575.98px) {
+  .patch-notes-header,
+  .patch-notes-footer {
+    padding-inline: 1.25rem;
+  }
+
+  .patch-notes-footer {
+    gap: .75rem;
+  }
+
+  .patch-notes-footer .form-check {
+    min-width: 0;
+  }
+
+  .patch-notes-footer .form-check-label {
+    white-space: nowrap;
+  }
+}
