@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 /*
  * MAFIAGAME MVP 다중 세션 E2E 초안
  *
  * 실행 예:
  *   npx playwright install chromium
- *   $env:PLAYER_COUNTS = '4,5,6,8'
+ *   $env:PLAYER_COUNTS = '4,5,6,7,8'
  *   npx playwright test test/e2e/mafia-mvp.spec.js
  *
  * ONLINE_BASELINE을 지정하지 않으면 첫 테스트 세션이 로비에 연결된 뒤
@@ -21,12 +23,13 @@ const MAX_PLAYERS = 8;
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const PASSWORD = process.env.E2E_PASSWORD || 'MafiaTest2026!';
 const RUN_ID = process.env.E2E_RUN_ID || Date.now().toString(36);
+const ARTIFACT_ROOT = path.resolve(`output/mafia-mvp-test-${RUN_ID}`);
 const configuredOnlineBaseline = process.env.ONLINE_BASELINE?.trim();
 const ONLINE_BASELINE = configuredOnlineBaseline
   ? Number(configuredOnlineBaseline)
   : null;
 const PLAYER_COUNTS = parsePlayerCounts(
-  process.env.PLAYER_COUNTS || process.env.PLAYER_COUNT || '4,5,6,8'
+  process.env.PLAYER_COUNTS || process.env.PLAYER_COUNT || '4,5,6,7,8'
 );
 
 if (ONLINE_BASELINE !== null
@@ -48,7 +51,7 @@ function parsePlayerCounts(value) {
       || count < MIN_PLAYERS
       || count > MAX_PLAYERS)) {
     throw new Error(
-      `PLAYER_COUNTS는 ${MIN_PLAYERS}~${MAX_PLAYERS} 범위의 숫자 목록이어야 합니다. 예: 4,5,6,8`
+      `PLAYER_COUNTS는 ${MIN_PLAYERS}~${MAX_PLAYERS} 범위의 숫자 목록이어야 합니다. 예: 4,5,6,7,8`
     );
   }
   return [...new Set(counts)];
@@ -127,7 +130,7 @@ async function dismissPatchNotes(page) {
     return;
   }
 
-  await modal.locator('[data-bs-dismiss="modal"]').click();
+  await modal.locator('[data-bs-dismiss="modal"]').click({ force: true });
   await expect(modal).toBeHidden({ timeout: 5_000 });
 }
 
@@ -198,7 +201,9 @@ function attachGameTrace(page) {
               receivedAt: Date.now(),
               ...message
             });
-          } else if (destination.endsWith('/chat') && message.type === 'SYSTEM') {
+          } else if ((destination.endsWith('/chat')
+              || frame.headers.subscription === 'mafia-chat')
+              && message.type === 'SYSTEM') {
             trace.systemMessages.push({
               receivedAt: Date.now(),
               ...message
@@ -307,8 +312,19 @@ async function expectRoomError(page, trace, previousCount, expectedMessage) {
   await expect(page.locator('#toast')).toContainText(expectedMessage);
 }
 
-async function createTrackedContext(browser) {
-  const context = await browser.newContext();
+async function createTrackedContext(browser, { videoDirectory } = {}) {
+  const contextOptions = {
+    baseURL: BASE_URL,
+    viewport: { width: 1440, height: 1000 }
+  };
+  if (videoDirectory) {
+    contextOptions.recordVideo = {
+      dir: videoDirectory,
+      size: { width: 1440, height: 1000 }
+    };
+  }
+
+  const context = await browser.newContext(contextOptions);
   await context.addInitScript(() => {
     const NativeWebSocket = window.WebSocket;
     window.WebSocket = class extends NativeWebSocket {
@@ -319,6 +335,28 @@ async function createTrackedContext(browser) {
     };
   });
   return context;
+}
+
+async function captureScenarioScreenshot(page, artifactDirectory, name) {
+  if (!page || page.isClosed()) {
+    return;
+  }
+  await page.screenshot({
+    path: path.join(artifactDirectory, `${name}.png`),
+    fullPage: true
+  });
+}
+
+async function captureFinalScenarioScreenshot(page, artifactDirectory) {
+  await captureScenarioScreenshot(page, artifactDirectory, 'final-state')
+    .catch(() => {});
+}
+
+async function saveScenarioVideo(video, artifactDirectory, fileName) {
+  if (!video) {
+    throw new Error('QA evidence video is not available for this scenario.');
+  }
+  await video.saveAs(path.join(artifactDirectory, fileName));
 }
 
 async function sendRawRoomMessage(page, roomUrl, channel, content) {
@@ -369,8 +407,11 @@ async function waitForMatchingGameState(trace, phase, predicate, timeout = 20_00
 
 const ROLE_LABELS = {
   MAFIA: '\uB9C8\uD53C\uC544',
+  SPY: '\uC2A4\uD30C\uC774',
   DOCTOR: '\uC758\uC0AC',
   POLICE: '\uACBD\uCC30',
+  SOLDIER: '\uAD70\uC778',
+  MEDIUM: '\uC601\uB9E4\uC0AC',
   CITIZEN: '\uC2DC\uBBFC'
 };
 
@@ -385,16 +426,21 @@ const PHASE_LABELS = {
 };
 
 function expectedMafiaCount(playerCount) {
-  return playerCount >= 6 ? 2 : 1;
+  return playerCount >= 7 ? 2 : 1;
+}
+
+function expectedRoleCounts(playerCount) {
+  return {
+    4: { MAFIA: 1, SPY: 0, DOCTOR: 1, POLICE: 1, SOLDIER: 0, MEDIUM: 0, CITIZEN: 1 },
+    5: { MAFIA: 1, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 0, MEDIUM: 0, CITIZEN: 1 },
+    6: { MAFIA: 1, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 0, CITIZEN: 1 },
+    7: { MAFIA: 2, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 0, CITIZEN: 1 },
+    8: { MAFIA: 2, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 1, CITIZEN: 1 }
+  }[playerCount];
 }
 
 function assertRoleAssignments(roleLabels, playerCount) {
-  const expected = {
-    MAFIA: expectedMafiaCount(playerCount),
-    DOCTOR: 1,
-    POLICE: 1,
-    CITIZEN: playerCount - expectedMafiaCount(playerCount) - 2
-  };
+  const expected = expectedRoleCounts(playerCount);
   const actual = Object.fromEntries(
     Object.entries(ROLE_LABELS).map(([role, label]) => [
       role,
@@ -403,6 +449,7 @@ function assertRoleAssignments(roleLabels, playerCount) {
   );
 
   expect(roleLabels).toHaveLength(playerCount);
+  expect(expected).toBeTruthy();
   expect(actual).toEqual(expected);
 }
 
@@ -540,120 +587,91 @@ async function startReplayGame(pages, traces) {
   const replayRoleLabels = await Promise.all(pages.map(async page =>
     (await page.locator('#gameRoleLabel').textContent()).trim()
   ));
-  const replayMafiaUserIds = replayUserIds.filter((userId, index) =>
+  const replayMafiaTeamUserIds = replayUserIds.filter((userId, index) =>
     replayRoleLabels[index] === ROLE_LABELS.MAFIA
+      || replayRoleLabels[index] === ROLE_LABELS.SPY
   );
   const replayCitizenUserIds = replayUserIds.filter((userId, index) =>
     replayRoleLabels[index] === ROLE_LABELS.CITIZEN
   );
 
-  const firstReplayNominationOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'NOMINATION_VOTE')
-    .length;
-  await waitForPhase(pages, PHASE_LABELS.NOMINATION, 75_000);
-  await waitForGameState(
-    traces[0], 'NOMINATION_VOTE', firstReplayNominationOccurrence, 25_000
-  );
-  const firstReplayTargetId = replayMafiaUserIds.length === 2
-    ? replayMafiaUserIds[0]
-    : replayCitizenUserIds[0];
-  expect(firstReplayTargetId).toBeTruthy();
-  const firstReplayDefenseOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'FINAL_DEFENSE')
-    .length;
-  await submitNominationVotes(
-    pages,
-    replayUserIds,
-    firstReplayTargetId,
-    replayUserIds
-  );
+  let replayDayState = secondDayState;
+  let replayFinishedState = null;
+  while (!replayFinishedState) {
+    const replayAliveUserIds = replayDayState.players
+      .filter(player => player.alive)
+      .map(player => Number(player.userId));
+    const replayTargetId = replayMafiaTeamUserIds.find(userId =>
+      replayAliveUserIds.includes(userId)
+    );
+    expect(replayTargetId).toBeTruthy();
 
-  await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
-  const firstReplayDefenseState = await waitForGameState(
-    traces[0], 'FINAL_DEFENSE', firstReplayDefenseOccurrence, 25_000
-  );
-  expect(firstReplayDefenseState.nominatedUserId).toBe(firstReplayTargetId);
+    const replayNominationOccurrence = traces[0].gameStates
+      .filter(state => state.phase === 'NOMINATION_VOTE')
+      .length;
+    await waitForPhase(pages, PHASE_LABELS.NOMINATION, 75_000);
+    await waitForGameState(
+      traces[0], 'NOMINATION_VOTE', replayNominationOccurrence, 25_000
+    );
+    await submitNominationVotes(
+      pages,
+      replayUserIds,
+      replayTargetId,
+      replayAliveUserIds
+    );
 
-  const firstReplayExecutionOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'EXECUTION_VOTE')
-    .length;
-  await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
-  await waitForGameState(
-    traces[0], 'EXECUTION_VOTE', firstReplayExecutionOccurrence, 25_000
-  );
-  const firstReplayNightOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'NIGHT')
-    .length;
-  await submitExecutionVotes(
-    pages,
-    replayUserIds,
-    firstReplayTargetId,
-    replayUserIds
-  );
+    await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
+    const replayDefenseOccurrence = traces[0].gameStates
+      .filter(state => state.phase === 'FINAL_DEFENSE')
+      .length;
+    await waitForGameState(
+      traces[0], 'FINAL_DEFENSE', replayDefenseOccurrence, 25_000
+    );
 
-  await waitForPhase(pages, PHASE_LABELS.NIGHT, 25_000);
-  await waitForGameState(
-    traces[0], 'NIGHT', firstReplayNightOccurrence, 25_000
-  );
+    await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
+    const replayExecutionOccurrence = traces[0].gameStates
+      .filter(state => state.phase === 'EXECUTION_VOTE')
+      .length;
+    await waitForGameState(
+      traces[0], 'EXECUTION_VOTE', replayExecutionOccurrence, 25_000
+    );
 
-  const secondReplayDayOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'DAY_DISCUSSION')
-    .length;
-  await waitForPhase(pages, PHASE_LABELS.DAY, 75_000);
-  const secondReplayDayState = await waitForGameState(
-    traces[0], 'DAY_DISCUSSION', secondReplayDayOccurrence, 25_000
-  );
-  const replayAliveUserIds = secondReplayDayState.players
-    .filter(player => player.alive)
-    .map(player => Number(player.userId));
-  const finalReplayTargetId = replayMafiaUserIds.find(userId =>
-    replayAliveUserIds.includes(userId)
-  );
-  expect(finalReplayTargetId).toBeTruthy();
+    const replayFinishedOccurrence = traces[0].gameStates
+      .filter(state => state.phase === 'FINISHED')
+      .length;
+    await submitExecutionVotes(
+      pages,
+      replayUserIds,
+      replayTargetId,
+      replayAliveUserIds
+    );
 
-  const finalReplayNominationOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'NOMINATION_VOTE')
-    .length;
-  const finalReplayDefenseOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'FINAL_DEFENSE')
-    .length;
-  await waitForPhase(pages, PHASE_LABELS.NOMINATION, 75_000);
-  await waitForGameState(
-    traces[0], 'NOMINATION_VOTE', finalReplayNominationOccurrence, 25_000
-  );
-  await submitNominationVotes(
-    pages,
-    replayUserIds,
-    finalReplayTargetId,
-    replayAliveUserIds
-  );
+    const nextReplayPhase = await waitForOneOfPhases(
+      [pages[0]], [PHASE_LABELS.NIGHT, PHASE_LABELS.FINISHED], 25_000
+    );
+    if (nextReplayPhase === PHASE_LABELS.FINISHED) {
+      replayFinishedState = await waitForGameState(
+        traces[0], 'FINISHED', replayFinishedOccurrence, 25_000
+      );
+      break;
+    }
 
-  await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
-  await waitForGameState(
-    traces[0], 'FINAL_DEFENSE', finalReplayDefenseOccurrence, 25_000
-  );
-
-  const finalReplayExecutionOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'EXECUTION_VOTE')
-    .length;
-  await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
-  await waitForGameState(
-    traces[0], 'EXECUTION_VOTE', finalReplayExecutionOccurrence, 25_000
-  );
-  const replayFinishedOccurrence = traces[0].gameStates
-    .filter(state => state.phase === 'FINISHED')
-    .length;
-  await submitExecutionVotes(
-    pages,
-    replayUserIds,
-    finalReplayTargetId,
-    replayAliveUserIds
-  );
+    const replayNightOccurrence = traces[0].gameStates
+      .filter(state => state.phase === 'NIGHT')
+      .length;
+    await waitForGameState(
+      traces[0], 'NIGHT', replayNightOccurrence, 25_000
+    );
+    const replayNextDayOccurrence = traces[0].gameStates
+      .filter(state => state.phase === 'DAY_DISCUSSION')
+      .length;
+    await waitForPhase(pages, PHASE_LABELS.DAY, 75_000);
+    replayDayState = await waitForGameState(
+      traces[0], 'DAY_DISCUSSION', replayNextDayOccurrence, 25_000
+    );
+  }
 
   await waitForPhase(pages, PHASE_LABELS.FINISHED, 25_000);
-  const replayFinishedState = await waitForGameState(
-    traces[0], 'FINISHED', replayFinishedOccurrence, 25_000
-  );
   expect(replayFinishedState.gameOver).toBe(true);
   expect(replayFinishedState.winningFaction).toBe('CITIZEN');
   expect(replayFinishedState.players.every(player => typeof player.role === 'string'))
@@ -688,22 +706,33 @@ async function waitForSystemMessage(traces, title, timeout = 15_000) {
 for (const playerCount of PLAYER_COUNTS) {
   test.describe.serial('MVP ' + playerCount + '인 핵심 게임 흐름', () => {
     test('인증부터 한 사이클까지 동기화 검증', async ({ browser }) => {
-      test.setTimeout(12 * 60 * 1000);
+      // A full run includes the initial game and a replay. Five- and six-player role sets
+      // contain both MAFIA and SPY, so they need one additional execution/night cycle.
+      test.setTimeout(20 * 60 * 1000);
 
       const scenarioId = playerCount + '-' + RUN_ID;
+      const artifactDirectory = path.join(ARTIFACT_ROOT, `core-${playerCount}`);
       const contexts = [];
       const pages = [];
       const traces = [];
       let lobbyPage;
+      let hostVideo;
       let detectedOnlineBaseline = null;
+
+      await mkdir(artifactDirectory, { recursive: true });
 
       try {
         for (let index = 0; index < playerCount; index += 1) {
-          const context = await createTrackedContext(browser);
+          const context = await createTrackedContext(browser, {
+            videoDirectory: index === 0 ? artifactDirectory : undefined
+          });
           const page = await context.newPage();
           contexts.push(context);
           pages.push(page);
           traces.push(attachGameTrace(page));
+          if (index === 0) {
+            hostVideo = page.video();
+          }
           await signUpAndLogin(page, index, scenarioId);
 
           if (index === 0 && ONLINE_BASELINE === null) {
@@ -722,6 +751,7 @@ for (const playerCount of PLAYER_COUNTS) {
           await waitForRoomParticipantCount(pages[index], index + 1);
         }
         await waitForRoomReady(pages, playerCount);
+        await captureScenarioScreenshot(pages[0], artifactDirectory, 'waiting-room');
 
         const userIds = [];
         for (const page of pages) {
@@ -801,6 +831,7 @@ for (const playerCount of PLAYER_COUNTS) {
             });
           })
         );
+        await captureScenarioScreenshot(pages[0], artifactDirectory, 'role-assignment');
         await confirmRoleForPage(pages[0]);
         const firstRoleErrors = traces[0].errors.length;
         await sendRawRoomFrame(pages[0], roomUrl, 'game', {
@@ -816,8 +847,11 @@ for (const playerCount of PLAYER_COUNTS) {
 
         const rolePages = {
           MAFIA: [],
+          SPY: [],
           DOCTOR: [],
           POLICE: [],
+          SOLDIER: [],
+          MEDIUM: [],
           CITIZEN: []
         };
         const roleLabels = [];
@@ -846,6 +880,10 @@ for (const playerCount of PLAYER_COUNTS) {
         expect(dayState.players.every(player => player.role == null)).toBeTruthy();
 
         const mafiaUserIds = rolePages.MAFIA.map(player => player.userId);
+        const mafiaTeamUserIds = [
+          ...rolePages.MAFIA.map(player => player.userId),
+          ...rolePages.SPY.map(player => player.userId)
+        ];
         const citizenUserIds = rolePages.CITIZEN.map(player => player.userId);
 
         const mafiaChatMessage = 'mafia-chat-' + scenarioId;
@@ -862,7 +900,14 @@ for (const playerCount of PLAYER_COUNTS) {
           )
         );
         await Promise.all(
-          [...rolePages.CITIZEN, ...rolePages.DOCTOR, ...rolePages.POLICE].map(({ page }) =>
+          [
+            ...rolePages.SPY,
+            ...rolePages.CITIZEN,
+            ...rolePages.DOCTOR,
+            ...rolePages.POLICE,
+            ...rolePages.SOLDIER,
+            ...rolePages.MEDIUM
+          ].map(({ page }) =>
             expect(page.locator('#messages')).not.toContainText(mafiaChatMessage, {
               timeout: 10_000
             })
@@ -890,9 +935,7 @@ for (const playerCount of PLAYER_COUNTS) {
           )
         );
 
-        const initialExecutionTargetId = rolePages.MAFIA.length === 2
-          ? mafiaUserIds[0]
-          : citizenUserIds[0];
+        const initialExecutionTargetId = citizenUserIds[0];
         expect(initialExecutionTargetId).toBeTruthy();
 
         await submitNominationVotes(
@@ -970,6 +1013,7 @@ for (const playerCount of PLAYER_COUNTS) {
         expect(nightState.phaseEndsAt - nightState.receivedAt)
           .toBeLessThanOrEqual(36_000);
         await expect(pages[0].locator('#gameMessage')).toContainText('처형');
+        await captureScenarioScreenshot(pages[0], artifactDirectory, 'night');
 
         const aliveAfterExecutionIds = nightState.players
           .filter(player => player.alive)
@@ -1001,31 +1045,53 @@ for (const playerCount of PLAYER_COUNTS) {
         }
 
         const deadPage = pages[userIds.indexOf(initialExecutionTargetId)];
+        const medium = rolePages.MEDIUM[0];
+        const deadChannelRecipients = [
+          deadPage,
+          ...(medium ? [medium.page] : [])
+        ];
         const deadChatMessage = 'dead-chat-' + scenarioId;
-        await expect(deadPage.locator('#chatChannel option[value="PUBLIC"]')).toHaveText('사망자 채널');
+        await expect(deadPage.locator('#chatChannel')).toHaveValue('DEAD');
+        await expect(
+          deadPage.locator('#chatChannel option[value="DEAD"]')
+        ).toHaveJSProperty('hidden', false);
         await expect(deadPage.locator('#chatForm button[type="submit"]')).toBeEnabled();
         await deadPage.locator('#chatForm input[name="content"]').fill(deadChatMessage);
         await deadPage.locator('#chatForm button[type="submit"]').click();
-        await expect(deadPage.locator('#messages')).toContainText(deadChatMessage, {
-          timeout: 10_000
-        });
+        await Promise.all(
+          deadChannelRecipients.map(page =>
+            expect(page.locator('#messages')).toContainText(deadChatMessage, {
+              timeout: 10_000
+            })
+          )
+        );
         await Promise.all(
           pages
-            .filter(page => page !== deadPage)
+            .filter(page => !deadChannelRecipients.includes(page))
             .map(page =>
               expect(page.locator('#messages')).not.toContainText(deadChatMessage, {
                 timeout: 10_000
               })
             )
         );
+        if (medium) {
+          await captureScenarioScreenshot(medium.page, artifactDirectory, 'medium-dead-channel');
+        }
 
         const doctor = rolePages.DOCTOR[0];
         const police = rolePages.POLICE[0];
-        const survivingMafia = rolePages.MAFIA
-          .find(player => aliveAfterExecutionIds.includes(player.userId));
-        expect(survivingMafia).toBeTruthy();
+        const spy = rolePages.SPY[0];
+        const survivingMafiaPlayers = rolePages.MAFIA
+          .filter(player => aliveAfterExecutionIds.includes(player.userId));
+        expect(survivingMafiaPlayers).toHaveLength(expectedMafiaCount(playerCount));
+        const survivingMafia = survivingMafiaPlayers[0];
         expect(aliveAfterExecutionIds).toContain(doctor.userId);
         expect(aliveAfterExecutionIds).toContain(police.userId);
+        if (spy) {
+          expect(aliveAfterExecutionIds).toContain(spy.userId);
+          await expect(spy.page.locator('#chatChannel option[value="MAFIA"]')).toBeDisabled();
+          await captureScenarioScreenshot(spy.page, artifactDirectory, 'spy-channel-locked');
+        }
 
         await expect(doctor.page.locator('#chatForm button[type="submit"]')).toBeDisabled();
         await expect(police.page.locator('#chatForm input[name="content"]')).toBeDisabled();
@@ -1049,13 +1115,20 @@ for (const playerCount of PLAYER_COUNTS) {
         previousErrors = deadTrace.errors.length;
         await sendRawRoomMessage(deadPage, roomUrl, 'mafia-chat', 'blocked-dead-' + scenarioId);
         await expectRoomError(deadPage, deadTrace, previousErrors, '사망한 참가자');
+        if (spy) {
+          const spyTrace = traces[userIds.indexOf(spy.userId)];
+          previousErrors = spyTrace.errors.length;
+          await sendRawRoomMessage(spy.page, roomUrl, 'mafia-chat', 'blocked-spy-' + scenarioId);
+          await expectRoomError(spy.page, spyTrace, previousErrors, '마피아 채팅');
+        }
 
         const nightMafiaMessage = 'night-mafia-' + scenarioId;
         await survivingMafia.page.locator('#chatForm input[name="content"]').fill(nightMafiaMessage);
         await survivingMafia.page.locator('#chatForm button[type="submit"]').click();
         await expect(survivingMafia.page.locator('#messages')).toContainText(nightMafiaMessage);
+        const survivingMafiaPages = survivingMafiaPlayers.map(player => player.page);
         await Promise.all(
-          pages.filter(page => page !== survivingMafia.page)
+          pages.filter(page => !survivingMafiaPages.includes(page))
             .map(page => expect(page.locator('#messages')).not.toContainText(nightMafiaMessage))
         );
 
@@ -1064,10 +1137,19 @@ for (const playerCount of PLAYER_COUNTS) {
         ) || police.userId;
         expect(nightVictimId).not.toBe(survivingMafia.userId);
 
+        const mafiaNightActions = survivingMafiaPlayers.map(player =>
+          submitNightActionForPage(player.page, nightVictimId)
+        );
         await Promise.all([
-          submitNightActionForPage(survivingMafia.page, nightVictimId),
+          ...mafiaNightActions,
           submitNightActionForPage(doctor.page, nightVictimId),
-          submitNightActionForPage(police.page, survivingMafia.userId)
+          submitNightActionForPage(police.page, survivingMafia.userId),
+          ...(spy
+            ? [submitNightActionForPage(spy.page, survivingMafia.userId)]
+            : []),
+          ...(medium
+            ? [submitNightActionForPage(medium.page, initialExecutionTargetId)]
+            : [])
         ]);
 
         const reconnectPage = pages[1];
@@ -1100,9 +1182,67 @@ for (const playerCount of PLAYER_COUNTS) {
         );
         await Promise.all(
           pages
-            .filter(page => page !== police.page)
+            .filter(page => page !== police.page && page !== spy?.page && page !== medium?.page)
             .map(page => expect(page.locator('#nightResultPanel')).toBeHidden())
         );
+        if (spy) {
+          const spyTrace = traces[userIds.indexOf(spy.userId)];
+          const contactTraces = [
+            spyTrace,
+            ...survivingMafiaPlayers.map(player =>
+              traces[userIds.indexOf(player.userId)]
+            )
+          ];
+          await waitForSystemMessage(contactTraces, '접선');
+          await expect(spy.page.locator('#nightResultPanel')).toBeVisible({
+            timeout: 10_000
+          });
+          await expect(spy.page.locator('#nightResultTitle')).toHaveText('직업 조사 결과');
+          await expect(spy.page.locator('#nightResultLabel')).toContainText(
+            ROLE_LABELS.MAFIA
+          );
+          await expect(spy.page.locator('#nightResultMafiaList')).toContainText(
+            '확인된 마피아'
+          );
+          await expect(spy.page.locator('#chatChannel option[value="MAFIA"]')).toBeEnabled();
+
+          const spyContactMessage = 'spy-contact-' + scenarioId;
+          await spy.page.locator('#chatChannel').selectOption('MAFIA');
+          await spy.page.locator('#chatForm input[name="content"]').fill(spyContactMessage);
+          await spy.page.locator('#chatForm button[type="submit"]').click();
+          await Promise.all(
+            [spy, ...survivingMafiaPlayers].map(({ page }) =>
+              expect(page.locator('#messages')).toContainText(spyContactMessage, {
+                timeout: 10_000
+              })
+            )
+          );
+          const contactedMafiaPages = [
+            spy.page,
+            ...survivingMafiaPlayers.map(player => player.page)
+          ];
+          await Promise.all(
+            pages
+              .filter(page => !contactedMafiaPages.includes(page))
+              .map(page =>
+                expect(page.locator('#messages')).not.toContainText(spyContactMessage, {
+                  timeout: 10_000
+                })
+              )
+          );
+          await captureScenarioScreenshot(spy.page, artifactDirectory, 'spy-contact-unlocked');
+        }
+        if (medium) {
+          await expect(medium.page.locator('#nightResultPanel')).toBeVisible({
+            timeout: 10_000
+          });
+          await expect(medium.page.locator('#nightResultTitle')).toHaveText('직업 조사 결과');
+          await expect(medium.page.locator('#nightResultLabel')).toContainText(
+            ROLE_LABELS.CITIZEN
+          );
+          await expect(medium.page.locator('#nightResultMafiaList')).toBeHidden();
+          await captureScenarioScreenshot(medium.page, artifactDirectory, 'medium-investigation');
+        }
         await expect(pages[0].locator('#gameActions')).toBeHidden();
         const nextDayState = await waitForGameState(
           traces[0],
@@ -1124,41 +1264,69 @@ for (const playerCount of PLAYER_COUNTS) {
         const aliveAfterNightIds = nextDayState.players
           .filter(player => player.alive)
           .map(player => Number(player.userId));
-        const finalMafiaUserId = mafiaUserIds.find(userId =>
-          aliveAfterNightIds.includes(userId)
-        );
-        expect(finalMafiaUserId).toBeTruthy();
+        let currentDayState = nextDayState;
+        let finishedState = null;
+        while (!finishedState) {
+          const currentAliveIds = currentDayState.players
+            .filter(player => player.alive)
+            .map(player => Number(player.userId));
+          const executionTargetId = mafiaTeamUserIds.find(userId =>
+            currentAliveIds.includes(userId)
+          );
+          expect(executionTargetId).toBeTruthy();
 
-        await waitForPhase(pages, PHASE_LABELS.NOMINATION, 70_000);
-        await submitNominationVotes(
-          pages,
-          userIds,
-          finalMafiaUserId,
-          aliveAfterNightIds
-        );
-        await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
-        await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
-        const finalExecutionState = await waitForMatchingGameState(
-          traces[0],
-          'EXECUTION_VOTE',
-          state => state.nominatedUserId === finalMafiaUserId
-        );
-        expect(finalExecutionState.nominatedUserId).toBe(finalMafiaUserId);
-        await submitExecutionVotes(
-          pages,
-          userIds,
-          finalMafiaUserId,
-          aliveAfterNightIds
-        );
+          const nominationOccurrence = traces[0].gameStates
+            .filter(state => state.phase === 'NOMINATION_VOTE')
+            .length;
+          await waitForPhase(pages, PHASE_LABELS.NOMINATION, 70_000);
+          await waitForGameState(traces[0], 'NOMINATION_VOTE', nominationOccurrence, 25_000);
+          await submitNominationVotes(
+            pages,
+            userIds,
+            executionTargetId,
+            currentAliveIds
+          );
+          await waitForPhase(pages, PHASE_LABELS.DEFENSE, 25_000);
+          await waitForPhase(pages, PHASE_LABELS.EXECUTION, 25_000);
+          const finalExecutionState = await waitForMatchingGameState(
+            traces[0],
+            'EXECUTION_VOTE',
+            state => state.nominatedUserId === executionTargetId
+          );
+          expect(finalExecutionState.nominatedUserId).toBe(executionTargetId);
+          await submitExecutionVotes(
+            pages,
+            userIds,
+            executionTargetId,
+            currentAliveIds
+          );
+
+          const nextPhase = await waitForOneOfPhases(
+            [pages[0]], [PHASE_LABELS.NIGHT, PHASE_LABELS.FINISHED], 25_000
+          );
+          if (nextPhase === PHASE_LABELS.FINISHED) {
+            const finishedOccurrence = traces[0].gameStates
+              .filter(state => state.phase === 'FINISHED').length;
+            finishedState = await waitForGameState(
+              traces[0], 'FINISHED', Math.max(0, finishedOccurrence - 1), 15_000
+            );
+            break;
+          }
+
+          const nextDayOccurrence = traces[0].gameStates
+            .filter(state => state.phase === 'DAY_DISCUSSION').length;
+          await waitForPhase(pages, PHASE_LABELS.NIGHT, 25_000);
+          await waitForPhase(pages, PHASE_LABELS.DAY, 70_000);
+          currentDayState = await waitForGameState(
+            traces[0], 'DAY_DISCUSSION', nextDayOccurrence, 25_000
+          );
+          expect(currentDayState.players.some(player =>
+            Number(player.userId) === executionTargetId && !player.alive
+          )).toBeTruthy();
+        }
 
         await waitForPhase(pages, PHASE_LABELS.FINISHED, 20_000);
         await waitForSystemMessage(traces, '\uAC8C\uC784 \uC885\uB8CC');
-        const finishedState = await waitForGameState(
-          traces[0],
-          'FINISHED',
-          0,
-          15_000
-        );
         expect(finishedState.gameOver).toBe(true);
         expect(finishedState.winningFaction).toBe('CITIZEN');
         expect(finishedState.players.every(player => typeof player.role === 'string')).toBeTruthy();
@@ -1188,13 +1356,16 @@ for (const playerCount of PLAYER_COUNTS) {
             await expect(page.locator('#ready')).toBeEnabled({ timeout: 15_000 });
           })
         );
+        await captureScenarioScreenshot(pages[0], artifactDirectory, 'finished');
 
         await startReplayGame(pages, traces);
       } finally {
         if (lobbyPage) {
           await lobbyPage.close().catch(() => {});
         }
-        await Promise.all(contexts.map(context => context.close()));
+        await captureFinalScenarioScreenshot(pages[0], artifactDirectory);
+        await Promise.all(contexts.map(context => context.close().catch(() => {})));
+        await saveScenarioVideo(hostVideo, artifactDirectory, 'core-flow.webm');
       }
     });
   });
@@ -1204,15 +1375,24 @@ if (PLAYER_COUNTS.includes(6)) {
   test('closing a waiting-room tab changes six players to the five-player role threshold', async ({ browser }) => {
     test.setTimeout(90_000);
     const scenarioId = 'th6-' + RUN_ID;
+    const artifactDirectory = path.join(ARTIFACT_ROOT, 'six-to-five-threshold');
     const contexts = [];
     const pages = [];
+    let hostVideo;
+
+    await mkdir(artifactDirectory, { recursive: true });
 
     try {
       for (let index = 0; index < 6; index += 1) {
-        const context = await createTrackedContext(browser);
+        const context = await createTrackedContext(browser, {
+          videoDirectory: index === 0 ? artifactDirectory : undefined
+        });
         const page = await context.newPage();
         contexts.push(context);
         pages.push(page);
+        if (index === 0) {
+          hostVideo = page.video();
+        }
         await signUpAndLogin(page, index, scenarioId);
       }
 
@@ -1223,6 +1403,7 @@ if (PLAYER_COUNTS.includes(6)) {
         await waitForRoomParticipantCount(pages[index], index + 1);
       }
       await waitForRoomReady(pages, 6);
+      await captureScenarioScreenshot(pages[0], artifactDirectory, 'six-player-waiting-room');
 
       await pages[5].close();
       await waitForRoomReady(pages.slice(0, 5), 5);
@@ -1236,25 +1417,37 @@ if (PLAYER_COUNTS.includes(6)) {
         (await page.locator('#gameRoleLabel').textContent()).trim()
       ));
       assertRoleAssignments(roles, 5);
+      await captureScenarioScreenshot(pages[0], artifactDirectory, 'five-player-role-threshold');
     } finally {
+      await captureFinalScenarioScreenshot(pages[0], artifactDirectory);
       await Promise.all(contexts.map(context => context.close().catch(() => {})));
+      await saveScenarioVideo(hostVideo, artifactDirectory, 'six-to-five-threshold.webm');
     }
   });
 
   test('browser deadline, reconnect grace, and expired night action', async ({ browser }) => {
     test.setTimeout(4 * 60 * 1000);
     const scenarioId = 'gr6-' + RUN_ID;
+    const artifactDirectory = path.join(ARTIFACT_ROOT, 'deadline-reconnect');
     const contexts = [];
     const pages = [];
     const traces = [];
+    let hostVideo;
+
+    await mkdir(artifactDirectory, { recursive: true });
 
     try {
       for (let index = 0; index < 6; index += 1) {
-        const context = await createTrackedContext(browser);
+        const context = await createTrackedContext(browser, {
+          videoDirectory: index === 0 ? artifactDirectory : undefined
+        });
         const page = await context.newPage();
         contexts.push(context);
         pages.push(page);
         traces.push(attachGameTrace(page));
+        if (index === 0) {
+          hostVideo = page.video();
+        }
         await signUpAndLogin(page, index, scenarioId);
       }
 
@@ -1265,6 +1458,7 @@ if (PLAYER_COUNTS.includes(6)) {
         await waitForRoomParticipantCount(pages[index], index + 1);
       }
       await waitForRoomReady(pages, 6);
+      await captureScenarioScreenshot(pages[0], artifactDirectory, 'six-player-waiting-room');
       const userIds = await Promise.all(pages.map(readUserId));
       await Promise.all(pages.map(page => page.locator('#ready').click()));
       await expect(pages[0].locator('#startGame')).toBeEnabled();
@@ -1278,9 +1472,13 @@ if (PLAYER_COUNTS.includes(6)) {
         (await page.locator('#gameRoleLabel').textContent()).trim()
       ));
       assertRoleAssignments(roles, 6);
+      await captureScenarioScreenshot(pages[0], artifactDirectory, 'six-player-role-assignment');
 
       const mafiaIndexes = roles.flatMap((role, index) =>
         role === ROLE_LABELS.MAFIA ? [index] : []
+      );
+      const spyIndexes = roles.flatMap((role, index) =>
+        role === ROLE_LABELS.SPY ? [index] : []
       );
       const citizenIndexes = roles.flatMap((role, index) =>
         role === ROLE_LABELS.CITIZEN ? [index] : []
@@ -1288,8 +1486,9 @@ if (PLAYER_COUNTS.includes(6)) {
       const observerIndex = roles.findIndex(role => role === ROLE_LABELS.DOCTOR);
       const observer = pages[observerIndex];
       const observerTrace = traces[observerIndex];
-      expect(mafiaIndexes).toHaveLength(2);
-      expect(citizenIndexes).toHaveLength(2);
+      expect(mafiaIndexes).toHaveLength(1);
+      expect(spyIndexes).toHaveLength(1);
+      expect(citizenIndexes).toHaveLength(1);
 
       await waitForPhase([observer], PHASE_LABELS.NOMINATION, 75_000);
       const nomination = await waitForGameState(observerTrace, 'NOMINATION_VOTE');
@@ -1310,7 +1509,8 @@ if (PLAYER_COUNTS.includes(6)) {
 
       const night = await waitForGameState(observerTrace, 'NIGHT');
       expect(night.phaseEndsAt - Date.now()).toBeGreaterThan(27_000);
-      const [returningMafia, departingMafia] = mafiaIndexes;
+      const returningMafia = mafiaIndexes[0];
+      const departingSpy = spyIndexes[0];
       await submitNightActionForPage(pages[returningMafia], userIds[citizenIndexes[0]]);
       await pages[returningMafia].close();
       const earlyDisconnectAt = Date.now();
@@ -1323,21 +1523,21 @@ if (PLAYER_COUNTS.includes(6)) {
       expect(Date.now() - earlyDisconnectAt).toBeLessThan(10_000);
       expect(Date.now()).toBeLessThan(night.phaseEndsAt);
 
-      await submitNightActionForPage(pages[departingMafia], userIds[citizenIndexes[1]]);
-      await pages[departingMafia].close();
+      await submitNightActionForPage(pages[departingSpy], userIds[citizenIndexes[0]]);
+      await pages[departingSpy].close();
       const lateDisconnectAt = Date.now();
       await waitUntil(
         () => observerTrace.gameStates.find(state =>
           state.phase === 'NIGHT'
           && state.players.some(player =>
-            Number(player.userId) === userIds[departingMafia] && !player.alive
+            Number(player.userId) === userIds[departingSpy] && !player.alive
           )
         ),
         15_000,
         'departed mafia removal after reconnect grace'
       );
       expect(Date.now() - lateDisconnectAt).toBeGreaterThanOrEqual(9_000);
-      const spectatorPage = await contexts[departingMafia].newPage();
+      const spectatorPage = await contexts[departingSpy].newPage();
       await spectatorPage.goto(roomUrl);
       await expect(spectatorPage.locator('#gamePanel')).toBeVisible({ timeout: 8_000 });
       await expect(spectatorPage.locator('#chatConnectionStatus')).toHaveText('실시간', {
@@ -1350,11 +1550,14 @@ if (PLAYER_COUNTS.includes(6)) {
         Number(player.userId) === userId
       )?.alive;
       expect(alive(userIds[returningMafia])).toBe(true);
-      expect(alive(userIds[departingMafia])).toBe(false);
+      expect(alive(userIds[departingSpy])).toBe(false);
       expect(alive(userIds[citizenIndexes[0]])).toBe(false);
-      expect(alive(userIds[citizenIndexes[1]])).toBe(true);
+      expect(alive(userIds[observerIndex])).toBe(true);
+      await captureScenarioScreenshot(pages[0], artifactDirectory, 'reconnect-grace-result');
     } finally {
+      await captureFinalScenarioScreenshot(pages[0], artifactDirectory);
       await Promise.all(contexts.map(context => context.close().catch(() => {})));
+      await saveScenarioVideo(hostVideo, artifactDirectory, 'deadline-reconnect.webm');
     }
   });
 }

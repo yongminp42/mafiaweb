@@ -63,7 +63,9 @@
   const nightTarget = document.querySelector('#nightTarget');
   const submitNightAction = document.querySelector('#submitNightAction');
   const nightResultPanel = document.querySelector('#nightResultPanel');
+  const nightResultTitle = document.querySelector('#nightResultTitle');
   const nightResultLabel = document.querySelector('#nightResultLabel');
+  const nightResultMafiaList = document.querySelector('#nightResultMafiaList');
   const gameActionStatus = document.querySelector('#gameActionStatus');
   const errorDestination = '/user/queue/errors';
   const joinedDestination = '/user/queue/room-joined';
@@ -87,14 +89,19 @@
   };
   const GAME_ROLE_LABELS = {
     MAFIA: '마피아',
+    SPY: '스파이',
     DOCTOR: '의사',
     POLICE: '경찰',
+    SOLDIER: '군인',
+    MEDIUM: '영매사',
     CITIZEN: '시민'
   };
   const NIGHT_ACTIONS = {
-    MAFIA: { action: 'MAFIA_KILL', title: '제거할 참가자' },
-    DOCTOR: { action: 'DOCTOR_PROTECT', title: '보호할 참가자' },
-    POLICE: { action: 'POLICE_INVESTIGATE', title: '조사할 참가자' }
+    MAFIA: { action: 'MAFIA_KILL', title: '제거할 참가자', targetType: 'ALIVE' },
+    SPY: { action: 'SPY_INVESTIGATE', title: '직업을 조사할 참가자', targetType: 'ALIVE_OTHER' },
+    DOCTOR: { action: 'DOCTOR_PROTECT', title: '보호할 참가자', targetType: 'ALIVE' },
+    POLICE: { action: 'POLICE_INVESTIGATE', title: '조사할 참가자', targetType: 'ALIVE' },
+    MEDIUM: { action: 'MEDIUM_INVESTIGATE', title: '직업을 조사할 사망자', targetType: 'DEAD' }
   };
   const MIN_GAME_PLAYERS = 4;
 
@@ -112,6 +119,7 @@
   let currentParticipants = [];
   let currentParticipant = null;
   let currentRole = null;
+  let mafiaChatUnlocked = false;
   let roleConfirmed = false;
   let roleConfirmationPending = false;
   let gameState = null;
@@ -377,6 +385,12 @@
           return;
         }
         if (message.type === 'CHAT' || message.type === 'SYSTEM') {
+          if (message.type === 'SYSTEM'
+              && frame.headers.subscription === 'mafia-chat'
+              && currentRole === 'SPY') {
+            mafiaChatUnlocked = true;
+            updateChatAvailability();
+          }
           appendMessage(message, getMessageChannel(message, frame));
         }
       } catch (error) {
@@ -550,29 +564,45 @@
     const isRoleAssignment = gameState?.phase === 'ROLE_ASSIGNMENT';
     const isFinalDefense = gameState?.phase === 'FINAL_DEFENSE';
     const isDefendant = Number(gameState?.nominatedUserId) === userId;
-    const canUseDeadChat = Boolean(gameState) && !alive;
-    const canUsePublic = canUseDeadChat || (!isNight && !isRoleAssignment
+    const canUseDeadChat = Boolean(gameState) && (!alive || currentRole === 'MEDIUM');
+    const canUsePublic = (!isNight && !isRoleAssignment
       && (!isFinalDefense || isDefendant));
-    const canUseMafia = currentRole === 'MAFIA' && alive && !isRoleAssignment;
+    const canUseMafia = (currentRole === 'MAFIA'
+      || (currentRole === 'SPY' && mafiaChatUnlocked))
+      && alive && !isRoleAssignment;
     const canChat = isOnline
       && joinedRoom
       && presenceReady
-      && (canUsePublic || canUseMafia);
+      && (canUsePublic || canUseMafia || canUseDeadChat);
 
     const publicOption = chatChannel?.querySelector('option[value="PUBLIC"]');
     const mafiaOption = chatChannel?.querySelector('option[value="MAFIA"]');
+    const deadOption = chatChannel?.querySelector('option[value="DEAD"]');
     if (publicOption) {
       publicOption.disabled = !canUsePublic;
-      publicOption.textContent = canUseDeadChat ? '사망자 채널' : '전체 채널';
+      publicOption.textContent = '전체 채널';
     }
     if (mafiaOption) {
       mafiaOption.hidden = !canUseMafia;
       mafiaOption.disabled = !canUseMafia;
     }
+    if (deadOption) {
+      deadOption.hidden = !canUseDeadChat;
+      deadOption.disabled = !canUseDeadChat;
+    }
     if (chatChannel) {
-      if (!canUsePublic && canUseMafia) {
+      if (!canUsePublic && !canUseDeadChat && canUseMafia) {
         chatChannel.value = 'MAFIA';
+      } else if (!canUsePublic && !canUseMafia && canUseDeadChat) {
+        chatChannel.value = 'DEAD';
       } else if (chatChannel.value === 'MAFIA' && !canUseMafia) {
+        chatChannel.value = canUseDeadChat ? 'DEAD' : 'PUBLIC';
+      } else if (chatChannel.value === 'DEAD' && !canUseDeadChat) {
+        chatChannel.value = canUsePublic ? 'PUBLIC' : 'MAFIA';
+      } else if (chatChannel.value === 'PUBLIC' && !canUsePublic) {
+        chatChannel.value = canUseDeadChat ? 'DEAD' : 'MAFIA';
+      }
+      if (chatChannel.value === 'MAFIA' && !canUseMafia) {
         chatChannel.value = 'PUBLIC';
       }
       chatChannel.disabled = !isOnline
@@ -670,6 +700,7 @@
 
   function clearGameRole() {
     currentRole = null;
+    mafiaChatUnlocked = false;
     roleConfirmed = false;
     roleConfirmationPending = false;
     if (gameRolePanel) {
@@ -689,8 +720,14 @@
       return;
     }
 
+    if (currentRole !== roleAssignment.role) {
+      mafiaChatUnlocked = false;
+    }
     gameRoleLabel.textContent = roleAssignment.roleLabel;
     currentRole = roleAssignment.role;
+    if (typeof roleAssignment.mafiaChatUnlocked === 'boolean') {
+      mafiaChatUnlocked = roleAssignment.mafiaChatUnlocked;
+    }
     roleConfirmed = roleAssignment.confirmed === true;
     roleConfirmationPending = false;
     gameRolePanel.hidden = false;
@@ -810,6 +847,13 @@
     if (nightResultLabel) {
       nightResultLabel.textContent = '';
     }
+    if (nightResultTitle) {
+      nightResultTitle.textContent = '경찰 조사 결과';
+    }
+    if (nightResultMafiaList) {
+      nightResultMafiaList.hidden = true;
+      nightResultMafiaList.textContent = '';
+    }
   }
 
   function renderNightResult(result) {
@@ -818,10 +862,29 @@
       return;
     }
 
-    const factionLabel = INVESTIGATION_FACTION_LABELS[result.faction]
-      || result.factionLabel
-      || result.faction;
-    nightResultLabel.textContent = ` ${result.targetNickname || '대상'}님은 ${factionLabel}입니다.`;
+    const hasRoleResult = typeof result.roleLabel === 'string' && result.roleLabel.trim() !== '';
+    const resultLabel = hasRoleResult
+      ? result.roleLabel
+      : (INVESTIGATION_FACTION_LABELS[result.faction]
+        || result.factionLabel
+        || result.faction);
+    if (nightResultTitle) {
+      nightResultTitle.textContent = hasRoleResult ? '직업 조사 결과' : '경찰 조사 결과';
+    }
+    nightResultLabel.textContent = ` ${result.targetNickname || '대상'}님은 ${resultLabel}입니다.`;
+    if (nightResultMafiaList) {
+      const mafiaPlayers = Array.isArray(result.mafiaPlayers) ? result.mafiaPlayers : [];
+      if (mafiaPlayers.length > 0) {
+        const names = mafiaPlayers
+          .map(player => player.nickname || '알 수 없음')
+          .join(', ');
+        nightResultMafiaList.textContent = `확인된 마피아: ${names}`;
+        nightResultMafiaList.hidden = false;
+      } else {
+        nightResultMafiaList.hidden = true;
+        nightResultMafiaList.textContent = '';
+      }
+    }
     nightResultPanel.hidden = false;
   }
 
@@ -863,8 +926,13 @@
     placeholder.textContent = '참가자를 선택하세요';
     nightTarget.append(placeholder);
 
+    const targetType = actionConfig.targetType || 'ALIVE';
     players
-      .filter(player => player.alive)
+      .filter(player => targetType === 'DEAD'
+        ? !player.alive
+        : targetType === 'ALIVE_OTHER'
+          ? player.alive && Number(player.userId) !== userId
+          : player.alive)
       .forEach(player => {
         const option = document.createElement('option');
         option.value = String(player.userId);
@@ -1154,7 +1222,11 @@
       return;
     }
 
-    const channel = chatChannel?.value === 'MAFIA' ? 'mafia-chat' : 'chat';
+    const channel = chatChannel?.value === 'MAFIA'
+      ? 'mafia-chat'
+      : chatChannel?.value === 'DEAD'
+        ? 'dead-chat'
+        : 'chat';
     socket.send(createFrame('SEND', {
       destination: `/app/rooms/${roomId}/${channel}`,
       'content-type': 'application/json'

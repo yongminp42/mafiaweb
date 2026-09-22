@@ -211,9 +211,16 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
       positions.role.y + positions.role.height - 24
     );
   } finally {
-    await Promise.all(contexts.map(context => context.close().catch(() => {})));
-    if (hostVideo) {
-      await hostVideo.saveAs(path.join(artifactDirectory, 'room-layout-transition.webm'));
+    if (pages[0]) {
+      await pages[0].screenshot({
+        path: path.join(artifactDirectory, 'final-state.png'),
+        fullPage: true
+      }).catch(() => {});
     }
+    await Promise.all(contexts.map(context => context.close().catch(() => {})));
+    if (!hostVideo) {
+      throw new Error('QA evidence video is not available for the room-layout scenario.');
+    }
+    await hostVideo.saveAs(path.join(artifactDirectory, 'room-layout-transition.webm'));
   }
 });

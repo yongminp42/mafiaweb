@@ -262,8 +262,8 @@ public class RoomGameService {
         ChatChannel channel = requestedChannel == null ? ChatChannel.PUBLIC : requestedChannel;
         GameRoom game = gamesByRoom.get(roomId);
         if (game == null) {
-            if (channel == ChatChannel.MAFIA) {
-                throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
+            if (channel == ChatChannel.MAFIA || channel == ChatChannel.DEAD) {
+                throw new RoomWebSocketException("해당 채팅 채널을 사용할 수 없습니다.");
             }
             return;
         }
@@ -282,17 +282,23 @@ public class RoomGameService {
                 }
                 throw new RoomWebSocketException("게임 참가자 정보를 찾을 수 없습니다.");
             }
+            if (game.phase == GamePhase.ROLE_ASSIGNMENT) {
+                throw new RoomWebSocketException("역할 확인 중에는 채팅할 수 없습니다.");
+            }
+            if (channel == ChatChannel.DEAD) {
+                if (!player.alive || player.role == GameRole.MEDIUM) {
+                    return;
+                }
+                throw new RoomWebSocketException("사망자 채널을 사용할 수 없습니다.");
+            }
             if (!player.alive) {
                 if (channel == ChatChannel.MAFIA) {
                     throw new RoomWebSocketException("사망한 참가자는 마피아 채널을 사용할 수 없습니다.");
                 }
                 return;
             }
-            if (channel == ChatChannel.MAFIA && player.role != GameRole.MAFIA) {
+            if (channel == ChatChannel.MAFIA && !canUseMafiaChat(player)) {
                 throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
-            }
-            if (game.phase == GamePhase.ROLE_ASSIGNMENT) {
-                throw new RoomWebSocketException("역할 확인 중에는 채팅할 수 없습니다.");
             }
             if (game.phase == GamePhase.FINAL_DEFENSE && channel == ChatChannel.PUBLIC
                     && !Objects.equals(game.nominatedUserId, userId)) {
@@ -331,8 +337,7 @@ public class RoomGameService {
             for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
                 GamePlayerState player = game.players.get(entry.getKey());
                 if (player != null
-                        && player.alive
-                        && player.role == GameRole.MAFIA
+                        && canUseMafiaChat(player)
                         && entry.getValue() != null
                         && !entry.getValue().isBlank()) {
                     recipients.add(entry.getValue());
@@ -349,6 +354,50 @@ public class RoomGameService {
             messagingTemplate.convertAndSendToUser(
                     principalName,
                     MAFIA_CHAT_DESTINATION,
+                    message);
+        }
+    }
+
+    /**
+     * Dead players and the living medium share a private channel. The message is never sent to
+     * the public room topic, because living players other than the medium must not see it.
+     */
+    public void broadcastDeadChat(ChatMessage message, long senderId) {
+        if (message == null || message.channel() != ChatChannel.DEAD) {
+            return;
+        }
+
+        List<String> recipients = new ArrayList<>();
+        GameRoom game = gamesByRoom.get(message.roomId());
+        if (game == null) {
+            return;
+        }
+        game.lock.lock();
+        try {
+            if (!isCurrentGame(game) || game.phase == GamePhase.FINISHED) {
+                return;
+            }
+            GamePlayerState sender = game.players.get(senderId);
+            if (sender == null || (sender.alive && sender.role != GameRole.MEDIUM)) {
+                return;
+            }
+            for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
+                GamePlayerState player = game.players.get(entry.getKey());
+                if (player != null
+                        && (!player.alive || player.role == GameRole.MEDIUM)
+                        && entry.getValue() != null
+                        && !entry.getValue().isBlank()) {
+                    recipients.add(entry.getValue());
+                }
+            }
+        } finally {
+            game.lock.unlock();
+        }
+
+        for (String principalName : recipients) {
+            messagingTemplate.convertAndSendToUser(
+                    principalName,
+                    DEAD_CHAT_DESTINATION,
                     message);
         }
     }
@@ -383,7 +432,7 @@ public class RoomGameService {
                 for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
                     GamePlayerState player = game.players.get(entry.getKey());
                     if (player != null
-                            && !player.alive
+                            && (!player.alive || player.role == GameRole.MEDIUM)
                             && entry.getValue() != null
                             && !entry.getValue().isBlank()) {
                         deadRecipients.add(entry.getValue());
@@ -412,6 +461,13 @@ public class RoomGameService {
         }
     }
 
+    private static boolean canUseMafiaChat(GamePlayerState player) {
+        return player != null
+                && player.alive
+                && (player.role == GameRole.MAFIA
+                        || (player.role == GameRole.SPY && player.mafiaChatUnlocked));
+    }
+
     public boolean canAccessMafiaChat(long roomId, long userId) {
         GameRoom game = gamesByRoom.get(roomId);
         if (game == null) {
@@ -423,8 +479,7 @@ public class RoomGameService {
             return isCurrentGame(game)
                     && game.phase != GamePhase.FINISHED
                     && player != null
-                    && player.alive
-                    && player.role == GameRole.MAFIA;
+                    && canUseMafiaChat(player);
         } finally {
             game.lock.unlock();
         }
@@ -565,11 +620,22 @@ public class RoomGameService {
         }
 
         GamePlayerState target = game.players.get(request.targetUserId());
-        if (target == null || !target.alive) {
-            throw new RoomWebSocketException("밤 행동 대상이 유효하지 않습니다.");
-        }
-        if (action == GameNightAction.MAFIA_KILL && target.role == GameRole.MAFIA) {
-            throw new RoomWebSocketException("마피아는 같은 마피아를 제거할 수 없습니다.");
+        if (action == GameNightAction.MEDIUM_INVESTIGATE) {
+            if (target == null || target.alive) {
+                throw new RoomWebSocketException("영매는 사망한 참가자만 조사할 수 있습니다.");
+            }
+        } else {
+            if (target == null || !target.alive) {
+                throw new RoomWebSocketException("밤 행동 대상이 유효하지 않습니다.");
+            }
+            if (action == GameNightAction.SPY_INVESTIGATE && target.userId == actorId) {
+                throw new RoomWebSocketException("스파이는 다른 참가자를 조사해야 합니다.");
+            }
+            if (action == GameNightAction.MAFIA_KILL
+                    && target.role != null
+                    && target.role.isMafiaTeam()) {
+                throw new RoomWebSocketException("마피아는 같은 마피아팀을 제거할 수 없습니다.");
+            }
         }
 
         // 마피아 제거·의사 보호·경찰 조사는 밤 정산 시점에 함께 확정한다.
@@ -584,7 +650,7 @@ public class RoomGameService {
     private void advancePhase(GameRoom game) {
         RoomGameState state = null;
         List<GameResultDelivery> resultDeliveries = List.of();
-        List<InvestigationDelivery> investigationDeliveries = List.of();
+        NightDeliveries nightDeliveries = NightDeliveries.empty();
         GamePhase previousPhase = null;
         if (!isCurrentGame(game)) {
             return;
@@ -617,7 +683,7 @@ public class RoomGameService {
                 case FINAL_DEFENSE -> moveTo(game, GamePhase.EXECUTION_VOTE, now,
                         "지목된 참가자를 처형할지 투표해 주세요.");
                 case EXECUTION_VOTE -> moveAfterExecutionVote(game, now);
-                case NIGHT -> investigationDeliveries = moveAfterNight(game, now);
+                case NIGHT -> nightDeliveries = moveAfterNight(game, now);
                 case FINISHED -> {
                     // 종료된 게임은 다음 페이즈로 진행하지 않는다.
                 }
@@ -638,7 +704,8 @@ public class RoomGameService {
             broadcast(state);
             broadcastPhaseSystemMessage(previousPhase, state);
         }
-        broadcastInvestigationResults(investigationDeliveries);
+        broadcastInvestigationResults(nightDeliveries.investigationDeliveries());
+        broadcastSpyContactMessages(nightDeliveries.spyContactDeliveries());
         broadcastGameResults(resultDeliveries);
         if (state != null && state.gameOver() && roomPresenceService != null) {
             roomPresenceService.resetAfterGame(game.roomId);
@@ -682,19 +749,19 @@ public class RoomGameService {
         }
     }
 
-    private List<InvestigationDelivery> moveAfterNight(GameRoom game, long now) {
-        // 두 마피아의 공격과 의사의 보호를 합산해 밤 결과를 먼저 확정한다.
+    private NightDeliveries moveAfterNight(GameRoom game, long now) {
+        // 마피아팀의 공격과 의사의 보호를 합산해 밤 결과를 먼저 확정한다.
         RoomGameRules.NightOutcome resolution = RoomGameRules.resolveNightActions(
                 game.players,
                 game.nightActions.values(),
                 ThreadLocalRandom.current());
         // 경찰이 같은 밤에 사망했다면 조사 결과를 보내지 않는다. 행동 제출 시점이
         // 아니라 밤 결과가 확정된 뒤 생존 여부를 확인해야 이 규칙을 지킬 수 있다.
-        List<InvestigationDelivery> investigationDeliveries = buildInvestigationDeliveries(game);
+        NightDeliveries nightDeliveries = buildInvestigationDeliveries(game);
         GameFaction winner = RoomGameRules.determineWinner(game.players.values());
         if (winner != null) {
             finishGame(game, now, winner);
-            return investigationDeliveries;
+            return nightDeliveries;
         }
         GamePlayerState killedPlayer = resolution.killedPlayerId() == null
                 ? null
@@ -702,6 +769,12 @@ public class RoomGameService {
         if (killedPlayer != null) {
             moveTo(game, GamePhase.DAY_DISCUSSION, now,
                     killedPlayer.nickname + "님이 밤에 사망했습니다. 낮 토론이 시작되었습니다.");
+        } else if (resolution.soldierSavedPlayerId() != null) {
+            GamePlayerState soldier = game.players.get(resolution.soldierSavedPlayerId());
+            moveTo(game, GamePhase.DAY_DISCUSSION, now,
+                    (soldier == null ? "군인" : soldier.nickname)
+                            + "님은 군인의 능력으로 마피아의 공격을 막아냈습니다. 군인임이 공개되었습니다. "
+                            + "낮 토론이 시작됩니다.");
         } else if (resolution.protectedTarget()) {
             moveTo(game, GamePhase.DAY_DISCUSSION, now,
                     "의사의 보호로 밤 동안 사망자가 없었습니다. 낮 토론이 시작되었습니다.");
@@ -709,7 +782,7 @@ public class RoomGameService {
             moveTo(game, GamePhase.DAY_DISCUSSION, now,
                     "밤 동안 사망자가 없었습니다. 낮 토론이 시작되었습니다.");
         }
-        return investigationDeliveries;
+        return nightDeliveries;
     }
 
     private void finishGame(GameRoom game, long now, GameFaction winner) {
@@ -836,8 +909,10 @@ public class RoomGameService {
             }
             case "NIGHT" -> {
                 title = "밤";
-                guidance = "밤 행동을 제출하세요. 마피아는 제거, 의사는 보호, 경찰은 조사 대상을 선택합니다. "
-                        + "시민은 행동 없이 기다립니다. 역할별 밤 행동은 한 번만 제출할 수 있습니다.";
+                guidance = "밤 행동을 제출하세요. 마피아는 제거, 스파이는 직업 조사, 의사는 보호, "
+                        + "경찰은 진영 조사, 영매사는 사망자 직업 조사를 선택합니다. "
+                        + "군인은 마피아 공격을 한 번 막을 수 있고, 시민은 행동 없이 기다립니다. "
+                        + "역할별 밤 행동은 한 번만 제출할 수 있습니다.";
             }
             case "FINISHED" -> {
                 title = "게임 종료";
@@ -882,7 +957,8 @@ public class RoomGameService {
                 game.roomId,
                 player.role.name(),
                 player.role.label(),
-                game.confirmedRoleUserIds.contains(player.userId));
+                game.confirmedRoleUserIds.contains(player.userId),
+                player.mafiaChatUnlocked);
     }
 
     private GameResult toGameResult(GameRoom game, GamePlayerState player) {
@@ -942,10 +1018,13 @@ public class RoomGameService {
         }
     }
 
-    private List<InvestigationDelivery> buildInvestigationDeliveries(GameRoom game) {
-        List<InvestigationDelivery> deliveries = new ArrayList<>();
+    private NightDeliveries buildInvestigationDeliveries(GameRoom game) {
+        List<InvestigationDelivery> investigationDeliveries = new ArrayList<>();
+        List<SpyContactDelivery> spyContactDeliveries = new ArrayList<>();
         for (NightAction action : game.nightActions.values()) {
-            if (action.action != GameNightAction.POLICE_INVESTIGATE) {
+            if (action.action != GameNightAction.POLICE_INVESTIGATE
+                    && action.action != GameNightAction.SPY_INVESTIGATE
+                    && action.action != GameNightAction.MEDIUM_INVESTIGATE) {
                 continue;
             }
 
@@ -960,18 +1039,58 @@ public class RoomGameService {
                 continue;
             }
 
-            GameFaction faction = target.role == GameRole.MAFIA
+            GameFaction faction = target.role != null && target.role.isMafiaTeam()
                     ? GameFaction.MAFIA
                     : GameFaction.CITIZEN;
-            GameInvestigationResult result = new GameInvestigationResult(
-                    game.roomId,
-                    target.userId,
-                    target.nickname,
-                    faction.name(),
-                    faction.investigationLabel());
-            deliveries.add(new InvestigationDelivery(principalName, result));
+            GameInvestigationResult result;
+            if (action.action == GameNightAction.POLICE_INVESTIGATE) {
+                result = new GameInvestigationResult(
+                        game.roomId,
+                        target.userId,
+                        target.nickname,
+                        faction.name(),
+                        faction.investigationLabel());
+            } else {
+                result = new GameInvestigationResult(
+                        game.roomId,
+                        target.userId,
+                        target.nickname,
+                        faction.name(),
+                        faction.investigationLabel(),
+                        target.role == null ? null : target.role.name(),
+                        target.role == null ? null : target.role.label(),
+                        action.action == GameNightAction.SPY_INVESTIGATE
+                                && target.role == GameRole.MAFIA
+                                        ? mafiaPlayers(game)
+                                        : null);
+            }
+            investigationDeliveries.add(new InvestigationDelivery(principalName, result));
+
+            if (action.action == GameNightAction.SPY_INVESTIGATE
+                    && target.role == GameRole.MAFIA) {
+                investigator.mafiaChatUnlocked = true;
+                spyContactDeliveries.add(new SpyContactDelivery(
+                        game.roomId,
+                        investigator.nickname));
+            }
         }
-        return List.copyOf(deliveries);
+        return new NightDeliveries(
+                List.copyOf(investigationDeliveries),
+                List.copyOf(spyContactDeliveries));
+    }
+
+    private static List<GamePlayer> mafiaPlayers(GameRoom game) {
+        List<GamePlayer> mafiaPlayers = new ArrayList<>();
+        for (GamePlayerState player : game.players.values()) {
+            if (player.role == GameRole.MAFIA) {
+                mafiaPlayers.add(new GamePlayer(
+                        player.userId,
+                        player.nickname,
+                        player.alive,
+                        player.role));
+            }
+        }
+        return List.copyOf(mafiaPlayers);
     }
 
     private void broadcastInvestigationResults(List<InvestigationDelivery> deliveries) {
@@ -985,6 +1104,15 @@ public class RoomGameService {
                     principalName,
                     NIGHT_RESULT_DESTINATION,
                     result);
+        }
+    }
+
+    private void broadcastSpyContactMessages(List<SpyContactDelivery> deliveries) {
+        for (SpyContactDelivery delivery : deliveries) {
+            broadcastMafiaChat(ChatMessage.system(
+                    delivery.roomId(),
+                    delivery.nickname() + "님이 마피아를 찾아 접선했습니다. 이제 마피아 채널을 사용할 수 있습니다.",
+                    ChatChannel.MAFIA));
         }
     }
 
@@ -1026,6 +1154,8 @@ public class RoomGameService {
         private final String nickname;
         private GameRole role;
         private boolean alive = true;
+        private boolean mafiaChatUnlocked;
+        private boolean soldierShieldAvailable = true;
 
         private GamePlayerState(long userId, String nickname) {
             this.userId = userId;
@@ -1056,6 +1186,20 @@ public class RoomGameService {
         public void setAlive(boolean alive) {
             this.alive = alive;
         }
+
+        @Override
+        public boolean soldierShieldAvailable() {
+            return role == GameRole.SOLDIER && soldierShieldAvailable;
+        }
+
+        @Override
+        public boolean consumeSoldierShield() {
+            if (!soldierShieldAvailable()) {
+                return false;
+            }
+            soldierShieldAvailable = false;
+            return true;
+        }
     }
 
     private record RoleDelivery(
@@ -1071,6 +1215,20 @@ public class RoomGameService {
     private record InvestigationDelivery(
             String principalName,
             GameInvestigationResult result) {
+    }
+
+    private record SpyContactDelivery(
+            long roomId,
+            String nickname) {
+    }
+
+    private record NightDeliveries(
+            List<InvestigationDelivery> investigationDeliveries,
+            List<SpyContactDelivery> spyContactDeliveries) {
+
+        private static NightDeliveries empty() {
+            return new NightDeliveries(List.of(), List.of());
+        }
     }
 
     private record NightAction(

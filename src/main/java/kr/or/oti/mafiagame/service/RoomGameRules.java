@@ -22,7 +22,6 @@ import kr.or.oti.mafiagame.dto.GameRole;
 final class RoomGameRules {
     static final int MIN_PLAYERS = 4;
     static final int MAX_PLAYERS = 8;
-    static final int DOUBLE_MAFIA_THRESHOLD = 6;
 
     private RoomGameRules() {
     }
@@ -37,8 +36,51 @@ final class RoomGameRules {
     }
 
     static List<GameRole> createRoles(int playerCount) {
+        if (playerCount >= MIN_PLAYERS && playerCount <= MAX_PLAYERS) {
+            return switch (playerCount) {
+                case 4 -> List.of(
+                        GameRole.MAFIA,
+                        GameRole.POLICE,
+                        GameRole.DOCTOR,
+                        GameRole.CITIZEN);
+                case 5 -> List.of(
+                        GameRole.MAFIA,
+                        GameRole.SPY,
+                        GameRole.POLICE,
+                        GameRole.DOCTOR,
+                        GameRole.CITIZEN);
+                case 6 -> List.of(
+                        GameRole.MAFIA,
+                        GameRole.SPY,
+                        GameRole.POLICE,
+                        GameRole.DOCTOR,
+                        GameRole.SOLDIER,
+                        GameRole.CITIZEN);
+                case 7 -> List.of(
+                        GameRole.MAFIA,
+                        GameRole.MAFIA,
+                        GameRole.SPY,
+                        GameRole.POLICE,
+                        GameRole.DOCTOR,
+                        GameRole.SOLDIER,
+                        GameRole.CITIZEN);
+                case 8 -> List.of(
+                        GameRole.MAFIA,
+                        GameRole.MAFIA,
+                        GameRole.SPY,
+                        GameRole.POLICE,
+                        GameRole.DOCTOR,
+                        GameRole.SOLDIER,
+                        GameRole.MEDIUM,
+                        GameRole.CITIZEN);
+                default -> throw new IllegalStateException("지원하지 않는 게임 인원수입니다.");
+            };
+        }
+
+        // 테스트용 소규모 게임이나 방 입장 검증 이전의 과도기 상태를 위해
+        // 지원 인원 범위 밖에서는 기존의 단순 구성을 유지한다.
         List<GameRole> roles = new ArrayList<>(Math.max(0, playerCount));
-        int mafiaCount = playerCount >= DOUBLE_MAFIA_THRESHOLD ? 2 : 1;
+        int mafiaCount = playerCount >= 6 ? 2 : 1;
         for (int index = 0; index < mafiaCount && roles.size() < playerCount; index++) {
             roles.add(GameRole.MAFIA);
         }
@@ -61,7 +103,7 @@ final class RoomGameRules {
             if (!player.alive()) {
                 continue;
             }
-            if (player.role() == GameRole.MAFIA) {
+            if (player.role() != null && player.role().isMafiaTeam()) {
                 mafiaAlive++;
             } else {
                 citizenFactionAlive++;
@@ -130,6 +172,11 @@ final class RoomGameRules {
             return new NightOutcome(null, true);
         }
 
+        if (target.role() == GameRole.SOLDIER && target.soldierShieldAvailable()) {
+            target.consumeSoldierShield();
+            return new NightOutcome(null, false, target.userId());
+        }
+
         target.setAlive(false);
         return new NightOutcome(target.userId(), false);
     }
@@ -144,7 +191,8 @@ final class RoomGameRules {
                 continue;
             }
             GameRulePlayer target = players.get(action.targetUserId());
-            if (target != null && target.alive() && target.role() != GameRole.MAFIA) {
+            if (target != null && target.alive()
+                    && (target.role() == null || !target.role().isMafiaTeam())) {
                 Integer previousCount = targetCounts.get(action.targetUserId());
                 targetCounts.put(
                         action.targetUserId(),
@@ -202,6 +250,14 @@ final class RoomGameRules {
         void setRole(GameRole role);
 
         void setAlive(boolean alive);
+
+        default boolean soldierShieldAvailable() {
+            return false;
+        }
+
+        default boolean consumeSoldierShield() {
+            return false;
+        }
     }
 
     interface GameRuleNightAction {
@@ -210,6 +266,13 @@ final class RoomGameRules {
         long targetUserId();
     }
 
-    record NightOutcome(Long killedPlayerId, boolean protectedTarget) {
+    record NightOutcome(
+            Long killedPlayerId,
+            boolean protectedTarget,
+            Long soldierSavedPlayerId) {
+
+        NightOutcome(Long killedPlayerId, boolean protectedTarget) {
+            this(killedPlayerId, protectedTarget, null);
+        }
     }
 }

@@ -26,7 +26,7 @@ public class WebSocketAuthorizationInterceptor implements ChannelInterceptor {
     private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile(
             "^/topic/rooms/(\\d+)/(chat|presence|game)$");
     private static final Pattern ROOM_SEND_PATTERN = Pattern.compile(
-            "^/app/rooms/(\\d+)/(join|ready|start|chat|mafia-chat|presence/sync|game(?:/sync)?)$");
+            "^/app/rooms/(\\d+)/(join|ready|start|chat|mafia-chat|dead-chat|presence/sync|game(?:/sync)?)$");
     private static final String LOBBY_TOPIC = "/topic/rooms/presence";
     private static final String LOBBY_SEND = "/app/rooms/presence";
 

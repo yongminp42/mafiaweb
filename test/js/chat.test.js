@@ -16,7 +16,7 @@ function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
   return `<!doctype html>
     <html><body data-room-id="7" data-nickname="${nickname}" data-user-id="${userId}" data-capacity="4">
       <form id="chatForm">
-        <select id="chatChannel"><option value="PUBLIC">전체 채널</option><option value="MAFIA" hidden disabled>마피아 채널</option></select>
+        <select id="chatChannel"><option value="PUBLIC">전체 채널</option><option value="MAFIA" hidden disabled>마피아 채널</option><option value="DEAD" hidden disabled>사망자 채널</option></select>
         <input name="content">
         <button type="submit">send</button>
       </form>
@@ -55,7 +55,7 @@ function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
           </div>
         </div>
         <p id="gameActionStatus"></p>
-        <div id="nightResultPanel" hidden><span id="nightResultLabel"></span></div>
+        <div id="nightResultPanel" hidden><strong id="nightResultTitle">경찰 조사 결과</strong><span id="nightResultLabel"></span><span id="nightResultMafiaList" hidden></span></div>
       </section>
       <div id="messages"></div>
       <div id="chatNotice"></div>
@@ -583,6 +583,147 @@ test('chat renders the role-specific night action and sends its target', () => {
   }
 });
 
+test('chat renders the spy investigation target and unlocks mafia chat after contact', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true },
+      { userId: 12, nickname: 'carol', host: false, ready: true },
+      { userId: 13, nickname: 'dave', host: false, ready: true }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame('MESSAGE', { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
+    socket.receive(createFrame('MESSAGE', { subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'SPY', roleLabel: '스파이' })));
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'NIGHT',
+        phaseEndsAt: Date.now() + 35_000,
+        remainingSeconds: 35,
+        players: participants.map(({ userId, nickname }) => ({ userId, nickname, alive: true })),
+        nominatedUserId: null,
+        submittedVotes: 0,
+        eligibleVoters: 4,
+        message: '밤이 시작되었습니다.'
+      })));
+
+    const nightTarget = dom.window.document.querySelector('#nightTarget');
+    assert.equal(nightTarget.options.length, 4);
+    assert.equal([...nightTarget.options].some(option => option.value === '10'), false);
+    const mafiaOption = dom.window.document.querySelector('#chatChannel option[value="MAFIA"]');
+    assert.equal(mafiaOption.hidden, true);
+    assert.equal(mafiaOption.disabled, true);
+    nightTarget.value = '11';
+    nightTarget.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    assert.equal(nightTarget.value, '11');
+    assert.equal(dom.window.document.querySelector('#submitNightAction').disabled, false);
+    dom.window.document.querySelector('#submitNightAction').click();
+    const spyGameFrame = socket.sent.map(parseSentFrame)
+      .filter(frame => frame.headers.destination === '/app/rooms/7/game')
+      .at(-1);
+    assert.deepEqual(JSON.parse(spyGameFrame.body), {
+      targetUserId: 11,
+      action: 'SPY_INVESTIGATE'
+    });
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/mafia-chat-user123', subscription: 'mafia-chat' },
+      JSON.stringify({
+        roomId: 7,
+        type: 'SYSTEM',
+        sender: '게임 안내',
+        content: '스파이가 마피아를 찾아 접선했습니다.',
+        channel: 'MAFIA',
+        sentAt: new Date().toISOString()
+      })
+    ));
+
+    assert.equal(mafiaOption.hidden, false);
+    assert.equal(mafiaOption.disabled, false);
+    assert.equal(dom.window.document.querySelector('#chatChannel').value, 'MAFIA');
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('chat lets the medium investigate only dead players and send dead-channel messages', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true },
+      { userId: 12, nickname: 'carol', host: false, ready: true }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame('MESSAGE', { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
+    socket.receive(createFrame('MESSAGE', { subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'MEDIUM', roleLabel: '영매사' })));
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'NIGHT',
+        phaseEndsAt: Date.now() + 35_000,
+        remainingSeconds: 35,
+        players: [
+          { userId: 10, nickname: 'alice', alive: true },
+          { userId: 11, nickname: 'bob', alive: false },
+          { userId: 12, nickname: 'carol', alive: true }
+        ],
+        nominatedUserId: null,
+        submittedVotes: 0,
+        eligibleVoters: 3,
+        message: '밤이 시작되었습니다.'
+      })));
+
+    const nightTarget = dom.window.document.querySelector('#nightTarget');
+    assert.equal(nightTarget.options.length, 2);
+    assert.equal(nightTarget.options[1].value, '11');
+    assert.equal(dom.window.document.querySelector('#chatChannel').value, 'DEAD');
+    const deadOption = dom.window.document.querySelector('#chatChannel option[value="DEAD"]');
+    assert.equal(deadOption.hidden, false);
+    assert.equal(deadOption.disabled, false);
+    nightTarget.value = '11';
+    nightTarget.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    assert.equal(nightTarget.value, '11');
+    assert.equal(dom.window.document.querySelector('#submitNightAction').disabled, false);
+    dom.window.document.querySelector('#submitNightAction').click();
+    const mediumGameFrame = socket.sent.map(parseSentFrame)
+      .filter(frame => frame.headers.destination === '/app/rooms/7/game')
+      .at(-1);
+    assert.deepEqual(JSON.parse(mediumGameFrame.body), {
+      targetUserId: 11,
+      action: 'MEDIUM_INVESTIGATE'
+    });
+
+    const chatInput = dom.window.document.querySelector('#chatForm input[name="content"]');
+    chatInput.value = '사망자 채널 메시지';
+    dom.window.document.querySelector('#chatForm').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true })
+    );
+    assert.equal(parseSentFrame(socket.sent.at(-1)).headers.destination, '/app/rooms/7/dead-chat');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('chat disables execution voting for the nominated player', () => {
   const dom = createDom(chatMarkup());
   try {
@@ -666,6 +807,57 @@ test('chat renders a police investigation result from the private night queue', 
     assert.equal(
       dom.window.document.querySelector('#nightResultLabel').textContent,
       ' bob님은 마피아입니다.'
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('chat renders an exact-role investigation result for spy or medium', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined' },
+      JSON.stringify({
+        roomId: 7,
+        participants: [{ userId: 10, nickname: 'alice', host: true, ready: true }],
+        status: 'PLAYING'
+      })
+    ));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/queue/night-result-user123', subscription: 'night-result' },
+      JSON.stringify({
+        roomId: 7,
+        targetUserId: 11,
+        targetNickname: 'bob',
+        faction: 'MAFIA',
+        factionLabel: '마피아',
+        role: 'MAFIA',
+        roleLabel: '마피아',
+        mafiaPlayers: [{ userId: 11, nickname: 'bob', alive: true, role: 'MAFIA' }]
+      })
+    ));
+
+    assert.equal(
+      dom.window.document.querySelector('#nightResultTitle').textContent,
+      '직업 조사 결과'
+    );
+    assert.equal(
+      dom.window.document.querySelector('#nightResultLabel').textContent,
+      ' bob님은 마피아입니다.'
+    );
+    assert.equal(
+      dom.window.document.querySelector('#nightResultMafiaList').textContent,
+      '확인된 마피아: bob'
     );
   } finally {
     dom.window.close();

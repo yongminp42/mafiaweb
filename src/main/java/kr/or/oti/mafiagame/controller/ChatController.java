@@ -74,6 +74,21 @@ public class ChatController {
         roomGameService.broadcastMafiaChat(message);
     }
 
+    @MessageMapping("/rooms/{roomId}/dead-chat")
+    public void sendDeadMessage(
+            @DestinationVariable("roomId") long roomId,
+            ChatMessageRequest request,
+            SimpMessageHeaderAccessor headers,
+            Principal principal) {
+        ChatMessage message = createMessage(roomId, request, headers, principal, ChatChannel.DEAD);
+        if (roomGameService == null || principal == null) {
+            throw new RoomWebSocketException("사망자 채널을 사용할 수 없습니다.");
+        }
+        roomGameService.broadcastDeadChat(
+                message,
+                PrincipalIdentity.from(principal).userId());
+    }
+
     private ChatMessage createMessage(
             long roomId,
             ChatMessageRequest request,

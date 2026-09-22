@@ -59,9 +59,11 @@ class WebSocketAuthorizationInterceptorTest {
 
         var subscribe = message(StompCommand.SUBSCRIBE, "/topic/rooms/7/presence", principal);
         var send = message(StompCommand.SEND, "/app/rooms/7/chat", principal);
+        var deadSend = message(StompCommand.SEND, "/app/rooms/7/dead-chat", principal);
 
         assertThat(interceptor.preSend(subscribe, channel)).isSameAs(subscribe);
         assertThat(interceptor.preSend(send, channel)).isSameAs(send);
+        assertThat(interceptor.preSend(deadSend, channel)).isSameAs(deadSend);
     }
 
     @Test

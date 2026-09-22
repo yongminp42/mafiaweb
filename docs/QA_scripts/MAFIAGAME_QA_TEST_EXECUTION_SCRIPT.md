@@ -13,7 +13,7 @@ Change only the values in this section before each run. Keep the rest of this do
 ```powershell
 $projectPath = 'C:\workspace-sts-5.3.0\mafiagame'
 $e2eEnabled = $true
-$playerCounts = '4,5,6,8'
+$playerCounts = '4,5,6,7,8'
 $uiCapacity = 8
 $workerCount = 1
 $baseUrl = 'http://127.0.0.1:8080'
@@ -31,9 +31,10 @@ Configuration rules:
 
 - Set `$e2eEnabled` to `$true` or `$false` before execution.
 - If `$e2eEnabled = $false`, skip all Playwright commands and report E2E as `NOT RUN`.
-- For a complete run, `$playerCounts` must contain exactly `4,5,6,8`. The `6` entry is required because the two extended browser cases are conditionally registered only when six players are configured.
-- Use the value of `$playerCounts` for `PLAYER_COUNTS` in the Playwright command. A targeted count is supplementary evidence only.
+- For a complete run, `$playerCounts` must contain exactly `4,5,6,7,8`. The `6` entry is required because the two extended browser cases are conditionally registered only when six players are configured.
+- Use the value of `$playerCounts` for `PLAYER_COUNTS` in the Playwright command.
 - Use `$uiCapacity = 8` for the dedicated UI regression suite so the role-card layout is checked at the maximum supported room size.
+- Playwright trace recording is always enabled by `playwright.config.js`. Trace archives are stored under the current `E2E_RUN_ID` directory below `test-results/playwright/`; record their exact paths in the QA report.
 - Use a new `E2E_RUN_ID` for every execution.
 - Use the same `E2E_RUN_ID` for the core and UI regression suites so their accounts and rooms can be cleaned up together.
 - Keep `$workerCount = 1` for the complete run. The suite shares a server, database, and lobby online-player baseline; running workers in parallel can mix those states.
@@ -42,10 +43,21 @@ Configuration rules:
 - Frontend design checks must use the actual game-room detail route `/rooms/{roomId}` and its server-rendered template. The lobby route `/rooms` is not sufficient evidence for room UI changes.
 - For the current room UI, verify the fixed `게임 목록으로` button remains visible in both normal and `body.night-phase` backgrounds without switching its own colors by phase.
 - Verify `PUBLIC`, `MAFIA`, and `DEAD` message bubbles have distinct channel classes and visible visual treatment. Verify that the page-only `NIGHT` background is gray, transitions through `background-color`, and returns to the normal light background after `DAY_DISCUSSION` or `FINISHED`.
-- Save actual game-room screenshots for normal, night, and restored states. When an animation change is in scope, save a short browser video covering normal → night → normal; do not replace server-rendered evidence with an AI mockup or an isolated CSS/DOM preview.
+- Save actual game-room screenshots for normal, night, and restored states. Save a short browser video covering normal → night → normal; do not replace server-rendered evidence with an AI mockup or an isolated CSS/DOM preview.
 - The expected server phase order is `ROLE_ASSIGNMENT(15s) → DAY_DISCUSSION(60s) → NOMINATION_VOTE(20s) → FINAL_DEFENSE(20s, when a unique nominee exists) → EXECUTION_VOTE(20s) → NIGHT(35s)`. `ROLE_ASSIGNMENT` may end early when every living player confirms their role.
 - Replace `$projectPath` and `$baseUrl` if the project is moved or the server configuration changes.
 - Reserve `$serverPort` for a fresh QA server built from the current workspace. If that port is already occupied, choose another unused port and update `$baseUrl` before proceeding. Never assume an existing server contains the current source.
+
+### Mandatory Test Progress Capture
+
+Every QA execution must leave both screenshot and video evidence of the actual test progress. This requirement applies to Java tests, JavaScript tests, server startup/health checks, Playwright discovery, every Playwright scenario, and the final result summary.
+
+- Start screen recording before the first test command and keep it running until the final result and cleanup status are visible. The recording must make each executed test stage and its outcome identifiable.
+- Capture screenshots at minimum for preflight completion, Java test completion, JavaScript test completion, server health-check completion, each Playwright scenario result, and the final summary. Capture failure or blocked-state output immediately when it occurs.
+- Store screenshots and videos in a run-specific evidence directory keyed by `E2E_RUN_ID`; never overwrite evidence from an earlier run.
+- Record the exact screenshot and video paths in the QA report. Missing either form of evidence makes the QA execution incomplete; affected results must be reported as `BLOCKED`, not `PASS`.
+- Screenshots and videos supplement, but never replace, console output, logs, JUnit XML, Gradle reports, Playwright traces, and assertions.
+- Ensure credentials, tokens, personal data, and unrelated desktop content are not visible in captured evidence.
 - Use `$dbHost` and `$dbPort` from the application datasource configuration. If MariaDB is not reachable, stop before starting the application and mark the run `BLOCKED`/`NOT RUN`; do not install or start a database service automatically.
 - Save the final QA report under `$projectPath\$qaReportDirectory`.
 - Use a unique report filename containing the execution date and `E2E_RUN_ID`.
@@ -92,8 +104,8 @@ if (-not $databaseProbe) {
     throw "MariaDB is not reachable at $dbHost`:$dbPort. Stop this QA run; all requested test cases are NOT RUN."
 }
 
-if ($e2eEnabled -and $playerCounts -ne '4,5,6,8') {
-    throw "A complete QA run requires PLAYER_COUNTS=4,5,6,8; current value is $playerCounts."
+if ($e2eEnabled -and $playerCounts -ne '4,5,6,7,8') {
+    throw "A complete QA run requires PLAYER_COUNTS=4,5,6,7,8; current value is $playerCounts."
 }
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -282,7 +294,7 @@ $env:BASE_URL = $baseUrl
 The suite uses one worker so scenarios run in order. Individual scenario failures
 must not cause the remaining configured scenarios to be skipped. Keep retries disabled.
 
-Before the real run, enumerate the core tests and verify that the complete six-test set is
+Before the real run, enumerate the core tests and verify that the complete seven-test set is
 present. This catches a missing conditional six-player scenario before accounts are
 created. The UI regression suite is discovered separately because it uses a dedicated
 maximum-capacity layout run:
@@ -299,6 +311,7 @@ $requiredE2EScenarios = @(
     'MVP 4인 핵심 게임 흐름',
     'MVP 5인 핵심 게임 흐름',
     'MVP 6인 핵심 게임 흐름',
+    'MVP 7인 핵심 게임 흐름',
     'MVP 8인 핵심 게임 흐름',
     'closing a waiting-room tab changes six players to the five-player role threshold',
     'browser deadline, reconnect grace, and expired night action'
@@ -343,7 +356,7 @@ Record each core case's actual result, `$e2eExitCode`, and `$uiE2eExitCode`. A f
 be counted as a failure in a skipped case. If any case is skipped, report it as
 `NOT RUN` and investigate the execution order before claiming a complete run.
 
-The core inventory is four normal boundary cases plus two six-player resilience cases.
+The core inventory is five normal boundary cases plus two six-player resilience cases.
 The UI inventory adds the chat-scroll case and the 8-player room-layout case. If
 `$playerCounts` does not include `6`, the two core resilience cases are not registered;
 the core run is incomplete and must be reported with the missing cases as `NOT RUN`.
@@ -355,7 +368,7 @@ isolation has been demonstrated.
 Verify:
 
 - MariaDB preflight passed before any application process was started
-- Playwright core discovery listed all six required cases when `$playerCounts = '4,5,6,8'`
+- Playwright core discovery listed all seven required cases when `$playerCounts = '4,5,6,7,8'`
 - Playwright UI discovery listed the chat-scroll case and the 8-player room-layout case
 - Lobby patch-note modal appears after the lobby loads when no matching local preference exists
 - The modal footer places `오늘 하루 그만보기` on the left and `닫기` on the right; closing without checking allows the modal to appear on the next visit
@@ -370,20 +383,28 @@ Verify:
 - Unique account creation
 - Unique room creation
 - 4-player minimum scenario
-- 5-player scenario
-- 6-player boundary scenario
+- 5-player first-Spy-threshold scenario
+- 6-player Mafia+Spy+Soldier scenario
+- 7-player two-Mafia-plus-Spy scenario
 - 8-player maximum scenario
 - Real-time participant synchronization
 - Ready synchronization
 - Host-only game start permission
 - Role assignment and private role display
-- Exact role counts for 4, 5, 6, and 8 players (service test evidence)
-- Boundary mafia count: 1 for 5 players and 2 for 6 players
-- Citizen count formula: total players - mafia - police - doctor
+- Exact role composition for 4, 5, 6, 7, and 8 players (service test evidence):
+  `4 = MAFIA/POLICE/DOCTOR/CITIZEN`,
+  `5 = MAFIA/SPY/POLICE/DOCTOR/CITIZEN`,
+  `6 = MAFIA/SPY/POLICE/DOCTOR/SOLDIER/CITIZEN`,
+  `7 = MAFIA/MAFIA/SPY/POLICE/DOCTOR/SOLDIER/CITIZEN`,
+  `8 = MAFIA/MAFIA/SPY/POLICE/DOCTOR/SOLDIER/MEDIUM/CITIZEN`
+- Mafia-team count includes both `MAFIA` and `SPY`; the Spy does not submit `MAFIA_KILL`
+- Spy night investigation returns the exact role privately; finding `MAFIA` reveals the Mafia roster, unlocks the Mafia channel, and sends a contact-success system message to the Spy and all living Mafia players
+- Spy investigation of a non-Mafia role keeps the Mafia channel locked and never grants a kill action
+- Soldier survives exactly one Mafia night attack, reveals `군인` through the public system message and game panel, then can be killed by a later Mafia attack
+- Medium can use the private dead-player channel while alive and can investigate only dead targets at night; the exact role result is private
 - Start rejection or disabled start state for fewer than 4 players and more than 8 players
 - Role assignment, day, nomination vote, final defense, execution vote, and night transitions
-- Execution of both mafia players in the 6-player boundary scenario
-- Actual `MAFIA_KILL`, `DOCTOR_PROTECT`, and `POLICE_INVESTIGATE` submissions
+- Actual `MAFIA_KILL`, `DOCTOR_PROTECT`, `POLICE_INVESTIGATE`, `SPY_INVESTIGATE`, and `MEDIUM_INVESTIGATE` submissions
 - Doctor protection keeps the mafia target alive and police sees the private faction result
 - Citizen victory after the remaining mafia players are executed
 - Server timer synchronization
@@ -426,7 +447,7 @@ Verify:
 - Already-dead or post-departure targets are rejected
 - A submitted night action survives disconnect only during the 10-second reconnect grace period
 - A night action is removed when the player is absent after the 10-second grace period
-- Same-room replay at 4, 5, 6, and 8 players after `WAITING` reset
+- Same-room replay at 4, 5, 6, 7, and 8 players after `WAITING` reset
 - Actual elapsed 15/60/20/20/20/35 second phase durations for role assignment, day discussion, nomination, final defense, execution, and night; not only displayed timer values
 - Every non-host browser reaches the exact created room URL before participant-state assertions
 - A pending lobby refresh is cancelled when a browser starts navigating from `/rooms` to a room
@@ -442,10 +463,11 @@ The Playwright inventory must map to the following executable cases:
 | Case | Playwright test | Required result |
 |---|---|---|
 | 4 players | `MVP 4인 핵심 게임 흐름` | Role confirmation, one-mafia role set, final defense, complete game, replay |
-| 5 players | `MVP 5인 핵심 게임 흐름` | Role confirmation, one-mafia boundary role set, final defense, complete game, replay |
-| 6 players | `MVP 6인 핵심 게임 흐름` | Role confirmation, two-mafia role set, final defense, both mafia executions, night actions, victory, replay |
+| 5 players | `MVP 5인 핵심 게임 흐름` | Role confirmation, first Spy threshold (`MAFIA/SPY/POLICE/DOCTOR/CITIZEN`), Spy investigation and channel-lock rules, final defense, complete game, replay |
+| 6 players | `MVP 6인 핵심 게임 흐름` | Role confirmation, Mafia+Spy+Soldier role set, Spy investigation, Soldier one-hit shield, final defense, Mafia-team execution, night actions, victory, replay |
+| 7 players | `MVP 7인 핵심 게임 흐름` | Role confirmation, two-Mafia-plus-Spy role set, concurrent Mafia-target aggregation, final defense, night actions, victory, replay |
 | 8 players | `MVP 8인 핵심 게임 흐름` | Role confirmation, maximum supported browser flow, final defense, replay |
-| 6→5 before start | `closing a waiting-room tab changes six players to the five-player role threshold` | Closed tab is removed before start and five-player roles are assigned |
+| 6→5 before start | `closing a waiting-room tab changes six players to the five-player role threshold` | Closed tab is removed before start; `SOLDIER` is removed while `SPY` remains, and the exact five-player role set is assigned |
 | Deadline/reconnect | `browser deadline, reconnect grace, and expired night action` | Near-deadline requests do not hang; reconnect within 10 seconds preserves state; expiry removes the pending action |
 
 The UI regression inventory must also map to these executable cases:
@@ -455,7 +477,7 @@ The UI regression inventory must also map to these executable cases:
 | Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
 | 8-player role layout and room visual states | `waiting and started room layout (8 players)` | Eight participants render; host controls remain aligned; left/right columns have equal height; the role panel reaches the lower game-card edge; the role-confirmation status count is hidden; the `역할 확인 완료` button is at the panel bottom; `.room-back-link` is visible and readable in normal/night backgrounds; normal, night, and restored screenshots plus `room-layout-transition.webm` are saved under the current `E2E_RUN_ID` |
 
-The four normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
+The five normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 generated only when `PLAYER_COUNTS` contains `6`, so omitting `6` makes the run
 incomplete even if the remaining counts pass.
 
@@ -470,12 +492,11 @@ await waitForRoomParticipantCount(page, expectedCount);
 The lobby regression case must verify that a refresh scheduled for a newly discovered room is cancelled
 when `beforeunload` starts. This protects the room-entry navigation from a competing `window.location.reload()`.
 
-For a complete QA result, run all four configured core counts and both conditional
-six-player cases in one execution (`4,5,6,8`), then run the UI regression suite with
-`E2E_CAPACITY=8` using the same `E2E_RUN_ID`. A targeted rerun such as only `6` or `8`
-may be recorded as supplementary evidence, but it does not replace the missing core
-scenarios. Any core count, extended case, or UI regression case not executed in the
-same QA run must remain `NOT RUN` in the final report.
+For a complete QA result, run all five configured core counts and both conditional
+six-player cases in one execution (`4,5,6,7,8`), then run the UI regression suite with
+`E2E_CAPACITY=8` using the same `E2E_RUN_ID`. Any core count, extended case, or UI
+regression case not executed in the same QA run must remain `NOT RUN` in the final
+report.
 
 Do not retry failed tests automatically. Investigate the failure first.
 
@@ -484,6 +505,7 @@ For failed Playwright tests, inspect:
 - `test-results/**/error-context.md`
 - `test-results/**/*.png`
 - `test-results/**/*.zip`
+- `test-results/playwright/<E2E_RUN_ID>/**/*.zip`
 - `test-results/.last-run.json`
 - `test-results/bootRun.<E2E_RUN_ID>.stdout.log`
 - `test-results/bootRun.<E2E_RUN_ID>.stderr.log`
@@ -614,7 +636,7 @@ Validate the following:
 27. State restoration after refresh or reconnection
 28. Public and mafia chat channel separation
 29. Night chat and dead-channel isolation restrictions
-30. No-action behavior for mafia, doctor, and police
+30. No-action behavior for mafia, spy, doctor, police, and medium
 31. Doctor self-protection, including consecutive nights
 32. No role/investigation disclosure on death
 33. Full role reveal after game completion
@@ -624,34 +646,35 @@ Validate the following:
 37. Public, mafia, and dead bubble channel classes and visual distinction
 38. System phase-message type, public delivery, one-message-per-transition behavior, and phase-specific guidance
 39. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
-40. Server-rendered game-room screenshots and, for animation changes, a normal→night→normal browser video
+40. Server-rendered game-room screenshots and a normal→night→normal browser video
+41. Screenshot and video evidence covering the full QA progress from preflight through final result and cleanup
 
 ### 4.1 Extended Boundary and Resilience Checks
 
-The following checks are required when the QA request includes boundary, disconnect, or concurrency coverage. They are separate from the normal 4/5/6/8-player E2E boundary run and must be reported individually:
+The following checks are required when the QA request includes boundary, disconnect, or concurrency coverage. They are separate from the normal 4/5/6/7/8-player E2E boundary run and must be reported individually:
 
-1. Role-count boundaries: 4 players = 1 mafia, 1 police, 1 doctor, 1 citizen; 5 players = 1 mafia, 1 police, 1 doctor, 2 citizens; 6 players = 2 mafia, 1 police, 1 doctor, 2 citizens; 8 players = 2 mafia, 1 police, 1 doctor, 4 citizens.
-2. Citizen-count formula: `citizens = totalPlayers - (mafia + police + doctor)`, including `6 - (2 + 1 + 1) = 2`.
+1. Role-count boundaries: 4 players = `MAFIA/POLICE/DOCTOR/CITIZEN`; 5 players = `MAFIA/SPY/POLICE/DOCTOR/CITIZEN`; 6 players = `MAFIA/SPY/POLICE/DOCTOR/SOLDIER/CITIZEN`; 7 players = `MAFIA/MAFIA/SPY/POLICE/DOCTOR/SOLDIER/CITIZEN`; 8 players = `MAFIA/MAFIA/SPY/POLICE/DOCTOR/SOLDIER/MEDIUM/CITIZEN`. The threshold progression is explicit: 5 adds `SPY`, 6 adds `SOLDIER`, 7 adds the second `MAFIA`, and 8 adds `MEDIUM`.
+2. Mafia-team count includes `MAFIA` and `SPY`; the exact role table, rather than a citizen-count formula, determines all slots.
 3. Invalid start boundaries: fewer than 4 participants must keep start disabled or return a warning; more than 8 participants must be rejected by the server or prevented by room capacity.
 4. Mafia victory threshold: after resolution, `aliveMafia > aliveCitizenFaction` must finish the game for the mafia; equality must continue the game.
 5. Citizen victory precedence: `aliveMafia == 0` must finish the game for citizens even when the faction counts would otherwise be equal.
-6. A 6-player game must continue after only one mafia is executed and finish for citizens only after the second mafia is dead.
-7. If two mafia select different night targets, exactly one of the submitted highest-count targets is resolved; if they select the same target, that target is resolved unless protected.
+6. A 6-player game must continue after the actual Mafia is executed while the Spy remains alive; citizen victory is allowed only after the Spy is also dead.
+7. In a 7- or 8-player game, if two Mafia players select different night targets, exactly one of the submitted highest-count targets is resolved; if they select the same target, that target is resolved unless protected. The Spy cannot submit a kill action.
 8. Nomination ties must not select an execution candidate and must move to the night phase without hanging.
 9. A last-session disconnect must remove that participant from alive counts after the configured 10-second reconnect grace period and re-evaluate victory; a reconnect within the grace period must restore the current state without marking the player dead.
-10. A pre-start departure must be reflected in the participant count before roles are assigned; a 6-to-5 transition must use the one-mafia role set or prevent start until the state is stable.
+10. A pre-start departure must be reflected in the participant count before roles are assigned; a 6-to-5 transition must remove `SOLDIER` but retain `SPY`, assign exactly `MAFIA/SPY/POLICE/DOCTOR/CITIZEN`, or prevent start until the state is stable.
 11. Requests arriving at or immediately before a phase deadline must be serialized against server `phaseEndsAt`; requests received after it are invalid and cannot enter the next phase. Record this as `NOT RUN` when timing cannot be made deterministic.
 12. A submitted night action survives a disconnect only while the player is within the 10-second reconnect grace period; after grace expiry it is removed before resolution.
-13. Public chat is delivered only to the public channel; mafia chat is delivered only to living mafia users; dead users can use only the dead channel, and their messages must not be visible to living users.
-14. The same room can be replayed after `FINISHED` at 4, 5, 6, and 8 players, with Ready reset and fresh role assignment.
+13. Public chat is delivered only to the public channel; mafia chat is delivered only to living Mafia users and a Spy after successful contact; dead users and the living Medium can use the private dead channel, and dead messages must not be visible to other living users.
+14. The same room can be replayed after `FINISHED` at 4, 5, 6, 7, and 8 players, with Ready reset and fresh role assignment.
 15. The measured phase transitions must be approximately 15 seconds for role confirmation, 60 seconds for day discussion, 20 seconds for nomination, 20 seconds for final defense, 20 seconds for execution, and 35 seconds for night; a client-side countdown alone is insufficient evidence.
 
 For each extended check, record the evidence source (`Java service test`, `Playwright E2E`, or `source inspection`) and classify it as `PASS`, `FAIL`, `BLOCKED`, or `NOT RUN`. Source inspection alone cannot be reported as an executed test `PASS`.
 
 Use this evidence split when producing the report:
 
-- The normal 4/5/6/8 flows, role displays and confirmation, final-defense nominee chat,
-  actual browser chat, both-mafia execution flow, replay, and phase-duration assertions
+- The normal 4/5/6/7/8 flows, role displays and confirmation, final-defense nominee chat,
+  actual browser chat, Mafia-team execution flow, replay, and phase-duration assertions
   are `Playwright E2E` results.
 - Role-rule edge cases, no-action behavior, self/consecutive doctor protection,
   post-departure target rejection, exact server-deadline rejection, duplicate request
@@ -660,15 +683,16 @@ Use this evidence split when producing the report:
   pre-start 6→5 transition, reconnect within the 10-second grace period, grace expiry,
   pending night-action removal, and a near-deadline request attempt. The exact
   after-`phaseEndsAt` acceptance rule still requires the Java server-time test.
-- A true simultaneous two-mafia network attack is not proven by sequential service
+- A true simultaneous two-Mafia network attack is not proven by sequential service
   submissions or by the nomination race. Keep that item `NOT RUN` unless the executed
-  output contains a dedicated concurrent night-action test.
+  output contains a dedicated concurrent night-action test; this applies only to the
+  7- and 8-player role sets because the 6-player set has one Mafia and one Spy.
 
 ### 4.2 Implementation Contracts to Verify
 
 When source inspection is used to explain a result, inspect these contracts directly and include the file and line number in the report:
 
-- `RoomGameRules.createRoles`/`assignRoles`: mafia count is `1` for 4–5 players and `2` for 6–8 players; doctor and police remain one each; citizens fill the remainder.
+- `RoomGameRules.createRoles`/`assignRoles`: the exact 4–8 player role table is applied; `SPY` first appears at 5 players and is part of the Mafia team, while `SOLDIER` and `MEDIUM` first appear at 6 and 8 players respectively.
 - `GamePhase`: `ROLE_ASSIGNMENT` is 15 seconds and `FINAL_DEFENSE` is 20 seconds; both are part of the server phase enum.
 - `RoomGameService.submitAction`: `ROLE_CONFIRM` is accepted only during `ROLE_ASSIGNMENT`, once per living player, and all confirmations can advance the room early to `DAY_DISCUSSION`.
 - `RoomGameService.moveAfterNominationVote`/`validateChat`: a unique nominee enters `FINAL_DEFENSE`, and only that nominee may use public chat during the defense phase.
@@ -676,15 +700,15 @@ When source inspection is used to explain a result, inspect these contracts dire
 - `RoomGameService.handlePlayerDeparture`: after the reconnect grace period, a player whose last room session disconnects becomes non-alive, pending actions are removed, and victory is re-evaluated.
 - `RoomPresenceService`: the last session retains a playing participant for 10 seconds, reconnect cancels the departure, expiry removes the participant and notifies the game service, a departed dead player may rejoin as a spectator without revival, and game start accepts only 4–8 current participants.
 - `chat.js`: the host start button is disabled below four participants, and the current presence snapshot drives the displayed participant count and readiness state.
-- `ChatService`/`RoomGameService`: public and mafia channel permissions are checked from the authoritative alive/role/phase state.
+- `ChatService`/`RoomGameService`: public, Mafia, and dead-channel permissions are checked from the authoritative alive/role/phase state; a Spy is added to Mafia chat only after a successful Mafia investigation, a Medium may use dead chat while alive, and dead players cannot use Mafia chat.
 - `RoomGameService.snapshot`: roles are null before `FINISHED` and included for all players only after game completion.
 - `src/main/resources/templates/rooms/detail.html`: the game-room back control is a button-styled `.room-back-link` targeting `/rooms`.
 - `src/main/resources/static/css/app.css`: `.room-back-link` uses a fixed high-contrast palette; `body.night-phase` changes only the page background and `body` transitions `background-color` in both directions.
 - `RoomGameService.broadcastPhaseSystemMessage`/`phaseSystemMessage`: a real phase transition publishes one public `SYSTEM` chat message containing the transition result and role-appropriate instructions; state synchronization must not publish a duplicate.
-- `ChatMessage.system`: system messages use the `SYSTEM` type, the public channel, and the `게임 안내` sender.
+- `ChatMessage.system`: phase system messages use the `SYSTEM` type, public channel, and `게임 안내` sender; the Spy contact system message uses the same `SYSTEM` type in the private Mafia channel.
 - `src/main/resources/static/js/chat.js`: `getMessageChannel` and `appendMessage` assign the public, mafia, dead, and system channel classes; system messages render as text-only guidance; game-phase rendering toggles `.night-phase`.
 - `src/main/resources/static/css/app.css`: `.channel-system` and `.chat-message.system` provide the distinct system-guidance visual treatment.
-- `test/e2e/mafia-mvp.spec.js`: the four count-driven cases verify role confirmation and final defense, and the two conditional six-player resilience cases are discovered before execution.
+- `test/e2e/mafia-mvp.spec.js`: the five count-driven cases verify role confirmation and final defense, and the two conditional six-player resilience cases are discovered before execution.
 
 Do not infer a runtime result from these contracts. Use them only to identify implementation evidence, expected behavior, or the root cause of a failed or unexecuted test.
 
@@ -749,6 +773,7 @@ Before saving:
 4. If E2E is disabled, include `E2E: NOT RUN` and the reason in the report.
 5. If a test is blocked or not executed, do not mark it as `PASS`.
 6. Report the absolute saved file path in the final response.
+7. Include the run-specific progress screenshot and video paths; if either evidence type is missing, report the affected QA result as `BLOCKED`.
 
 The PowerShell setup for the report path is:
 
@@ -776,7 +801,7 @@ Write the report in the following order:
 6. JavaScript test summary and details
 7. Server startup and health-check result
 8. Playwright discovery inventory, requested/effective workers, and E2E summary
-9. Separate 4-player, 5-player, 6-player, 8-player, 6→5, and reconnect/deadline results
+9. Separate 4-player, 5-player, 6-player, 7-player, 8-player, 6→5, and reconnect/deadline results
 10. MVP validation table
 11. Failed and blocked items
 12. Reproduction steps
@@ -803,8 +828,9 @@ For every result, include:
 - Related source files and line numbers
 - JUnit XML paths
 - Gradle HTML report path
-- Playwright trace and screenshot paths
-- Playwright core discovery output and the six required scenario names
+- Test-progress screenshot and video paths for the complete QA run
+- Playwright trace, screenshot, and video paths
+- Playwright core discovery output and the seven required scenario names
 - Playwright UI discovery output and the two required UI scenario names
 - Requested worker count and effective worker count (`1` for the current suite)
 - Application stdout and stderr log paths

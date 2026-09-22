@@ -5,5 +5,6 @@ package kr.or.oti.mafiagame.dto;
  */
 public enum ChatChannel {
     PUBLIC,
-    MAFIA
+    MAFIA,
+    DEAD
 }
