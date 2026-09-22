@@ -91,6 +91,43 @@
   </section>
 </main>
 
+<div class="modal fade patch-notes-modal" id="patchNotesModal" tabindex="-1"
+     aria-labelledby="patchNotesTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header patch-notes-header border-0">
+        <div>
+          <p class="eyebrow text-white-50 mb-1">PATCH NOTES</p>
+          <h2 class="modal-title h4 mb-0" id="patchNotesTitle">v0.1.0-alpha 업데이트</h2>
+        </div>
+      </div>
+      <div class="modal-body p-4 patch-notes-content">
+        <p class="text-secondary mb-4">더 안정적이고 편리하게 게임을 즐길 수 있도록 로비와 게임 진행을 개선했습니다.</p>
+
+        <div class="patch-note-item">
+          <strong>게임 진행 안정화</strong>
+          <p class="text-secondary small mb-0 mt-1">역할 배정, 페이즈 전환, 투표와 밤 행동, 재접속·탈주 처리를 서버 기준으로 보강했습니다.</p>
+        </div>
+        <div class="patch-note-item">
+          <strong>채팅 채널 개선</strong>
+          <p class="text-secondary small mb-0 mt-1">전체 채팅, 마피아 채팅, 사망자 채팅을 상태에 맞게 분리하고 권한 검증을 강화했습니다.</p>
+        </div>
+        <div class="patch-note-item">
+          <strong>대기방 화면 개선</strong>
+          <p class="text-secondary small mb-0 mt-1">게임 화면과 대기방 레이아웃을 다듬고, 지원하지 않는 관전 안내 문구를 정리했습니다.</p>
+        </div>
+      </div>
+      <div class="modal-footer patch-notes-footer border-0">
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" id="patchNotesHideToday">
+          <label class="form-check-label small" for="patchNotesHideToday">오늘 하루 그만보기</label>
+        </div>
+        <button class="btn btn-dark px-4" type="button" data-bs-dismiss="modal">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast position-fixed bottom-0 start-50 translate-middle-x mb-4 text-bg-dark border-0" id="toast"
      role="status" aria-live="polite" aria-atomic="true"></div>
 
