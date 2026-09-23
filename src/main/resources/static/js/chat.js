@@ -2,7 +2,8 @@
   const roomId = document.body.dataset.roomId;
   const nickname = document.body.dataset.nickname || '';
   const userId = document.body.dataset.userId ? Number(document.body.dataset.userId) : null;
-  const capacity = Number(document.body.dataset.capacity || 0);
+  let capacity = Number(document.body.dataset.capacity || 0);
+  const isRoomHost = document.body.dataset.isHost === 'true';
   const socketUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   const {
     createFrame,
@@ -20,6 +21,14 @@
   const memberGrid = document.querySelector('#memberGrid');
   const roomPlayerCount = document.querySelector('#roomPlayerCount');
   const roomMemberCount = document.querySelector('#roomMemberCount');
+  const roomCapacity = document.querySelector('#roomCapacity');
+  const roomLockIndicator = document.querySelector('#roomLockIndicator');
+  const roomSettingsButton = document.querySelector('#roomSettingsButton');
+  const roomSettingsForm = document.querySelector('#roomSettingsForm');
+  const roomSettingsMaxPlayers = document.querySelector('#roomSettingsMaxPlayers');
+  const roomSettingsCapacityWarning = document.querySelector('#roomSettingsCapacityWarning');
+  const roomSettingsCurrentPlayers = document.querySelector('#roomSettingsCurrentPlayers');
+  const roomSettingsSaveButton = document.querySelector('#roomSettingsSaveButton');
   const roomStatus = document.querySelector('#roomStatus');
   const messages = document.querySelector('#messages');
   const notice = document.querySelector('#chatNotice');
@@ -64,6 +73,7 @@
   const submitNightAction = document.querySelector('#submitNightAction');
   const nightResultPanel = document.querySelector('#nightResultPanel');
   const nightResultTitle = document.querySelector('#nightResultTitle');
+  const nightResultFactionLabel = document.querySelector('#nightResultFactionLabel');
   const nightResultLabel = document.querySelector('#nightResultLabel');
   const nightResultMafiaList = document.querySelector('#nightResultMafiaList');
   const gameActionStatus = document.querySelector('#gameActionStatus');
@@ -84,8 +94,8 @@
     CITIZEN: '시민 진영 승리'
   };
   const INVESTIGATION_FACTION_LABELS = {
-    MAFIA: '마피아',
-    CITIZEN: '시민'
+    MAFIA: '마피아팀',
+    CITIZEN: '시민팀'
   };
   const GAME_ROLE_LABELS = {
     MAFIA: '마피아',
@@ -117,6 +127,7 @@
   let joinedRoom = false;
   let gameStarted = false;
   let currentParticipants = [];
+  let currentRoomPlayerCount = Number(roomMemberCount?.textContent || 0);
   let currentParticipant = null;
   let currentRole = null;
   let mafiaChatUnlocked = false;
@@ -138,6 +149,37 @@
   }
   if (startButton) {
     startButton.disabled = true;
+  }
+
+  function updateRoomSettingsCapacityValidation() {
+    if (!roomSettingsMaxPlayers) {
+      return true;
+    }
+
+    const currentPlayers = Number.isInteger(currentRoomPlayerCount) && currentRoomPlayerCount >= 0
+      ? currentRoomPlayerCount
+      : 0;
+    const selectedMaxPlayers = Number(roomSettingsMaxPlayers.value);
+    const capacityTooSmall = !Number.isInteger(selectedMaxPlayers)
+      || selectedMaxPlayers < currentPlayers;
+
+    Array.from(roomSettingsMaxPlayers.options).forEach(option => {
+      const optionCapacity = Number(option.value);
+      option.disabled = Number.isInteger(optionCapacity) && optionCapacity < currentPlayers;
+    });
+
+    if (roomSettingsCurrentPlayers) {
+      roomSettingsCurrentPlayers.textContent = String(currentPlayers);
+    }
+    if (roomSettingsCapacityWarning) {
+      roomSettingsCapacityWarning.hidden = !capacityTooSmall;
+    }
+    roomSettingsMaxPlayers.classList.toggle('is-invalid', capacityTooSmall);
+    if (roomSettingsSaveButton) {
+      roomSettingsSaveButton.disabled = capacityTooSmall;
+    }
+
+    return !capacityTooSmall;
   }
 
   function showToast(message) {
@@ -349,7 +391,7 @@
           || frame.headers.subscription === 'room-joined';
         if (isJoinedMessage) {
           // 서버가 참가자 목록을 반환한 시점부터만 채팅·게임 화면을 활성화한다.
-          renderParticipants(message.participants, message.status);
+          renderParticipants(message.participants, message.status, message.capacity, message.locked);
           if (joinedRoom) {
             subscribeRoomTopics(connection);
           } else {
@@ -358,7 +400,7 @@
           return;
         }
         if (frame.headers.destination === presenceSyncDestination) {
-          renderParticipants(message.participants, message.status);
+          renderParticipants(message.participants, message.status, message.capacity, message.locked);
           return;
         }
         if (frame.headers.destination === gameDestination) {
@@ -381,7 +423,7 @@
           return;
         }
         if (frame.headers.destination === presenceDestination || Array.isArray(message.participants)) {
-          renderParticipants(message.participants, message.status);
+          renderParticipants(message.participants, message.status, message.capacity, message.locked);
           return;
         }
         if (message.type === 'CHAT' || message.type === 'SYSTEM') {
@@ -559,15 +601,17 @@
       ? gameState.players.find(player => Number(player.userId) === userId)
       : null;
     const isNewWaitingParticipant = gameState?.phase === 'FINISHED' && !currentGamePlayer;
+    const isFinished = gameState?.phase === 'FINISHED';
     const alive = !gameState || currentGamePlayer?.alive === true || isNewWaitingParticipant;
     const isNight = gameState?.phase === 'NIGHT';
     const isRoleAssignment = gameState?.phase === 'ROLE_ASSIGNMENT';
     const isFinalDefense = gameState?.phase === 'FINAL_DEFENSE';
     const isDefendant = Number(gameState?.nominatedUserId) === userId;
-    const canUseDeadChat = Boolean(gameState) && (!alive || currentRole === 'MEDIUM');
-    const canUsePublic = (!isNight && !isRoleAssignment
+    const canUseDeadChat = !isFinished
+      && Boolean(gameState) && (!alive || currentRole === 'MEDIUM');
+    const canUsePublic = isFinished || (!isNight && !isRoleAssignment
       && (!isFinalDefense || isDefendant));
-    const canUseMafia = (currentRole === 'MAFIA'
+    const canUseMafia = !isFinished && (currentRole === 'MAFIA'
       || (currentRole === 'SPY' && mafiaChatUnlocked))
       && alive && !isRoleAssignment;
     const canChat = isOnline
@@ -591,7 +635,9 @@
       deadOption.disabled = !canUseDeadChat;
     }
     if (chatChannel) {
-      if (!canUsePublic && !canUseDeadChat && canUseMafia) {
+      if (isFinished) {
+        chatChannel.value = 'PUBLIC';
+      } else if (!canUsePublic && !canUseDeadChat && canUseMafia) {
         chatChannel.value = 'MAFIA';
       } else if (!canUsePublic && !canUseMafia && canUseDeadChat) {
         chatChannel.value = 'DEAD';
@@ -844,8 +890,12 @@
     if (nightResultPanel) {
       nightResultPanel.hidden = true;
     }
+    if (nightResultFactionLabel) {
+      nightResultFactionLabel.textContent = '';
+    }
     if (nightResultLabel) {
       nightResultLabel.textContent = '';
+      nightResultLabel.hidden = true;
     }
     if (nightResultTitle) {
       nightResultTitle.textContent = '경찰 조사 결과';
@@ -862,16 +912,29 @@
       return;
     }
 
-    const hasRoleResult = typeof result.roleLabel === 'string' && result.roleLabel.trim() !== '';
-    const resultLabel = hasRoleResult
+    const targetNickname = result.targetNickname || '대상';
+    const factionCode = String(result.faction || '').toUpperCase();
+    const rawFactionLabel = INVESTIGATION_FACTION_LABELS[factionCode]
+      || result.factionLabel
+      || factionCode
+      || '알 수 없음';
+    const factionLabel = rawFactionLabel === '마피아'
+      ? '마피아팀'
+      : rawFactionLabel === '시민'
+        ? '시민팀'
+        : rawFactionLabel;
+    const roleLabel = (typeof result.roleLabel === 'string' && result.roleLabel.trim() !== '')
       ? result.roleLabel
-      : (INVESTIGATION_FACTION_LABELS[result.faction]
-        || result.factionLabel
-        || result.faction);
+      : GAME_ROLE_LABELS[result.role] || result.role;
+    const hasRoleResult = typeof roleLabel === 'string' && roleLabel.trim() !== '';
     if (nightResultTitle) {
       nightResultTitle.textContent = hasRoleResult ? '직업 조사 결과' : '경찰 조사 결과';
     }
-    nightResultLabel.textContent = ` ${result.targetNickname || '대상'}님은 ${resultLabel}입니다.`;
+    if (nightResultFactionLabel) {
+      nightResultFactionLabel.textContent = `${targetNickname}님의 진영: ${factionLabel}`;
+    }
+    nightResultLabel.textContent = hasRoleResult ? `직업: ${roleLabel}` : '';
+    nightResultLabel.hidden = !hasRoleResult;
     if (nightResultMafiaList) {
       const mafiaPlayers = Array.isArray(result.mafiaPlayers) ? result.mafiaPlayers : [];
       if (mafiaPlayers.length > 0) {
@@ -1048,7 +1111,7 @@
     });
   }
 
-  function renderParticipants(participants, status) {
+  function renderParticipants(participants, status, roomCapacityValue, roomLocked) {
     if (forcedLeave || !memberGrid || !Array.isArray(participants)) {
       return;
     }
@@ -1056,6 +1119,18 @@
     // 서버가 보낸 참가자 목록을 기준으로 화면과 현재 사용자 상태를 함께 갱신한다.
     // 현재 사용자가 목록에서 사라지면 다른 방으로 이동한 것으로 보고 방을 나간다.
     currentParticipants = participants;
+    currentRoomPlayerCount = participants.length;
+    const nextCapacity = Number(roomCapacityValue);
+    if (Number.isFinite(nextCapacity) && nextCapacity > 0) {
+      capacity = nextCapacity;
+    }
+    if (typeof roomLocked === 'boolean' && roomLockIndicator) {
+      roomLockIndicator.hidden = !roomLocked;
+      roomLockIndicator.classList.toggle('d-none', !roomLocked);
+    }
+    if (roomCapacity) {
+      roomCapacity.textContent = String(capacity);
+    }
     if (typeof status === 'string') {
       gameStarted = status === 'PLAYING';
       if (roomStatus) {
@@ -1066,7 +1141,6 @@
         roomStatus.classList.toggle('text-secondary-emphasis', gameStarted);
       }
     }
-
     const fragment = document.createDocumentFragment();
     const wasJoined = joinedRoom;
     currentParticipant = null;
@@ -1107,6 +1181,12 @@
       }
     });
 
+    if (roomSettingsButton) {
+      const canUseRoomSettings = currentParticipant?.host === true
+        || (!currentParticipant && isRoomHost);
+      roomSettingsButton.hidden = gameStarted || !canUseRoomSettings;
+    }
+
     const emptySeats = Math.max(capacity - participants.length, 0);
     for (let index = 0; index < emptySeats; index += 1) {
       const emptySeat = document.createElement('article');
@@ -1123,6 +1203,7 @@
     if (roomMemberCount) {
       roomMemberCount.textContent = participants.length;
     }
+    updateRoomSettingsCapacityValidation();
     joinedRoom = currentParticipant !== null;
     presenceReady = currentParticipant !== null;
     renderReadyButton(currentParticipant?.ready || false);
@@ -1236,6 +1317,13 @@
   });
 
   chatChannel?.addEventListener('change', () => updateChatAvailability());
+  roomSettingsMaxPlayers?.addEventListener('change', updateRoomSettingsCapacityValidation);
+  roomSettingsForm?.addEventListener('submit', event => {
+    if (!updateRoomSettingsCapacityValidation()) {
+      event.preventDefault();
+    }
+  });
+  updateRoomSettingsCapacityValidation();
 
   readyButton?.addEventListener('click', () => {
     if (!connected || !joinedRoom || !presenceReady || socket.readyState !== WebSocket.OPEN) {

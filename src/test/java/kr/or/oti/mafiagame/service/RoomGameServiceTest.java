@@ -554,6 +554,20 @@ class RoomGameServiceTest {
         assertThatThrownBy(() -> gameService.submitAction(
                 ROOM_ID, principal(1L, "alice"), new GameActionRequest(null, true)))
                 .isInstanceOf(RoomWebSocketException.class);
+        assertThatCode(() -> gameService.validateChat(ROOM_ID, 1L, ChatChannel.PUBLIC))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> gameService.validateChat(ROOM_ID, 1L, ChatChannel.MAFIA))
+                .isInstanceOf(RoomWebSocketException.class);
+        assertThatThrownBy(() -> gameService.validateChat(ROOM_ID, 2L, ChatChannel.DEAD))
+                .isInstanceOf(RoomWebSocketException.class);
+
+        ChatMessage finishedMessage = new ChatMessage(
+                ROOM_ID, "CHAT", "bob", "finished-public", ChatChannel.PUBLIC, Instant.now());
+        clearInvocations(messagingTemplate);
+        gameService.broadcastPublicChat(finishedMessage, 2L);
+        verify(messagingTemplate).convertAndSend("/topic/rooms/1/chat", finishedMessage);
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                anyString(), eq("/queue/dead-chat"), eq(finishedMessage));
     }
 
     @Test
@@ -731,7 +745,7 @@ class RoomGameServiceTest {
                 investigationCaptor.capture());
         assertThat(investigationCaptor.getValue().targetUserId()).isEqualTo(1L);
         assertThat(investigationCaptor.getValue().faction()).isEqualTo("MAFIA");
-        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("마피아");
+        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("마피아팀");
     }
 
     @Test
@@ -775,7 +789,7 @@ class RoomGameServiceTest {
                 investigationCaptor.capture());
         assertThat(investigationCaptor.getValue().targetUserId()).isEqualTo(2L);
         assertThat(investigationCaptor.getValue().faction()).isEqualTo("CITIZEN");
-        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("시민");
+        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("시민팀");
         verify(messagingTemplate, times(1)).convertAndSendToUser(
                 anyString(), eq("/queue/night-result"), any(GameInvestigationResult.class));
     }
@@ -806,6 +820,8 @@ class RoomGameServiceTest {
                 eq("bob@example.com"),
                 eq("/queue/night-result"),
                 investigationCaptor.capture());
+        assertThat(investigationCaptor.getValue().faction()).isEqualTo("MAFIA");
+        assertThat(investigationCaptor.getValue().factionLabel()).isEqualTo("마피아팀");
         assertThat(investigationCaptor.getValue().role()).isEqualTo("MAFIA");
         assertThat(investigationCaptor.getValue().roleLabel()).isEqualTo("마피아");
         assertThat(investigationCaptor.getValue().mafiaPlayers())

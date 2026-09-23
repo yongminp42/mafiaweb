@@ -98,23 +98,35 @@
       <div class="modal-header patch-notes-header border-0">
         <div>
           <p class="eyebrow text-white-50 mb-1">PATCH NOTES</p>
-          <h2 class="modal-title h4 mb-0" id="patchNotesTitle">v0.1.1-alpha 업데이트</h2>
+          <h2 class="modal-title h4 mb-0" id="patchNotesTitle">v0.3.0-alpha 업데이트</h2>
         </div>
       </div>
       <div class="modal-body p-4 patch-notes-content">
-        <p class="text-secondary mb-4">페이즈별 게임 안내와 채팅 표시를 강화하고, 게임 진행 안정성과 QA 검증을 보완했습니다.</p>
+        <p class="text-secondary mb-4">대기 중 게임방 설정과 조사 결과 표시를 개선하고 게임 종료 채널을 안정화했습니다.</p>
 
         <div class="patch-note-item">
-          <strong>페이즈별 게임 안내</strong>
-          <p class="text-secondary small mb-0 mt-1">역할 확인부터 낮 토론, 지목·처형 투표, 밤 행동, 게임 종료까지 마피아 게임에 맞는 시스템 안내를 표시합니다.</p>
+          <strong>게임방 설정</strong>
+          <p class="text-secondary small mb-0 mt-1">대기 중 친구 초대 옆의 방장 전용 버튼에서 최대 인원과 방 비밀번호를 관리할 수 있습니다.</p>
         </div>
         <div class="patch-note-item">
-          <strong>시스템 채팅 표시 개선</strong>
-          <p class="text-secondary small mb-0 mt-1">게임 안내 메시지를 일반·마피아·사망자 채팅과 구분하고, 공개 채널에서 안전한 텍스트로 표시합니다.</p>
+          <strong>정원 변경 검증</strong>
+          <p class="text-secondary small mb-0 mt-1">현재 참가자보다 작은 정원은 경고를 표시하고 저장을 막으며, 서버에서도 같은 조건을 재검증합니다.</p>
         </div>
         <div class="patch-note-item">
-          <strong>안정성 및 검증 강화</strong>
-          <p class="text-secondary small mb-0 mt-1">WebSocket null 타입 경고를 정리하고, 페이즈 안내·채널 UI·4~8인 게임 흐름 자동 테스트를 보강했습니다.</p>
+          <strong>게임 종료 채널 안정화</strong>
+          <p class="text-secondary small mb-0 mt-1">게임 종료 후에는 생존 여부와 관계없이 전체 채널만 사용할 수 있고, 공개 메시지도 전체 채널로 전달됩니다.</p>
+        </div>
+        <div class="patch-note-item">
+          <strong>진영 우선 조사 결과</strong>
+          <p class="text-secondary small mb-0 mt-1">조사 결과에 마피아팀·시민팀을 먼저 표시하고 필요한 직업 정보는 별도로 안내합니다.</p>
+        </div>
+        <div class="patch-note-item">
+          <strong>버전별 패치노트 보기</strong>
+          <p class="text-secondary small mb-0 mt-1">상세보기에서 이전 버전의 변경 내역도 최신 버전순으로 확인할 수 있습니다.</p>
+        </div>
+        <div class="patch-note-item">
+          <strong>안정성과 QA</strong>
+          <p class="text-secondary small mb-0 mt-1">게임방 동기화와 테스트 프로필을 점검해 안정성과 QA를 개선했습니다.</p>
         </div>
       </div>
       <div class="modal-footer patch-notes-footer border-0">
@@ -122,6 +134,175 @@
           <input class="form-check-input" type="checkbox" id="patchNotesHideToday">
           <label class="form-check-label small" for="patchNotesHideToday">오늘 하루 그만보기</label>
         </div>
+        <div class="patch-notes-footer-actions">
+          <button class="btn btn-outline-dark" id="patchNotesDetailButton" type="button">상세보기</button>
+          <button class="btn btn-dark px-4" type="button" data-bs-dismiss="modal">닫기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade patch-notes-modal patch-notes-detail-modal" id="patchNotesDetailModal" tabindex="-1"
+     aria-labelledby="patchNotesDetailTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header patch-notes-header border-0">
+        <div>
+          <p class="eyebrow text-white-50 mb-1">PATCH NOTES ARCHIVE</p>
+          <h2 class="modal-title h4 mb-0" id="patchNotesDetailTitle">전체 패치노트</h2>
+        </div>
+        <button class="btn-close btn-close-white" type="button" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body p-4 patch-notes-detail-content">
+        <article class="patch-note-version" data-patch-note-version="0.3.0-alpha">
+          <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h3 class="h5 mb-0">0.3.0-alpha</h3>
+            <span class="small text-secondary">게임방 설정·채널 안정화·QA 개선</span>
+          </div>
+          <p class="text-secondary small">버그 리포트의 종료 채널·진영 표시 문제를 수정하고 대기 중인 게임방의 방 설정을 지원합니다.</p>
+          <h4 class="h6 mt-4 mb-2">게임방 설정</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>대기 중인 방에서 친구 초대 버튼 옆에 방장만 볼 수 있는 <code>방 설정</code> 버튼을 추가했습니다. 게임이 시작되면 버튼을 숨기고 서버에서도 설정 변경을 거부합니다.</li>
+            <li>대기 중인 방의 최대 인원을 4~8명으로 변경할 수 있도록 했습니다.</li>
+            <li>현재 입장 인원보다 작은 최대 인원은 선택할 수 없고, 경고문과 저장 버튼 비활성화로 잘못된 변경을 즉시 안내합니다.</li>
+            <li>참가 인원이 실시간으로 변해도 최대 인원 검증을 다시 수행하며, 서버에서도 같은 조건을 검증해 우회 요청을 차단합니다.</li>
+            <li>방 비밀번호를 설정·변경·해제할 수 있고, 설정 변경 후 참가자 화면의 정원·잠금 상태를 동기화합니다.</li>
+            <li>비밀번호가 설정된 방도 방장은 재접속 후 방장 권한과 설정 접근을 유지할 수 있습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">버그 수정: 게임 종료 채널과 조사 결과</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li><code>FINISHED</code> 상태에서는 서버와 화면 모두 <code>PUBLIC</code>(전체) 채널만 허용합니다.</li>
+            <li>게임 종료 시 마피아·사망자 채널을 숨기고 현재 채널을 전체 채널로 전환합니다.</li>
+            <li>사망한 참가자가 종료 후 보내는 공개 메시지도 전체 채널로 전달되도록 수정했습니다.</li>
+            <li>경찰·스파이·영매사 조사 결과에 <code>마피아팀</code> 또는 <code>시민팀</code>을 먼저 표시하고, 필요한 역할 정보는 <code>직업: 마피아</code>처럼 별도로 표시합니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">패치노트·QA 업데이트</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>메인 화면 패치노트에 <code>상세보기</code> 버튼을 추가해 README의 모든 패치노트를 최신 버전순으로 확인할 수 있도록 했습니다.</li>
+            <li>패치노트 내용이 변경되면 기존의 오늘 하루 숨김 설정이 자동으로 무효화되는 동작을 유지했습니다.</li>
+            <li>게임방 설정, 종료 채널, 진영 우선 표시, 재접속 및 실시간 동기화에 대한 JavaScript·Java·Playwright QA 검증 항목을 갱신했습니다.</li>
+            <li>Smoke·Regression·Full 프로필의 인원수, 재플레이, UI 시나리오, 페이즈 시간과 증거 정책을 실행 코드와 QA 문서에 맞췄습니다. 프로필을 지정하지 않거나 해당 프로필 범위 밖의 인원수를 요청하면 E2E 실행을 시작하지 않습니다.</li>
+            <li>프로필별 기본 설정이 코드와 일치하는지 확인하는 JavaScript 테스트를 추가했습니다.</li>
+            <li>테스트 산출물은 <code>output/test_output/YYYY-MM-DD/&lt;테스트명&gt;/</code> 규칙으로 보관하도록 QA 문서와 실행 설정을 정리했습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">릴리스 버전</h4>
+          <ul class="patch-note-detail-list text-secondary small mb-0">
+            <li>Gradle 프로젝트 버전을 <code>0.2.0-alpha</code>에서 <code>0.3.0-alpha</code>로 변경했습니다.</li>
+            <li>기존 게임 규칙은 유지하면서 방 관리, 종료 상태의 채널 권한, 조사 결과 안내와 QA 추적성을 강화한 알파 업데이트입니다.</li>
+          </ul>
+        </article>
+
+        <article class="patch-note-version" data-patch-note-version="0.2.0-alpha">
+          <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h3 class="h5 mb-0">0.2.0-alpha</h3>
+            <span class="small text-secondary">역할 확장·채널 권한·게임 진행 고도화</span>
+          </div>
+          <p class="text-secondary small">4~8명 마피아 게임의 역할 구성을 확장하고 역할 능력과 채널 권한을 서버 기준으로 검증합니다.</p>
+          <h4 class="h6 mt-4 mb-2">인원수별 역할 구성</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>4명: 마피아 1명, 경찰 1명, 의사 1명, 시민 1명</li>
+            <li>5명: 마피아 1명, 스파이 1명, 경찰 1명, 의사 1명, 시민 1명</li>
+            <li>6명: 마피아 1명, 스파이 1명, 경찰 1명, 의사 1명, 군인 1명, 시민 1명</li>
+            <li>7명: 마피아 2명, 스파이 1명, 경찰 1명, 의사 1명, 군인 1명, 시민 1명</li>
+            <li>8명: 마피아 2명, 스파이 1명, 경찰 1명, 의사 1명, 군인 1명, 영매사 1명, 시민 1명</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">신규 역할과 게임 규칙</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>스파이를 마피아팀으로 추가했습니다. 밤에 상대 직업을 조사할 수 있으며, 조사 대상이 마피아인 경우 모든 마피아를 확인하고 마피아 채널에 접선합니다.</li>
+            <li>스파이가 마피아를 찾지 못한 경우 마피아 채널을 사용할 수 없으며, 스파이에게는 다른 플레이어를 살해하는 능력을 부여하지 않았습니다.</li>
+            <li>마피아와 스파이의 생존 인원을 함께 마피아팀으로 계산해 승패를 판정합니다.</li>
+            <li>군인은 마피아에게 살해될 때 한 번만 무적이 되고, 해당 게임에서 무적을 다시 사용할 수 없습니다. 무적으로 생존하면 시스템 메시지와 게임 진행 화면에 군인 직업을 공개합니다.</li>
+            <li>영매사는 생존 중에도 사망자 채널을 사용할 수 있고, 밤에 사망자를 선택해 직업을 조사할 수 있습니다.</li>
+            <li>스파이가 마피아와 접선하면 생존 마피아들에게 접선 사실을 시스템 메시지로 안내합니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">게임 진행과 채널 권한</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>역할 확인 10초, 낮 토론 60초, 지목 투표 15초, 최종 변론 15초, 처형 투표 15초, 밤 행동 30초의 서버 기준 페이즈를 적용했습니다.</li>
+            <li>모든 페이즈 시작과 결과 전환에 마피아 게임에 맞는 시스템 안내 메시지를 표시합니다.</li>
+            <li>마피아 채널은 생존 마피아와 접선에 성공한 스파이에게만 허용하고, 사망자 채널은 사망자와 영매사에게만 허용합니다.</li>
+            <li>역할별 밤 행동, 투표 가능 여부, 채널 송수신 대상을 서버에서 검증하도록 보강했습니다.</li>
+            <li>게임 결과와 재플레이 상태 전환, 새로고침·재접속 흐름을 안정화했습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">안정성·문서·QA</h4>
+          <ul class="patch-note-detail-list text-secondary small mb-0">
+            <li>WebSocket과 게임 서비스의 null 타입 안정성 경고를 정리했습니다.</li>
+            <li>채팅 UI에 역할·채널·시스템 메시지 상태를 반영하고, 패치노트 모달의 버전별 재노출 처리를 유지했습니다.</li>
+            <li>기능 구현 리스트를 MVP 문서와 분리하고, QA 실행 스크립트·Java/JavaScript 테스트·Playwright 시나리오·QA 보고서를 갱신했습니다.</li>
+            <li>Gradle 버전을 <code>0.2.0-alpha</code>로 변경하고 <code>build/libs</code> 폴더의 빌드 산출물을 추적하도록 설정했습니다.</li>
+          </ul>
+        </article>
+
+        <article class="patch-note-version" data-patch-note-version="0.1.1-alpha">
+          <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h3 class="h5 mb-0">0.1.1-alpha</h3>
+            <span class="small text-secondary">페이즈 안내·안정성·QA 강화</span>
+          </div>
+          <p class="text-secondary small">기존 MVP 흐름에 게임 진행 안내, null 타입 안정성, 채팅 UI와 검증 체계를 보강했습니다.</p>
+          <h4 class="h6 mt-4 mb-2">게임 진행 안내 시스템 메시지</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li><code>ChatMessage.system()</code>을 추가하여 <code>SYSTEM</code> 타입, <code>PUBLIC</code> 채널, <code>게임 안내</code> 발신자를 사용하는 시스템 메시지를 만들 수 있게 했습니다.</li>
+            <li>게임 시작 및 실제 페이즈 전환 시 게임방 공개 토픽(<code>/topic/rooms/{roomId}/chat</code>)으로 안내 메시지를 한 번씩 발행합니다.</li>
+            <li>상태 동기화, 재접속, 중복 액션, 타이머 갱신 때문에 동일 페이즈 안내가 중복 발행되지 않도록 했습니다.</li>
+            <li>다음 페이즈별 안내를 추가했습니다: <code>ROLE_ASSIGNMENT</code>(개인 역할 확인), <code>DAY_DISCUSSION</code>(밤 결과·토론), <code>NOMINATION_VOTE</code>(지목 규칙), <code>FINAL_DEFENSE</code>(최종 변론), <code>EXECUTION_VOTE</code>(처형 찬반), <code>NIGHT</code>(밤 행동), <code>FINISHED</code>(게임 종료).</li>
+            <li>밤 사망·보호 결과, 처형 결과, 승리 문구 등 서버가 계산한 전환 결과도 해당 페이즈 안내에 함께 표시합니다.</li>
+            <li>역할, 경찰 조사 대상과 결과 같은 비공개 정보는 공개 시스템 메시지에 포함하지 않습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">채팅 화면 개선</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>클라이언트가 <code>CHAT</code>뿐 아니라 <code>SYSTEM</code> WebSocket 메시지도 처리하도록 했습니다.</li>
+            <li>시스템 메시지에 <code>.chat-message.system</code>, <code>.channel-system</code> 클래스를 부여하여 일반·마피아·사망자 채팅과 구분했습니다.</li>
+            <li>시스템 메시지는 <code>게임 안내</code> 발신자와 안내 아이콘으로 표시하고, HTML이 아닌 text content로만 렌더링합니다.</li>
+            <li>공개·마피아·사망자·시스템 채널의 메시지 클래스를 명확히 정규화해 채널별 스타일 적용을 안정화했습니다.</li>
+            <li>시스템 안내용 배경, 테두리, 아이콘, 안내 문구 스타일을 추가했습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">null 타입 안정성과 서버 코드 정리</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li><code>ChannelInterceptor</code>, WebSocket 설정, 채팅 서비스의 Spring <code>@NonNull</code> 계약을 명시했습니다.</li>
+            <li>WebSocket 인가 인터셉터의 메시지·채널·STOMP accessor·예외 생성 경로에 non-null 계약을 적용했습니다.</li>
+            <li><code>RoomController</code>, <code>RoomGameRules</code>의 함수형 컬렉션 처리에서 발생하던 <code>ToIntFunction</code>·<code>Function&lt;Map.Entry&lt;...&gt;&gt;</code> null 타입 경고를 정리했습니다.</li>
+            <li><code>RoomPresenceService</code>에서 참가자 맵이 비어 있거나 null일 때의 조회·정리 경로를 안전하게 처리했습니다.</li>
+            <li>목적지 문자열 생성과 결과 반환 타입을 명시해 IDE null 분석이 실제 계약과 일치하도록 했습니다.</li>
+            <li>테스트에서 리플렉션으로 사용하는 페이즈 진행 메서드에는 용도를 명시하여 불필요 사용 경고를 정리했습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">테스트·QA 업데이트</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>WebSocket 인가 테스트에 null principal, 공개/마피아 채널, 방 입장과 구독 권한 검증을 보강했습니다.</li>
+            <li><code>RoomGameServiceTest</code>에 게임 시작과 페이즈 전환 시 <code>SYSTEM</code> 메시지가 공개 발행되는지 검증하는 테스트를 추가했습니다.</li>
+            <li>JavaScript 테스트에 시스템 메시지의 채널 클래스·발신자·text-only 렌더링을 추가했습니다.</li>
+            <li>패치노트 팝업의 최초 표시, 같은 날 숨김, 내용 변경 시 숨김 설정 무효화 테스트를 추가했습니다.</li>
+            <li>Playwright 추적에 시스템 메시지를 수집하고 역할 배정부터 게임 종료까지 각 페이즈 안내를 확인하도록 했습니다.</li>
+            <li>재사용 QA 문서에 MVP 검증 항목을 40번까지 정리하고, 4.3절에 페이즈 시스템 메시지의 공개 범위·중복 방지·문구·DOM 검증 기준을 추가했습니다.</li>
+            <li>실제 QA 실행 결과 Java 테스트 성공, JavaScript 29/29 통과, 핵심 E2E 6/6 통과, UI 회귀 2/2 통과를 확인했습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">릴리스 버전</h4>
+          <ul class="patch-note-detail-list text-secondary small mb-0">
+            <li>Gradle 프로젝트 버전을 <code>0.1.0-alpha</code>에서 <code>0.1.1-alpha</code>로 변경했습니다.</li>
+            <li>기존 게임 규칙과 데이터 구조를 유지하면서 사용자 안내와 안정성, 자동 검증을 강화하는 알파 업데이트입니다.</li>
+          </ul>
+        </article>
+
+        <article class="patch-note-version" data-patch-note-version="0.1.0-alpha">
+          <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h3 class="h5 mb-0">0.1.0-alpha</h3>
+            <span class="small text-secondary">초기 MVP 기준 버전</span>
+          </div>
+          <p class="text-secondary small">실시간 웹 마피아 게임의 기본 플레이와 방 관리 기반을 구성했습니다.</p>
+          <ul class="patch-note-detail-list text-secondary small mb-0">
+            <li>회원가입, 로그인, 로그아웃과 보호된 게임방 접근을 구현했습니다.</li>
+            <li>게임 로비에서 방 목록을 확인하고 방을 검색·생성·입장할 수 있도록 했습니다.</li>
+            <li>4~8명 정원, 방장 권한, 참가자 목록, Ready 상태를 구현했습니다.</li>
+            <li>Spring WebSocket/STOMP 기반으로 참가자·방 상태·채팅을 실시간 동기화했습니다.</li>
+            <li>마피아·경찰·의사·시민 역할과 역할별 비공개 정보를 구현했습니다.</li>
+            <li>낮 토론, 지목 투표, 최종 변론, 처형 투표, 밤 행동, 승패 판정의 기본 게임 루프를 구현했습니다.</li>
+            <li>마피아 제거, 의사 보호, 경찰 조사와 시민·마피아 승리 조건을 서버에서 판정하도록 했습니다.</li>
+            <li>게임 결과를 표시한 뒤 Ready 상태를 초기화하고 같은 방에서 다시 플레이할 수 있도록 했습니다.</li>
+            <li>새로고침과 재접속 시 서버의 현재 게임 상태를 복구하도록 했습니다.</li>
+            <li>Java 단위 테스트와 브라우저 기반 JavaScript 테스트를 마련하고, 4~8인 다중 세션 E2E 흐름을 구성했습니다.</li>
+          </ul>
+        </article>
+      </div>
+      <div class="modal-footer patch-notes-footer border-0 justify-content-end">
         <button class="btn btn-dark px-4" type="button" data-bs-dismiss="modal">닫기</button>
       </div>
     </div>

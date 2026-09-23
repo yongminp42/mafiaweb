@@ -16,9 +16,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ui.ExtendedModelMap;
 import org.springframework.mock.web.MockHttpSession;
 
+import kr.or.oti.mafiagame.domain.User;
 import kr.or.oti.mafiagame.dto.RoomParticipant;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomView;
+import kr.or.oti.mafiagame.security.CustomUserDetails;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 import kr.or.oti.mafiagame.service.RoomService;
 
@@ -102,6 +104,25 @@ class RoomControllerTest {
         when(roomPresenceService.currentState(2L)).thenReturn(null);
         assertThat(controller.roomDetail(2L, null, session, new ExtendedModelMap()))
                 .isEqualTo("rooms/detail");
+    }
+
+    @Test
+    void roomHostCanReopenLockedRoomWithoutSessionPasswordGrant() {
+        RoomView lockedRoom = new RoomView(2L, 40L, "locked", "description", "host", 1, 8, "WAITING", true);
+        when(roomService.getRoomView(2L)).thenReturn(lockedRoom);
+        when(roomPresenceService.currentState(2L)).thenReturn(null);
+        CustomUserDetails host = new CustomUserDetails(User.builder()
+                .userId(40L)
+                .userName("host")
+                .email("host@example.com")
+                .password("encoded")
+                .user_level(1)
+                .build());
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        assertThat(controller.roomDetail(2L, host, new MockHttpSession(), model))
+                .isEqualTo("rooms/detail");
+        assertThat(model.get("isHost")).isEqualTo(true);
     }
 
     private static RoomView room(long roomId, int players) {

@@ -63,6 +63,56 @@ public class RoomService {
     }
 
     @Transactional
+    public void updateRoomSettings(
+            long roomId,
+            long hostUserId,
+            Integer maxPlayers,
+            boolean passwordEnabled,
+            String password,
+            int currentPlayers) {
+        RoomSummary room = roomMapper.findById(roomId);
+        if (room == null) {
+            throw new RoomSettingsException("존재하지 않는 게임방입니다.");
+        }
+        if (room.getHostUserId() != hostUserId) {
+            throw new RoomSettingsException("방장만 게임방 설정을 변경할 수 있어요.");
+        }
+        if (!"WAITING".equals(room.getStatus())) {
+            throw new RoomSettingsException("게임이 시작된 뒤에는 게임방 설정을 변경할 수 없어요.");
+        }
+        if (maxPlayers == null
+                || maxPlayers < RoomGameRules.MIN_PLAYERS
+                || maxPlayers > RoomGameRules.MAX_PLAYERS) {
+            throw new RoomSettingsException("최대 인원은 4명에서 8명 사이로 선택해 주세요.");
+        }
+        if (maxPlayers < currentPlayers) {
+            throw new RoomSettingsException("현재 참가자 수보다 적은 인원으로 설정할 수 없어요.");
+        }
+
+        String roomPassword = null;
+        String normalizedPassword = password == null ? "" : password.trim();
+        if (passwordEnabled) {
+            if (!normalizedPassword.isEmpty()) {
+                if (normalizedPassword.length() < 4 || normalizedPassword.length() > 20) {
+                    throw new RoomSettingsException("비밀번호는 4자 이상 20자 이하로 입력해 주세요.");
+                }
+                roomPassword = passwordEncoder.encode(normalizedPassword);
+            } else if (room.isLocked()) {
+                roomPassword = roomMapper.findPasswordHash(roomId);
+                if (roomPassword == null || roomPassword.isBlank()) {
+                    throw new RoomSettingsException("비밀번호를 입력해 주세요.");
+                }
+            } else {
+                throw new RoomSettingsException("비밀번호를 입력해 주세요.");
+            }
+        }
+
+        if (roomMapper.updateSettings(roomId, maxPlayers, roomPassword) != 1) {
+            throw new RoomSettingsException("게임방 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+        }
+    }
+
+    @Transactional
     public boolean startGame(long roomId) {
         return roomMapper.updateStatus(roomId, "PLAYING") == 1;
     }
@@ -115,6 +165,12 @@ public class RoomService {
 
     public static class RoomCreationException extends RuntimeException {
         public RoomCreationException(String message) {
+            super(message);
+        }
+    }
+
+    public static class RoomSettingsException extends RuntimeException {
+        public RoomSettingsException(String message) {
             super(message);
         }
     }

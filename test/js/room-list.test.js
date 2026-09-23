@@ -26,14 +26,18 @@ function roomListMarkup() {
     </body></html>`;
 }
 
-function patchNotesMarkup(content) {
+function patchNotesMarkup(content, detailContent = '') {
   return `<!doctype html>
     <html><body>
       <span id="onlinePlayerCount">0</span>
       <div id="patchNotesModal">
         <div class="patch-notes-content">${content}</div>
         <input id="patchNotesHideToday" type="checkbox">
+        <button id="patchNotesDetailButton" type="button">상세보기</button>
         <button type="button" data-bs-dismiss="modal">닫기</button>
+      </div>
+      <div id="patchNotesDetailModal">
+        <div class="patch-notes-detail-content">${detailContent}</div>
       </div>
     </body></html>`;
 }
@@ -309,6 +313,8 @@ test('patch notes modal opens on the first lobby visit', () => {
     assert.equal(scheduledCallbacks.length, 1);
     assert.ok(dom.window.document.querySelector('#patchNotesHideToday'));
     assert.ok(dom.window.document.querySelector('[data-bs-dismiss="modal"]'));
+    assert.ok(dom.window.document.querySelector('#patchNotesDetailButton'));
+    assert.ok(dom.window.document.querySelector('#patchNotesDetailModal'));
 
     scheduledCallbacks[0]();
     assert.equal(modalInstances[0].showCount, 1);
@@ -363,6 +369,58 @@ test('patch notes hide preference suppresses the same note for the same day', ()
     assert.equal(scheduledCallbacks.length, 0);
   } finally {
     secondDom.window.close();
+  }
+});
+
+test('patch notes detail opens after the current modal finishes closing', () => {
+  const dom = createDom(patchNotesMarkup('요약', '전체 버전 목록'));
+  const modalInstances = installPatchNotesModalStub(dom);
+  const scheduledCallbacks = [];
+  dom.window.setTimeout = callback => {
+    scheduledCallbacks.push(callback);
+    return scheduledCallbacks.length;
+  };
+
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+
+    scheduledCallbacks[0]();
+    const currentModal = modalInstances[0];
+    currentModal.finishShowTransition();
+    dom.window.document.querySelector('#patchNotesModal').classList.add('show');
+    dom.window.document.querySelector('#patchNotesDetailButton').click();
+
+    assert.equal(currentModal.hideCount, 1);
+    assert.equal(modalInstances.length, 2);
+    assert.equal(modalInstances[1].showCount, 1);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('patch notes hide preference includes the complete version archive', () => {
+  const dom = createDom(patchNotesMarkup('최신 패치노트', '0.3.0-alpha 0.2.0-alpha 0.1.1-alpha 0.1.0-alpha'));
+  installPatchNotesModalStub(dom);
+
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+
+    dom.window.document.querySelector('#patchNotesHideToday').checked = true;
+    dom.window.document
+      .querySelector('#patchNotesModal')
+      .dispatchEvent(new dom.window.Event('hidden.bs.modal'));
+
+    const preference = JSON.parse(
+      dom.window.localStorage.getItem(PATCH_NOTES_STORAGE_KEY)
+    );
+    assert.equal(
+      preference.content,
+      '최신 패치노트 | 0.3.0-alpha 0.2.0-alpha 0.1.1-alpha 0.1.0-alpha'
+    );
+  } finally {
+    dom.window.close();
   }
 });
 

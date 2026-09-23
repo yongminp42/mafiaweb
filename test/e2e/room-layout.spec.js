@@ -1,12 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  PROFILE_CONFIG,
+  shouldCaptureScreenshots,
+  shouldCaptureVideo
+} from './e2e-profile.js';
+import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const baseURL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const password = process.env.E2E_PASSWORD || 'MafiaTest2026!';
-const capacity = Number(process.env.E2E_CAPACITY || 4);
+const capacity = Number(process.env.E2E_CAPACITY || PROFILE_CONFIG.uiCapacity);
 const runId = process.env.E2E_RUN_ID || `local-${Date.now().toString(36)}-${process.pid}`;
-const artifactDirectory = path.resolve(`output/room-layout-test-${capacity}-${runId}`);
+const artifactDirectory = resolveTestOutputDirectory(`room-layout-test-${capacity}`, runId);
+
+async function captureScreenshot(page, name, fullPage = true) {
+  if (!shouldCaptureScreenshots()) {
+    return;
+  }
+  await page.screenshot({
+    path: path.join(artifactDirectory, `${name}.png`),
+    fullPage
+  });
+}
 
 test(`waiting and started room layout (${capacity} players)`, async ({ browser }) => {
   test.setTimeout(90_000);
@@ -22,7 +38,7 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
         baseURL,
         viewport: { width: 1440, height: 1000 }
       };
-      if (index === 0) {
+      if (index === 0 && shouldCaptureVideo()) {
         contextOptions.recordVideo = {
           dir: artifactDirectory,
           size: { width: 1440, height: 1000 }
@@ -72,6 +88,40 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(host.locator('#gamePanelPlaceholder')).toBeVisible();
     await expect(host.locator('#gamePanelPlaceholder')).toHaveText('GAME');
     await expect(host.locator('#gameRolePanel')).toBeHidden();
+
+    await expect(host.locator('#invite')).toBeVisible();
+    await expect(host.locator('#roomSettingsButton')).toBeVisible();
+    await expect(pages[1].locator('#roomSettingsButton')).toHaveCount(0);
+    expect(await host.locator('#invite').evaluate(element => element.nextElementSibling?.id))
+      .toBe('roomSettingsButton');
+
+    await host.locator('#roomSettingsButton').click();
+    await expect(host.locator('#roomSettingsModal')).toBeVisible();
+    await expect(host.locator('#roomSettingsMaxPlayers option')).toHaveCount(5);
+
+    if (capacity > 4) {
+      await host.locator('#roomSettingsMaxPlayers').evaluate((select, invalidCapacity) => {
+        select.value = invalidCapacity;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }, String(capacity - 1));
+      await expect(host.locator('#roomSettingsCapacityWarning')).toBeVisible();
+      await expect(host.locator('#roomSettingsCapacityWarning')).toContainText(String(capacity));
+      await expect(host.locator('#roomSettingsSaveButton')).toBeDisabled();
+    }
+
+    await host.locator('#roomSettingsMaxPlayers').selectOption(String(capacity));
+    await expect(host.locator('#roomSettingsCapacityWarning')).toBeHidden();
+    await expect(host.locator('#roomSettingsSaveButton')).toBeEnabled();
+    await host.locator('#roomSettingsPasswordEnabled').check();
+    await host.locator('#roomSettingsPassword').fill(password);
+    await host.locator('#roomSettingsSaveButton').click();
+    await expect(host).toHaveURL(roomUrl);
+    await expect(host.locator('#roomLockIndicator')).toBeVisible();
+    await expect(pages[1].locator('#roomLockIndicator')).toBeVisible({ timeout: 15_000 });
+
+    await host.reload({ waitUntil: 'domcontentloaded' });
+    await expect(host.locator('#roomSettingsButton')).toBeVisible({ timeout: 15_000 });
+
     const backLink = host.locator('.room-back-link');
     await expect(backLink).toBeVisible();
     await expect(backLink).toHaveAttribute('href', '/rooms');
@@ -112,20 +162,14 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     });
     expect(nightVisual.bodyBackgroundColor).not.toBe(dayVisual.body.backgroundColor);
     expect(nightVisual.link).toEqual(dayVisual.link);
-    await host.screenshot({
-      path: path.join(artifactDirectory, 'night-background-and-back-link.png'),
-      fullPage: true
-    });
+    await captureScreenshot(host, 'night-background-and-back-link');
 
     await host.evaluate(() => document.body.classList.remove('night-phase'));
     await host.waitForTimeout(900);
     await expect.poll(
       () => host.evaluate(() => getComputedStyle(document.body).backgroundColor)
     ).toBe(dayVisual.body.backgroundColor);
-    await host.screenshot({
-      path: path.join(artifactDirectory, 'restored-background-and-back-link.png'),
-      fullPage: true
-    });
+    await captureScreenshot(host, 'restored-background-and-back-link');
     await expect(host.locator('#startGame')).toBeVisible();
     await expect(pages[1].locator('#startGame')).toBeHidden();
     const hostButtonPositions = await host.evaluate(() => {
@@ -156,10 +200,7 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     expect(waitingPositions.placeholder.width).toBe(waitingPositions.participants.width);
     expect(waitingPositions.placeholder.y).toBeGreaterThan(waitingPositions.participants.bottom);
     expect(waitingPositions.columns.leftHeight).toBe(waitingPositions.columns.rightHeight);
-    await host.screenshot({
-      path: path.join(artifactDirectory, 'waiting-room.png'),
-      fullPage: true
-    });
+    await captureScreenshot(host, 'waiting-room');
 
     await Promise.all(pages.map(async page => {
       await expect(page.locator('#ready')).toBeEnabled();
@@ -175,10 +216,7 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(host.locator('#confirmGameRole')).toBeVisible();
     await expect(host.locator('#confirmGameRole')).toBeEnabled();
     await expect(host.locator('#confirmGameRole')).toHaveText('역할 확인 완료');
-    await host.screenshot({
-      path: path.join(artifactDirectory, 'started-room.png'),
-      fullPage: true
-    });
+    await captureScreenshot(host, 'started-room');
 
     const positions = await host.evaluate(() => {
       const rectangle = selector => {
@@ -212,15 +250,19 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     );
   } finally {
     if (pages[0]) {
-      await pages[0].screenshot({
-        path: path.join(artifactDirectory, 'final-state.png'),
-        fullPage: true
-      }).catch(() => {});
+      if (shouldCaptureScreenshots()) {
+        await pages[0].screenshot({
+          path: path.join(artifactDirectory, 'final-state.png'),
+          fullPage: true
+        }).catch(() => {});
+      }
     }
     await Promise.all(contexts.map(context => context.close().catch(() => {})));
-    if (!hostVideo) {
-      throw new Error('QA evidence video is not available for the room-layout scenario.');
+    if (shouldCaptureVideo()) {
+      if (!hostVideo) {
+        throw new Error('QA evidence video is not available for the room-layout scenario.');
+      }
+      await hostVideo.saveAs(path.join(artifactDirectory, 'room-layout-transition.webm'));
     }
-    await hostVideo.saveAs(path.join(artifactDirectory, 'room-layout-transition.webm'));
   }
 });
