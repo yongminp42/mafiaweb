@@ -71,6 +71,22 @@ class MapperIntegrationTest {
         assertThat(roomMapper.findById(room.getRoomId())).isNull();
     }
 
+    @Test
+    void interruptedGameRecoveryResetsOnlyRoomsThatArePlaying() {
+        User host = insertUser("recovery-host@example.com", "recovery-host");
+        Room playingRoom = newRoom(host.getUserId(), "interrupted", "PLAYING");
+        Room waitingRoom = newRoom(host.getUserId(), "waiting", "WAITING");
+        roomMapper.insert(playingRoom);
+        roomMapper.insert(waitingRoom);
+        roomMapper.insertMember(playingRoom.getRoomId(), host.getUserId());
+        roomMapper.insertMember(waitingRoom.getRoomId(), host.getUserId());
+
+        assertThat(roomMapper.resetInterruptedGamesToWaiting()).isEqualTo(1);
+
+        assertThat(roomMapper.findById(playingRoom.getRoomId()).getStatus()).isEqualTo("WAITING");
+        assertThat(roomMapper.findById(waitingRoom.getRoomId()).getStatus()).isEqualTo("WAITING");
+    }
+
     private User insertUser(String email, String nickname) {
         User user = newUser(email, nickname);
         userMapper.insert(user);
@@ -83,6 +99,15 @@ class MapperIntegrationTest {
                 .password("encoded")
                 .userName(nickname)
                 .user_level(1)
+                .build();
+    }
+
+    private static Room newRoom(long hostUserId, String title, String status) {
+        return Room.builder()
+                .hostUserId(hostUserId)
+                .title(title)
+                .maxPlayers(4)
+                .status(status)
                 .build();
     }
 }

@@ -33,6 +33,8 @@ public interface RoomMapper {
 
     int resetStatusToWaiting(@Param("roomId") long roomId);
 
+    int resetInterruptedGamesToWaiting();
+
     int deleteMembersByRoomId(@Param("roomId") long roomId);
 
     int deleteById(@Param("roomId") long roomId);

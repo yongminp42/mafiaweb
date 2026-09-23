@@ -2,19 +2,28 @@ package kr.or.oti.mafiagame.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -56,7 +66,7 @@ class RoomPresenceServiceTest {
                 Duration.ZERO,
                 Duration.ZERO,
                 roomGameService);
-        when(roomService.getRoom(anyLong())).thenAnswer(invocation -> switch (invocation.<Long>getArgument(0).intValue()) {
+        lenient().when(roomService.getRoom(anyLong())).thenAnswer(invocation -> switch (invocation.<Long>getArgument(0).intValue()) {
             case 1 -> room(1L, 10L);
             case 2 -> room(2L, 20L);
             case 3 -> room(3L, 30L, 2);
@@ -458,6 +468,39 @@ class RoomPresenceServiceTest {
     }
 
     @Test
+    void throttlesRepeatedLobbyCountRequestsFromOneSession() {
+        presenceService.broadcastRoomCounts("lobby-session");
+        presenceService.broadcastRoomCounts("lobby-session");
+
+        verify(messagingTemplate, times(2)).convertAndSend(
+                eq("/topic/rooms/presence"), any(Object.class));
+    }
+
+    @Test
+    void coalescesLobbyCountRequestsAcrossSessionsAtTheGlobalLimit() throws Exception {
+        Field lastBroadcastField = RoomPresenceService.class
+                .getDeclaredField("lastLobbyCountBroadcastNanos");
+        lastBroadcastField.setAccessible(true);
+        lastBroadcastField.set(presenceService, System.nanoTime() + Duration.ofMillis(200).toNanos());
+
+        presenceService.broadcastRoomCounts("lobby-session-1");
+        presenceService.broadcastRoomCounts("lobby-session-2");
+        presenceService.broadcastRoomCounts("lobby-session-3");
+
+        await(Duration.ofSeconds(2), () -> verify(messagingTemplate, times(2)).convertAndSend(
+                eq("/topic/rooms/presence"), any(Object.class)));
+    }
+
+    @Test
+    void resetsInterruptedPlayingRoomsWhenApplicationBecomesReady() {
+        when(roomService.resetInterruptedGamesToWaiting()).thenReturn(2);
+
+        presenceService.resetInterruptedGamesAfterRestart();
+
+        verify(roomService).resetInterruptedGamesToWaiting();
+    }
+
+    @Test
     void returnsFinishedRoomToWaitingAndClearsReadyState() {
         presenceService.join(1L, "host-session", principal(10L, "host"));
         presenceService.join(1L, "guest-session", principal(11L, "guest"));
@@ -532,6 +575,40 @@ class RoomPresenceServiceTest {
         assertThat(state.participants()).hasSize(5);
         assertThat(state.participants()).allSatisfy(participant ->
                 assertThat(participant.ready()).isTrue());
+
+        InOrder startOrder = inOrder(roomService, roomGameService);
+        startOrder.verify(roomService).startGame(1L);
+        startOrder.verify(roomGameService).startGame(
+                1L,
+                state.participants(),
+                Map.of(
+                        10L, "user10@example.com",
+                        11L, "user11@example.com",
+                        12L, "user12@example.com",
+                        13L, "user13@example.com",
+                        14L, "user14@example.com"));
+    }
+
+    @Test
+    void restoresWaitingStatusWhenCreatingTheGameInstanceFails() {
+        for (int index = 0; index < 4; index++) {
+            long userId = 10L + index;
+            String sessionId = "start-failure-session-" + index;
+            presenceService.join(1L, sessionId, principal(userId, "user" + userId));
+            presenceService.updateReady(1L, sessionId, new RoomReadyRequest(true));
+        }
+        when(roomService.startGame(1L)).thenReturn(true);
+        when(roomService.resetGameToWaiting(1L)).thenReturn(true);
+        doThrow(new IllegalStateException("game initialization failed"))
+                .when(roomGameService)
+                .startGame(anyLong(), anyList(), anyMap());
+
+        assertThatThrownBy(() -> presenceService.startGame(1L, "start-failure-session-0"))
+                .isInstanceOf(RoomWebSocketException.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+
+        assertThat(presenceService.currentState(1L).status()).isEqualTo("WAITING");
+        verify(roomService).resetGameToWaiting(1L);
     }
 
     private static RoomSummary room(long roomId, long hostUserId) {

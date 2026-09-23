@@ -951,7 +951,10 @@ for (const playerCount of PLAYER_COUNTS) {
           )
         );
 
-        const initialExecutionTargetId = citizenUserIds[0];
+        // Executing a citizen with five or seven players would end the game at parity.
+        const initialExecutionTargetId = [5, 7].includes(playerCount)
+          ? rolePages.SPY[0]?.userId
+          : citizenUserIds[0];
         expect(initialExecutionTargetId).toBeTruthy();
 
         await submitNominationVotes(
@@ -1104,7 +1107,7 @@ for (const playerCount of PLAYER_COUNTS) {
 
         const doctor = rolePages.DOCTOR[0];
         const police = rolePages.POLICE[0];
-        const spy = rolePages.SPY[0];
+        const spy = rolePages.SPY.find(player => aliveAfterExecutionIds.includes(player.userId));
         const survivingMafiaPlayers = rolePages.MAFIA
           .filter(player => aliveAfterExecutionIds.includes(player.userId));
         expect(survivingMafiaPlayers).toHaveLength(expectedMafiaCount(playerCount));

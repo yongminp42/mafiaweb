@@ -6,4 +6,8 @@ public class RoomWebSocketException extends RuntimeException {
     public RoomWebSocketException(String message) {
         super(message);
     }
+
+    public RoomWebSocketException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
