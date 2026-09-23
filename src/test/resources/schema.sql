@@ -12,6 +12,8 @@ CREATE TABLE user_stats (
     user_id BIGINT PRIMARY KEY,
     total_games INTEGER NOT NULL DEFAULT 0,
     wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    rating INTEGER NOT NULL DEFAULT 1000,
     FOREIGN KEY (user_id) REFERENCES `user` (user_id)
 );
 

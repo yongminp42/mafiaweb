@@ -40,6 +40,7 @@ public class UserService {
                 normalizeBio(user.getBio()),
                 stats.getTotalGames(),
                 stats.getWins(),
+                stats.getLosses(),
                 null,
                 null,
                 formatJoinedAt(user.getCreatedAt()),

@@ -49,14 +49,16 @@ database, Gradle cache, server startup, or browser delay can make a run longer.
 if ([string]::IsNullOrWhiteSpace($e2eProfile)) {
     Write-Host ''
     Write-Host 'Select the QA scenario to run:' -ForegroundColor Cyan
-    Write-Host '  1) Smoke      - Java/JS tests, one 4-player core flow, and one room-layout UI flow.'
+    Write-Host '  1) Smoke      - Java/JS tests, one 4-player core flow, and one room-layout/profile UI flow.'
+    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and rating-derived level.'
     Write-Host '                    Uses short server phases; skips replay, resilience, and chat-scroll.'
     Write-Host '                    Estimated time: about 5-10 minutes; best for a quick daily check.'
-    Write-Host '  2) Regression - 4/6/8-player core flows, replay for 4 players, room-layout, and chat-scroll.'
+    Write-Host '  2) Regression - 4/6/8-player core flows, replay for 4 players, room-layout/profile, and chat-scroll.'
+    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and rating-derived level.'
     Write-Host '                    Uses short server phases and 30 browser messages; skips 6-player resilience.'
     Write-Host '                    Estimated time: about 15-25 minutes; recommended before a normal merge.'
     Write-Host '  3) Full       - 4/5/6/7/8-player flows, replay for every count, resilience/deadline cases,'
-    Write-Host '                    210-message chat-scroll, production phase durations, and all evidence.'
+    Write-Host '                    room-layout/profile checks, 210-message chat-scroll, production timing, and all evidence.'
     Write-Host '                    Estimated time: 60 minutes or more; use for release or timing validation.'
     Write-Host ''
     Write-Host 'No default profile is selected. Enter 1, 2, or 3 to continue.' -ForegroundColor Yellow
@@ -120,7 +122,7 @@ Configuration rules:
 - Frontend design checks must use the actual game-room detail route `/rooms/{roomId}` and its server-rendered template. The lobby route `/rooms` is not sufficient evidence for room UI changes.
 - For the current room UI, verify the fixed `게임 목록으로` button remains visible in both normal and `body.night-phase` backgrounds without switching its own colors by phase.
 - Verify `PUBLIC`, `MAFIA`, and `DEAD` message bubbles have distinct channel classes and visible visual treatment. Verify that the page-only `NIGHT` background is gray, transitions through `background-color`, and returns to the normal light background after `DAY_DISCUSSION` or `FINISHED`.
-- Verify the room host sees `방 설정` immediately beside `친구 초대`, while non-host participants do not see the control. Verify the settings modal exposes only 4–8 player capacities, password enable/change/remove controls, and preserves host access after a reload.
+- Verify the room host sees `방 설정` after the `친구 초대` and help buttons, while non-host participants do not see the control. Verify the settings modal exposes only 4–8 player capacities, password enable/change/remove controls, and preserves host access after a reload.
 - Verify a capacity below the live participant count is disabled in the browser, shows the capacity warning, disables save, and is rejected again by the server if a stale or forged request is submitted. Verify a presence update that changes capacity or lock state reaches every participant screen.
 - Verify `FINISHED` forces the selector to `PUBLIC`, hides and disables `MAFIA` and `DEAD`, and routes a public message sent by a dead participant to the public room topic.
 - Verify police results render `마피아팀`/`시민팀` as the faction first, while Spy/Medium exact-role results render the role separately as `직업: <역할>`.
@@ -269,6 +271,8 @@ Verify and report:
 - STOMP communication
 - Lobby and participant synchronization
 - Room settings visibility, modal controls, capacity validation, password protection, host reconnect, and live capacity/lock synchronization
+- Room-layout/profile UI: removed settings strip, friend-invite/help/room-settings ordering, 300px waiting and started game panels, equal desktop columns, mobile stacking, `user_stats` profile totals, and the default rating-derived `Lv. 1`
+- Rating-derived level boundaries and default rating fallback in the shared Java test suite
 - Patch-note modal opens on the first lobby visit and exposes the `오늘 하루 그만보기` checkbox and `닫기` button
 - Patch-note modal exposes a `상세보기` button whose archive displays the README patch notes in descending version order: `0.3.0-alpha`, `0.2.0-alpha`, `0.1.1-alpha`, `0.1.0-alpha`
 - Same-day patch-note suppression works only when the stored patch-note content is unchanged
@@ -335,13 +339,65 @@ $existingServerProcessIds = @(Get-QAListeningProcessIds -Port $serverPort)
 
 $startedServer = $false
 $appProcess = $null
+$launcherStartTime = $null
+$serverLaunchTime = $null
+$qaApplicationProcessId = $null
 $qaServerProcessId = $null
 $startupStdoutPath = Join-Path $testResultPath ("bootRun.$env:E2E_RUN_ID.stdout.log")
 $startupStderrPath = Join-Path $testResultPath ("bootRun.$env:E2E_RUN_ID.stderr.log")
+
+function Get-QAStartupLogText {
+    $logParts = @()
+    foreach ($logPath in @($startupStdoutPath, $startupStderrPath)) {
+        if (Test-Path $logPath) {
+            $logParts += Get-Content -Raw -Encoding utf8 $logPath
+        }
+    }
+    $logParts -join "`n"
+}
+
+function Get-QAApplicationProcessIdFromLog {
+    $startupText = Get-QAStartupLogText
+    if ($startupText -match 'Starting MafiagameApplication using .* with PID (?<pid>\d+)') {
+        return [int]$Matches['pid']
+    }
+    $null
+}
+
+function Test-QAApplicationProcessIdentity {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][datetime]$LaunchTime
+    )
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $process -or $process.ProcessName -notin @('java', 'javaw')) {
+        return $false
+    }
+    try {
+        return $process.StartTime -ge $LaunchTime.AddSeconds(-2)
+    } catch {
+        return $false
+    }
+}
 ```
 
+Smoke, Regression, and Full all use this same server lifecycle; profile-specific
+branches may select test scope and phase timing only. Keep process startup, health
+checking, account cleanup, and this finalizer in one outer `try/finally` for every
+profile. In particular, the `try` must begin before `Start-Process`, and
+`$startedServer` must be set immediately after it returns, before log inspection,
+health checks, or any other operation that can throw.
+
+| Profile | Profile-specific settings | Server startup/finalizer |
+|---|---|---|
+| Smoke | 4-player core, capacity 5, short phases | Shared sections 3.1–3.4 |
+| Regression | 4/6/8-player core, capacity 5, short phases | Shared sections 3.1–3.4 |
+| Full | 4/5/6/7/8-player core, capacity 8, production phases | Shared sections 3.1–3.4 |
+
 Start a fresh application instance built from the current workspace. Do not stop or
-reuse the user's existing server:
+reuse the user's existing server. This block is the first body of the shared outer
+`try`; do not execute it outside the `try/finally` lifecycle:
 
 ```powershell
 if ($existingServerProcessIds.Count -gt 0) {
@@ -352,6 +408,7 @@ $env:SERVER_PORT = "$serverPort"
 $env:E2E_PROFILE = $e2eProfile
 $env:MAFIAGAME_PHASE_PROFILE = $phaseProfile
 
+$serverLaunchTime = Get-Date
 $appProcess = Start-Process `
     -FilePath 'cmd.exe' `
     -ArgumentList '/c .\gradlew.bat bootRun --no-daemon' `
@@ -362,6 +419,7 @@ $appProcess = Start-Process `
     -PassThru
 
 $startedServer = $true
+$launcherStartTime = $appProcess.StartTime
 ```
 
 ### 3.2 Server Health Check
@@ -377,26 +435,40 @@ $startupReady = $false
 $deadline = (Get-Date).AddSeconds(60)
 
 while ((Get-Date) -lt $deadline -and $response -ne 200) {
-    $startupText = @(
-        if (Test-Path $startupStdoutPath) { Get-Content -Raw -Encoding utf8 $startupStdoutPath }
-        if (Test-Path $startupStderrPath) { Get-Content -Raw -Encoding utf8 $startupStderrPath }
-    ) -join "`n"
+    $startupText = Get-QAStartupLogText
 
     if ($startupText -match 'APPLICATION FAILED TO START|Web server failed to start|Port .* was already in use') {
         throw "The QA application failed during startup. Inspect $startupStdoutPath and $startupStderrPath."
     }
-    if ($appProcess.HasExited) {
-        throw "The QA application process exited before startup completed. Inspect $startupStdoutPath and $startupStderrPath."
+
+    $loggedApplicationProcessId = Get-QAApplicationProcessIdFromLog
+    if ($null -ne $loggedApplicationProcessId) {
+        if ($null -ne $qaApplicationProcessId -and $qaApplicationProcessId -ne $loggedApplicationProcessId) {
+            throw "The QA startup logs reported multiple application PIDs ($qaApplicationProcessId, $loggedApplicationProcessId)."
+        }
+        $qaApplicationProcessId = $loggedApplicationProcessId
+        if (-not (Test-QAApplicationProcessIdentity -ProcessId $qaApplicationProcessId -LaunchTime $serverLaunchTime)) {
+            throw "The logged QA Java process $qaApplicationProcessId is no longer present or its identity cannot be verified."
+        }
+    } elseif ($appProcess.HasExited) {
+        throw "The Gradle launcher exited before logging the QA application PID. Inspect $startupStdoutPath and $startupStderrPath."
     }
+
     $startupReady = $startupText -match 'Started MafiagameApplication'
 
     if ($startupReady) {
+        if ($null -eq $qaApplicationProcessId) {
+            throw 'The application startup marker appeared without the earlier application PID marker.'
+        }
         $listenerProcessIds = @(Get-QAListeningProcessIds -Port $serverPort)
         if ($listenerProcessIds.Count -gt 1) {
             throw "Could not uniquely identify the new QA server on port $serverPort; listener PIDs: $($listenerProcessIds -join ', ')."
         }
         if ($listenerProcessIds.Count -eq 1) {
             $qaServerProcessId = [int]$listenerProcessIds[0]
+            if ($qaServerProcessId -ne $qaApplicationProcessId) {
+                throw "Port $serverPort is owned by PID $qaServerProcessId, not the QA application PID $qaApplicationProcessId. Leave the unverified listener untouched."
+            }
         }
 
         try {
@@ -411,7 +483,7 @@ while ((Get-Date) -lt $deadline -and $response -ne 200) {
     }
 }
 
-if (-not $startupReady -or $response -ne 200 -or $null -eq $qaServerProcessId) {
+if (-not $startupReady -or $response -ne 200 -or $null -eq $qaApplicationProcessId -or $null -eq $qaServerProcessId) {
     throw 'The newly started application did not report a healthy startup within 60 seconds.'
 }
 ```
@@ -504,9 +576,10 @@ be counted as a failure in a skipped case. If any case is skipped, report it as
 `NOT RUN` and investigate the execution order before claiming a complete run.
 
 The effective inventory depends on the selected profile. Smoke has one core case and
-one room-layout UI case. Regression has 4/6/8 core cases, a 4-player replay, chat-scroll,
-and room-layout. Full has five core cases, two six-player resilience cases, chat-scroll,
-and the 8-player room-layout case. A case outside the selected profile is intentionally
+one room-layout/profile UI case. Regression has 4/6/8 core cases, a 4-player replay,
+chat-scroll, and room-layout/profile. Full has five core cases, two six-player resilience
+cases, chat-scroll, and the 8-player room-layout/profile case. Each profile runs the same
+300px panel, column-alignment, profile-stat, and default user-level assertions. A case outside the selected profile is intentionally
 `NOT RUN`, not a failure.
 
 If the test suite is later split into independent files, parallel workers may be
@@ -530,7 +603,9 @@ Verify:
 - A nominee departure during `FINAL_DEFENSE` skips execution and advances to `NIGHT`
 - Unique account creation
 - Unique room creation
-- Host-only room settings button is adjacent to the friend-invite button; non-host browsers do not render it
+- Host-only room settings button follows the friend-invite and help buttons; non-host browsers do not render it
+- The room-layout UI case runs in Smoke, Regression, and Full. Verify the waiting-room settings strip is absent, the friend-invite/help/room-settings buttons appear in that order, the game-info panel is 300px tall, and the participant/game column and chat column have matching top and bottom edges. Verify the started game panel keeps the 300px height; on mobile, verify the game panel remains at least 300px tall and the chat stacks below it.
+- Verify a newly registered account uses `user_stats.rating` to render `Lv. 1` in the user menu; the profile page renders `total_games`, `wins`, and `losses`. Java tests cover rating boundaries at 1,000/1,999 (level 1), 2,000/2,999 (level 2), and 3,000 (level 3), plus the default rating when a stats row is absent; the 2,000-rating case must produce level 2 even when `user.user_level` is 1. These checks run in every profile through the shared Java suite and room-layout UI case.
 - Room settings modal exposes capacities 4–8 and password enable/change/remove controls
 - A capacity lower than the live participant count is disabled, shows a warning, and disables save; a forged/stale server request is rejected
 - Room setting changes synchronize the participant count, capacity, lock indicator, and password-protected host reconnect across browsers
@@ -616,9 +691,9 @@ The selected profile maps to the following executable scope:
 
 | Profile | Core E2E | UI E2E | Timing/evidence policy |
 |---|---|---|---|
-| Smoke | 4 players; no replay; no resilience | room-layout only at 5 players | short phases; retain trace on failure; no routine video/screenshots |
-| Regression | 4/6/8 players; replay only 4 | chat-scroll at 30 messages and room-layout at 5 players | short phases; retain trace on failure; screenshots enabled, video off |
-| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases | chat-scroll at 210 messages and room-layout at 8 players | production phases; full trace/video/screenshot evidence |
+| Smoke | 4 players; no replay; no resilience | room-layout/profile at 5 players, including 300px game panel and user stats/level | short phases; retain trace on failure; no routine video/screenshots |
+| Regression | 4/6/8 players; replay only 4 | chat-scroll at 30 messages and room-layout/profile at 5 players, including 300px game panel and user stats/level | short phases; retain trace on failure; screenshots enabled, video off |
+| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases | chat-scroll at 210 messages and room-layout/profile at 8 players, including 300px game panel and user stats/level | production phases; full trace/video/screenshot evidence |
 
 Full QA must map to the following executable cases:
 
@@ -637,7 +712,7 @@ Full QA's UI regression inventory must also map to these executable cases:
 | Case | Playwright test | Required result |
 |---|---|---|
 | Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
-| 8-player role layout, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; the host-only `방 설정` button is immediately beside `친구 초대`; non-host browsers do not render it; capacities below the live count warn and disable save; password locking synchronizes to guests and the host can reload; left/right columns have equal height; the role panel reaches the lower game-card edge; the role-confirmation status count is hidden; the `역할 확인 완료` button is at the panel bottom; `.room-back-link` is visible and readable in normal/night backgrounds; normal, night, and restored screenshots plus `room-layout-transition.webm` are saved under the current `E2E_RUN_ID` |
+| 8-player room layout, profile stats/level, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1` and profile totals show zero games/wins/losses; friend-invite, help, and host-only room settings buttons appear in order, while guests do not see settings; settings strip absent; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
 
 The normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 registered only when both the Full profile and player count `6` are active. Their
@@ -675,9 +750,15 @@ For failed Playwright tests, inspect:
 
 ### 3.4 Clean Up Only the Test Server
 
-Wrap the health check, discovery, E2E execution, account cleanup, and report-writing
-bookkeeping in one outer `try/finally`. Account cleanup must run before the server
-process is terminated, and it must run even when a Playwright case fails:
+Use this same finalizer for Smoke, Regression, and Full; do not fork or bypass it in
+profile-specific branches. The outer `try` begins before the server is launched and
+contains health checks, discovery, all selected-profile E2E commands, account
+cleanup, and report bookkeeping. Account cleanup must run before server termination,
+including when startup, discovery, or a Playwright case fails. The application PID
+is captured from Spring Boot's early `Starting MafiagameApplication ... with PID`
+log line, not only from the later `Started` marker. This lets cleanup find the JVM
+even if an exception interrupts the health-check loop before it records the port
+listener.
 
 ```powershell
 try {
@@ -687,37 +768,106 @@ finally {
     # Run the section 3.5 account cleanup first when it is enabled.
     Remove-Item Env:PLAYWRIGHT_OUTPUT_STAGE -ErrorAction SilentlyContinue
     if ($startedServer) {
-        try {
-            if ($null -ne $qaServerProcessId) {
-                $currentListenerProcessIds = @(Get-QAListeningProcessIds -Port $serverPort)
-                if ($currentListenerProcessIds -contains $qaServerProcessId) {
-                    Stop-Process -Id $qaServerProcessId -Force -ErrorAction SilentlyContinue
-                    Wait-Process -Id $qaServerProcessId -Timeout 10 -ErrorAction SilentlyContinue
-                }
+        $cleanupProblems = [System.Collections.Generic.List[string]]::new()
+        $launcherTreeTerminationConfirmed = $false
+
+        # Recover the early Spring Boot PID even if startup/health-check code threw.
+        if ($null -eq $qaApplicationProcessId) {
+            $qaApplicationProcessId = Get-QAApplicationProcessIdFromLog
+        }
+
+        if ($null -ne $qaApplicationProcessId) {
+            $applicationIdentityIsValid = Test-QAApplicationProcessIdentity `
+                -ProcessId $qaApplicationProcessId `
+                -LaunchTime $serverLaunchTime
+
+            if ($applicationIdentityIsValid) {
+                Stop-Process -Id $qaApplicationProcessId -Force -ErrorAction SilentlyContinue
+                Wait-Process -Id $qaApplicationProcessId -Timeout 10 -ErrorAction SilentlyContinue
+            } elseif (Get-Process -Id $qaApplicationProcessId -ErrorAction SilentlyContinue) {
+                $cleanupProblems.Add("PID $qaApplicationProcessId exists but is not verifiably this run's Java process; it was left untouched.")
             }
-        } finally {
-            if ($appProcess) {
-                $appProcess.Refresh()
-                if (-not $appProcess.HasExited) {
-                    Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+
+        # Stop the QA-owned cmd/Gradle process tree too; stopping only cmd.exe can
+        # orphan bootRun's JVM when Gradle has detached its child process.
+        if ($null -ne $appProcess) {
+            $launcher = Get-Process -Id $appProcess.Id -ErrorAction SilentlyContinue
+            if ($null -ne $launcher) {
+                $launcherIsSameRun = $false
+                try {
+                    $launcherIsSameRun = $launcher.StartTime -eq $launcherStartTime
+                } catch {
+                    $launcherIsSameRun = $false
+                }
+
+                if ($launcherIsSameRun) {
+                    $null = & taskkill.exe /PID $appProcess.Id /T /F 2>&1
+                    $launcherTreeExitCode = $LASTEXITCODE
+                    if (Get-Process -Id $appProcess.Id -ErrorAction SilentlyContinue) {
+                        Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue
+                    }
+                    if ($launcherTreeExitCode -eq 0 -and -not (Get-Process -Id $appProcess.Id -ErrorAction SilentlyContinue)) {
+                        $launcherTreeTerminationConfirmed = $true
+                    }
+                } else {
+                    $cleanupProblems.Add("Launcher PID $($appProcess.Id) could not be verified as this run and was left untouched.")
                 }
             }
         }
 
-        Start-Sleep -Milliseconds 500
-        $remainingListenerProcessIds = @(Get-QAListeningProcessIds -Port $serverPort)
+        $cleanupDeadline = (Get-Date).AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 250
+            $qaApplicationStillRunning = $false
+            if ($null -ne $qaApplicationProcessId) {
+                $qaApplicationStillRunning = Test-QAApplicationProcessIdentity `
+                    -ProcessId $qaApplicationProcessId `
+                    -LaunchTime $serverLaunchTime
+            }
+            $launcherStillRunning = $false
+            if ($null -ne $appProcess) {
+                $currentLauncher = Get-Process -Id $appProcess.Id -ErrorAction SilentlyContinue
+                if ($null -ne $currentLauncher) {
+                    try {
+                        $launcherStillRunning = $currentLauncher.StartTime -eq $launcherStartTime
+                    } catch {
+                        $launcherStillRunning = $false
+                    }
+                }
+            }
+            $remainingListenerProcessIds = @(Get-QAListeningProcessIds -Port $serverPort)
+        } while ((Get-Date) -lt $cleanupDeadline -and ($qaApplicationStillRunning -or $launcherStillRunning -or $remainingListenerProcessIds.Count -gt 0))
+
+        if ($qaApplicationStillRunning) {
+            $cleanupProblems.Add("QA application PID $qaApplicationProcessId is still running.")
+        }
+        if ($null -eq $qaApplicationProcessId -and -not $launcherTreeTerminationConfirmed) {
+            $cleanupProblems.Add('The Spring Boot PID was not captured and launcher-tree termination was not confirmed; cleanup cannot be reported as PASS.')
+        }
+        if ($launcherStillRunning) {
+            $cleanupProblems.Add("The QA Gradle launcher process $($appProcess.Id) is still running.")
+        }
         if ($remainingListenerProcessIds.Count -gt 0) {
-            throw "QA cleanup could not confirm port $serverPort is free. Remaining listener PID(s): $($remainingListenerProcessIds -join ', '). Do not stop an unverified process."
+            $cleanupProblems.Add("Port $serverPort still has listener PID(s) $($remainingListenerProcessIds -join ', '); unverified listeners were not terminated.")
+        }
+
+        if ($cleanupProblems.Count -gt 0) {
+            Write-Warning "QA server cleanup is BLOCKED: $($cleanupProblems -join ' ')"
+        } else {
+            Write-Host "QA server cleanup PASS: app PID $qaApplicationProcessId and its launcher tree were stopped; port $serverPort is free."
         }
     }
 }
 ```
 
 The preflight records any existing listener and stops before starting QA. During
-cleanup, terminate only the listener PID observed after this run logged its startup
-marker while the health check was running; leave any different PID untouched and
-report cleanup as `BLOCKED`. Confirm the QA port is free before declaring cleanup
-complete.
+cleanup, terminate only the Java PID identified by this run's unique startup log and
+verified against its launch time, plus the exact launcher process tree returned by
+`Start-Process`. Never stop a different listener PID. If the app PID, launcher, or
+listener cannot be verified, leave the unverified process untouched and report
+cleanup as `BLOCKED`; confirm both the QA process and port are clear before reporting
+cleanup `PASS`.
 
 ### 3.5 Delete Test Accounts After the Run
 
@@ -835,7 +985,7 @@ Validate the following:
 39. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
 40. Server-rendered game-room screenshots and a normal→night→normal browser video
 41. Screenshot and video evidence covering the full QA progress from preflight through final result and cleanup
-42. Host-only room settings UI beside the friend-invite button, with 4–8 capacity choices and password set/change/remove behavior
+42. Host-only room settings UI after friend-invite and help, with 4–8 capacity choices and password set/change/remove behavior
 43. Capacity reduction below the live participant count is blocked in the UI and rejected by the server; updated capacity and lock state synchronize to every participant
 44. After `FINISHED`, only the public channel remains available and public messages from dead participants are delivered to the public topic
 45. Investigation results show `마피아팀`/`시민팀` as the faction and show Spy/Medium exact roles separately as `직업: <역할>`
@@ -942,6 +1092,15 @@ Automated evidence for these checks:
 
 ## 6. Required Report Format
 
+The saved QA report must be written entirely in Korean for Smoke, Regression, and
+Full. Write the executive summary, environment description, result explanations,
+MVP assessments, failure/blocked-item analysis, reproduction steps, root cause,
+recommended fixes, and final verdict explanation in Korean. Preserve commands,
+paths, test/class/method names, status tokens (`PASS`/`FAIL`/`BLOCKED`/`NOT RUN`),
+exception text, and console/log excerpts verbatim when exact evidence is important;
+add Korean explanations around them. This language requirement applies to the
+report file itself, not only the final chat response.
+
 ## 6.1 Automatic Report Saving
 
 After all requested tests and MVP checks are complete, automatically save the final report as a Markdown file under the configured QA report directory.
@@ -1032,5 +1191,5 @@ For every result, include:
 - Requested worker count and effective worker count (`1` for the current suite)
 - Application stdout and stderr log paths
 
-Instructions and test commands: English
-MVP requirements and final report: Korean
+Runbook instructions and test commands: English
+Saved QA report, including MVP results and analysis: Korean (preserve exact technical evidence verbatim where needed)

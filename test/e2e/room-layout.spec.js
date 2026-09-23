@@ -24,6 +24,13 @@ async function captureScreenshot(page, name, fullPage = true) {
   });
 }
 
+async function closeFirstVisitPatchNotes(page) {
+  const modal = page.locator('#patchNotesModal');
+  await expect(modal).toBeVisible({ timeout: 5_000 });
+  await modal.locator('.patch-notes-footer-actions button[data-bs-dismiss="modal"]').click();
+  await expect(modal).toBeHidden({ timeout: 5_000 });
+}
+
 test(`waiting and started room layout (${capacity} players)`, async ({ browser }) => {
   test.setTimeout(90_000);
   await mkdir(artifactDirectory, { recursive: true });
@@ -64,9 +71,17 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
       await page.locator('#password').fill(password);
       await page.locator('form[action="/login"] button[type="submit"]').click();
       await expect(page).toHaveURL(/\/rooms(?:\?.*)?$/);
+      await expect(page.locator('.user-menu-toggle .user-menu-level')).toHaveText('Lv. 1');
     }
 
     const host = pages[0];
+    await closeFirstVisitPatchNotes(host);
+    await host.locator('.user-menu-toggle').click();
+    await host.locator('.user-menu-dropdown a[href^="/users/"]').click();
+    await expect(host).toHaveURL(/\/users\/\d+$/);
+    await expect(host.locator('.app-profile-hero + section article strong'))
+      .toHaveText(['0', '0', '0']);
+
     await host.goto('/rooms/new');
     await host.locator('#title').fill(`Playwright MVP UI room-layout ${runId}`);
     await host.locator(`label[for="capacity-${capacity}"]`).click();
@@ -87,12 +102,16 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(host.locator('#memberGrid .member')).toHaveCount(capacity);
     await expect(host.locator('#gamePanelPlaceholder')).toBeVisible();
     await expect(host.locator('#gamePanelPlaceholder')).toHaveText('GAME');
+    await expect(host.locator('.room-settings')).toHaveCount(0);
     await expect(host.locator('#gameRolePanel')).toBeHidden();
 
     await expect(host.locator('#invite')).toBeVisible();
+    await expect(host.locator('#gameHelpButton')).toBeVisible();
     await expect(host.locator('#roomSettingsButton')).toBeVisible();
     await expect(pages[1].locator('#roomSettingsButton')).toHaveCount(0);
     expect(await host.locator('#invite').evaluate(element => element.nextElementSibling?.id))
+      .toBe('gameHelpButton');
+    expect(await host.locator('#gameHelpButton').evaluate(element => element.nextElementSibling?.id))
       .toBe('roomSettingsButton');
 
     await host.locator('#roomSettingsButton').click();
@@ -192,15 +211,33 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
       const right = document.querySelector('.room-chat-column').getBoundingClientRect();
       return {
         participants: { x: participants.x, y: participants.y, width: participants.width, bottom: participants.bottom },
-        placeholder: { x: placeholder.x, y: placeholder.y, width: placeholder.width },
-        columns: { leftHeight: left.height, rightHeight: right.height }
+        placeholder: { x: placeholder.x, y: placeholder.y, width: placeholder.width, height: placeholder.height, bottom: placeholder.bottom },
+        columns: { leftY: left.y, leftBottom: left.bottom, leftHeight: left.height, rightY: right.y, rightBottom: right.bottom, rightHeight: right.height }
       };
     });
     expect(waitingPositions.placeholder.x).toBe(waitingPositions.participants.x);
     expect(waitingPositions.placeholder.width).toBe(waitingPositions.participants.width);
     expect(waitingPositions.placeholder.y).toBeGreaterThan(waitingPositions.participants.bottom);
+    expect(Math.abs(waitingPositions.placeholder.height - 300)).toBeLessThanOrEqual(1);
+    expect(Math.abs(waitingPositions.placeholder.bottom - waitingPositions.columns.leftBottom))
+      .toBeLessThanOrEqual(1);
+    expect(Math.abs(waitingPositions.columns.leftY - waitingPositions.columns.rightY))
+      .toBeLessThanOrEqual(1);
+    expect(Math.abs(waitingPositions.columns.leftBottom - waitingPositions.columns.rightBottom))
+      .toBeLessThanOrEqual(1);
     expect(waitingPositions.columns.leftHeight).toBe(waitingPositions.columns.rightHeight);
     await captureScreenshot(host, 'waiting-room');
+
+    await host.setViewportSize({ width: 390, height: 844 });
+    const mobilePositions = await host.evaluate(() => {
+      const game = document.querySelector('#gamePanelPlaceholder').getBoundingClientRect();
+      const left = document.querySelector('.room-left-column').getBoundingClientRect();
+      const chat = document.querySelector('.room-chat-column').getBoundingClientRect();
+      return { gameHeight: game.height, leftBottom: left.bottom, chatY: chat.y };
+    });
+    expect(mobilePositions.gameHeight).toBeGreaterThanOrEqual(300);
+    expect(mobilePositions.chatY).toBeGreaterThanOrEqual(mobilePositions.leftBottom);
+    await host.setViewportSize({ width: 1440, height: 1000 });
 
     await Promise.all(pages.map(async page => {
       await expect(page.locator('#ready')).toBeEnabled();
@@ -234,6 +271,12 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
       };
     });
     expect(positions.leftColumn.height).toBe(positions.rightColumn.height);
+    expect(Math.abs(positions.leftColumn.y - positions.rightColumn.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(
+      positions.leftColumn.y + positions.leftColumn.height
+      - positions.rightColumn.y - positions.rightColumn.height
+    )).toBeLessThanOrEqual(1);
+    expect(Math.abs(positions.game.height - 300)).toBeLessThanOrEqual(1);
     expect(Math.abs(positions.game.y + positions.game.height
       - (positions.rightColumn.y + positions.rightColumn.height))).toBeLessThanOrEqual(1);
     expect(positions.ready.y + positions.ready.height).toBeLessThanOrEqual(

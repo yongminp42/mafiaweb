@@ -70,6 +70,14 @@
             <div class="d-flex gap-2">
               <button class="btn btn-sm btn-outline-secondary" id="invite" type="button">친구 초대</button>
               <button
+                  class="btn btn-sm btn-outline-secondary"
+                  id="gameHelpButton"
+                  type="button"
+                  data-bs-toggle="modal"
+                  data-bs-target="#gameHelpModal">
+                도움말
+              </button>
+              <button
                   class="btn btn-sm btn-outline-dark"
                   id="roomSettingsButton"
                   type="button"
@@ -106,10 +114,6 @@
             </article>
           </div>
 
-          <div class="alert alert-light border small mb-3 room-settings">
-            <strong>기본 설정</strong>
-            <span class="text-secondary ms-2">역할 확인 15초 · 낮 60초 · 지목 투표 20초 · 최종 변론 20초 · 처형 투표 20초 · 밤 35초</span>
-          </div>
           <div class="room-actions" id="roomActions">
             <button class="ready btn btn-coral w-100 py-2 fw-bold" id="ready" type="button">준비 완료</button>
             <button
@@ -288,6 +292,115 @@
         <button type="submit" class="btn btn-dark" id="roomSettingsSaveButton">저장</button>
       </div>
     </form>
+  </div>
+</div>
+
+<div class="modal fade" id="gameHelpModal" tabindex="-1"
+     aria-labelledby="gameHelpModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow text-coral mb-1">GAME GUIDE</p>
+          <h2 class="modal-title fs-5" id="gameHelpModalLabel">마피아 게임 도움말</h2>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <section class="alert alert-light border mb-4" aria-labelledby="gameHelpRulesTitle">
+          <h3 class="h6 fw-bold" id="gameHelpRulesTitle">게임 규칙</h3>
+          <p class="small mb-2">4~8명이 시민팀과 마피아팀으로 나뉘어 토론과 투표, 밤 능력으로 승부합니다.</p>
+          <ul class="small mb-2">
+            <li><strong>시민팀 승리:</strong> 마피아와 스파이가 모두 탈락하면 승리합니다.</li>
+            <li><strong>마피아팀 승리:</strong> 살아 있는 마피아팀이 시민팀보다 많아지면 승리합니다.</li>
+          </ul>
+          <p class="small text-secondary mb-0">
+            4명은 마피아·경찰·의사·시민으로 시작합니다. 5명부터 스파이, 6명부터 군인,
+            7명부터 마피아 2명, 8명부터 영매사가 포함됩니다.
+          </p>
+        </section>
+
+        <div class="row g-4">
+          <section class="col-lg-5" aria-labelledby="gameHelpPhasesTitle">
+            <h3 class="h6 fw-bold mb-3" id="gameHelpPhasesTitle">진행 순서</h3>
+            <ol class="small ps-3 mb-2">
+              <li class="mb-2"><strong>역할 확인</strong><span class="text-secondary"> · 15초</span></li>
+              <li class="mb-2"><strong>낮 토론</strong><span class="text-secondary"> · 60초</span></li>
+              <li class="mb-2"><strong>지목 투표</strong><span class="text-secondary"> · 20초</span></li>
+              <li class="mb-2"><strong>최종 변론</strong><span class="text-secondary"> · 20초</span></li>
+              <li class="mb-2"><strong>처형 투표</strong><span class="text-secondary"> · 20초</span></li>
+              <li><strong>밤 능력 사용</strong><span class="text-secondary"> · 35초</span></li>
+            </ol>
+            <p class="text-secondary small mb-0">처형 투표 후 밤이 되고, 밤이 끝나면 다음 낮으로 이어집니다. 지목 동점이면 처형 없이 밤으로 넘어갑니다.</p>
+          </section>
+
+          <section class="col-lg-7" aria-labelledby="gameHelpRolesTitle">
+            <h3 class="h6 fw-bold mb-3" id="gameHelpRolesTitle">직업별 설명</h3>
+            <div class="row row-cols-1 row-cols-sm-2 g-2">
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">마피아</strong><span class="badge text-bg-danger">마피아팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">밤에 시민팀 한 명을 제거합니다.</p>
+                </div>
+              </article>
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">스파이</strong><span class="badge text-bg-danger">마피아팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">밤에 다른 참가자의 직업을 조사하고, 마피아를 찾으면 마피아 채널에 합류합니다.</p>
+                </div>
+              </article>
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">경찰</strong><span class="badge text-bg-primary">시민팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">밤에 한 명을 조사해 마피아팀인지 시민팀인지 확인합니다.</p>
+                </div>
+              </article>
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">의사</strong><span class="badge text-bg-primary">시민팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">밤에 한 명을 마피아 공격으로부터 보호합니다.</p>
+                </div>
+              </article>
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">군인</strong><span class="badge text-bg-primary">시민팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">마피아의 공격을 한 번 막고, 능력이 발동되면 정체가 공개됩니다.</p>
+                </div>
+              </article>
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">영매사</strong><span class="badge text-bg-primary">시민팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">밤에 사망한 참가자 한 명의 직업을 조사합니다.</p>
+                </div>
+              </article>
+              <article class="col">
+                <div class="h-100 rounded-3 border p-2">
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <strong class="small">시민</strong><span class="badge text-bg-primary">시민팀</span>
+                  </div>
+                  <p class="small text-secondary mb-0 mt-1">밤 능력은 없으며, 낮 토론과 투표로 마피아를 찾습니다.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-dark" data-bs-dismiss="modal">확인</button>
+      </div>
+    </div>
   </div>
 </div>
 
