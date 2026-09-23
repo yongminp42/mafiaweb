@@ -123,6 +123,11 @@ public class RoomService {
     }
 
     @Transactional
+    public int resetInterruptedGamesToWaiting() {
+        return roomMapper.resetInterruptedGamesToWaiting();
+    }
+
+    @Transactional
     public void deleteRoom(long roomId) {
         roomMapper.deleteMembersByRoomId(roomId);
         roomMapper.deleteById(roomId);

@@ -157,6 +157,15 @@ class RoomServiceTest {
     }
 
     @Test
+    void resetsInterruptedRoomsToWaitingAndReturnsTheAffectedCount() {
+        when(roomMapper.resetInterruptedGamesToWaiting()).thenReturn(3);
+
+        assertThat(roomService.resetInterruptedGamesToWaiting()).isEqualTo(3);
+
+        verify(roomMapper).resetInterruptedGamesToWaiting();
+    }
+
+    @Test
     void verifiesNormalizedRoomPasswordAgainstStoredHash() {
         when(roomMapper.findPasswordHash(1L)).thenReturn("encoded");
         when(passwordEncoder.matches("secret", "encoded")).thenReturn(true);

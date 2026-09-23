@@ -113,7 +113,7 @@ final class RoomGameRules {
         if (mafiaAlive == 0) {
             return GameFaction.CITIZEN;
         }
-        return mafiaAlive > citizenFactionAlive ? GameFaction.MAFIA : null;
+        return mafiaAlive >= citizenFactionAlive ? GameFaction.MAFIA : null;
     }
 
     static Long findNominee(

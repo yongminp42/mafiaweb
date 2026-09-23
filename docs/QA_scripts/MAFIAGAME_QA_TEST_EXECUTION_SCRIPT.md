@@ -222,6 +222,8 @@ the script must not start MariaDB or install a missing client/service.
 
 ## 1. Java Tests
 
+The same complete Gradle Java test suite runs for Smoke, Regression, and Full; the selected profile changes the Playwright E2E scope, timing, and evidence policy, not the Java test set. The restart recovery, Mafia parity, anonymous lobby throttling, and game-start ordering/rollback checks listed below are required in every profile. Do not mark them `NOT RUN` just because an E2E case is skipped by Smoke or Regression; if the Java suite cannot execute or complete, report the affected checks as `BLOCKED` or `NOT RUN` based on the actual output.
+
 Run:
 
 ```powershell
@@ -243,6 +245,10 @@ Collect and report:
 - Passed, failed, and errored test counts
 - Failed test class, method, file, and line number
 - Role-confirmation and final-defense phase results, including timer and permission assertions
+- Restart recovery: `MapperIntegrationTest.interruptedGameRecoveryResetsOnlyRoomsThatArePlaying` and `RoomPresenceServiceTest.resetsInterruptedPlayingRoomsWhenApplicationBecomesReady`; report that persisted `PLAYING` rooms reset while `WAITING` rooms remain unchanged
+- Mafia parity termination: `RoomGameServiceTest.endsOneMafiaOneDoctorGameAtParityBeforeTheNightCanRepeat`
+- Anonymous lobby access and bounded count broadcasts: `WebSocketAuthorizationInterceptorTest.allowsAnonymousLobbyPresenceRequests`, `RoomPresenceServiceTest.throttlesRepeatedLobbyCountRequestsFromOneSession`, and `RoomPresenceServiceTest.coalescesLobbyCountRequestsAcrossSessionsAtTheGlobalLimit`
+- Game-start delegation, ordering, and rollback: `ControllerDelegationTest.presenceControllerDelegatesGameStartToPresenceService`, `RoomPresenceServiceTest.usesTheCurrentFivePlayersWhenTheSixthLeavesBeforeStart`, `RoomPresenceServiceTest.restoresWaitingStatusWhenCreatingTheGameInstanceFails`, and `RoomGameServiceTest.removesPartiallyStartedGameWhenPublishingTheInitialStateFails`
 - Relevant console output
 - JUnit XML and Gradle HTML report paths
 
@@ -657,8 +663,8 @@ Verify:
 - Private investigation result is hidden when the investigator dies
 - Public/mafia channel selector and server-side mafia-channel isolation
 - Night chat restriction: living mafia use only the mafia channel, living non-mafia cannot chat, and dead-player messages remain in the dead channel
-- Mafia victory only when alive mafia count is greater than the alive citizen-faction count
-- Equality between alive mafia and alive citizen-faction counts must continue the game
+- After checking citizen victory when `aliveMafia == 0`, Mafia victory at parity (`aliveMafia == aliveCitizenFaction`) or majority (`aliveMafia > aliveCitizenFaction`)
+- A parity result must finish the game before another night cycle starts
 - Citizen victory immediately after the last mafia becomes dead
 - Mafia target aggregation when two mafia submit night actions concurrently
 - Nomination tie handling without selecting an execution target
@@ -680,7 +686,7 @@ Verify:
 - Actual elapsed 15/60/20/20/20/35 second phase durations for role assignment, day discussion, nomination, final defense, execution, and night; not only displayed timer values
 - Every non-host browser reaches the exact created room URL before participant-state assertions
 - A pending lobby refresh is cancelled when a browser starts navigating from `/rooms` to a room
-- The equality case where alive mafia equals the alive citizen faction continues to the next phase
+- The parity case where alive Mafia equals the alive citizen faction ends in Mafia victory before the next night cycle
 - The chat input is at least 40px high in the browser
 - `마피아 채널` is fully visible without clipping in the selector
 - Full chat-scroll: 210 submissions retain only the latest 200 rendered messages; Regression uses 30 submissions to verify the browser scroll path without the 210-message stress cost
@@ -990,6 +996,11 @@ Validate the following:
 44. After `FINISHED`, only the public channel remains available and public messages from dead participants are delivered to the public topic
 45. Investigation results show `마피아팀`/`시민팀` as the faction and show Spy/Medium exact roles separately as `직업: <역할>`
 
+46. Application-ready recovery resets persisted `PLAYING` rooms to `WAITING` and leaves rooms already in `WAITING` unchanged
+47. When living Mafia and the living citizen faction reach parity, the game ends in Mafia victory before another night cycle; zero living Mafia still takes precedence for citizen victory
+48. Anonymous lobby presence requests remain allowed, while repeated requests from one session are throttled and requests across sessions are coalesced under the global broadcast limit
+49. Game start is delegated with the WebSocket session ID, transitions the database room before in-memory game creation, restores `WAITING` if creation fails, and removes partial game state if initial publication fails
+
 ### 4.1 Extended Boundary and Resilience Checks
 
 The following checks are required when the QA request includes boundary, disconnect, or concurrency coverage. They are separate from the normal 4/5/6/7/8-player E2E boundary run and must be reported individually:
@@ -997,7 +1008,7 @@ The following checks are required when the QA request includes boundary, disconn
 1. Role-count boundaries: 4 players = `MAFIA/POLICE/DOCTOR/CITIZEN`; 5 players = `MAFIA/SPY/POLICE/DOCTOR/CITIZEN`; 6 players = `MAFIA/SPY/POLICE/DOCTOR/SOLDIER/CITIZEN`; 7 players = `MAFIA/MAFIA/SPY/POLICE/DOCTOR/SOLDIER/CITIZEN`; 8 players = `MAFIA/MAFIA/SPY/POLICE/DOCTOR/SOLDIER/MEDIUM/CITIZEN`. The threshold progression is explicit: 5 adds `SPY`, 6 adds `SOLDIER`, 7 adds the second `MAFIA`, and 8 adds `MEDIUM`.
 2. Mafia-team count includes `MAFIA` and `SPY`; the exact role table, rather than a citizen-count formula, determines all slots.
 3. Invalid start boundaries: fewer than 4 participants must keep start disabled or return a warning; more than 8 participants must be rejected by the server or prevented by room capacity.
-4. Mafia victory threshold: after resolution, `aliveMafia > aliveCitizenFaction` must finish the game for the mafia; equality must continue the game.
+4. Mafia victory threshold: after checking citizen victory when `aliveMafia == 0`, `aliveMafia >= aliveCitizenFaction` must finish the game for the Mafia; when Mafia are fewer than the living citizen faction, the game continues.
 5. Citizen victory precedence: `aliveMafia == 0` must finish the game for citizens even when the faction counts would otherwise be equal.
 6. A 6-player game must continue after the actual Mafia is executed while the Spy remains alive; citizen victory is allowed only after the Spy is also dead.
 7. In a 7- or 8-player game, if two Mafia players select different night targets, exactly one of the submitted highest-count targets is resolved; if they select the same target, that target is resolved unless protected. The Spy cannot submit a kill action.
@@ -1017,6 +1028,10 @@ Use this evidence split when producing the report:
 - The normal 4/5/6/7/8 flows, role displays and confirmation, final-defense nominee chat,
   actual browser chat, Mafia-team execution flow, replay, and phase-duration assertions
   are `Playwright E2E` results.
+- Restart recovery, Mafia parity termination, anonymous lobby request access and count throttling,
+  and coordinated game-start ordering/rollback are Java unit, mapper integration, and controller
+  delegation test results. Keep the database-backed PLAYING-only reset result distinct from the
+  service-level application-ready callback test.
 - Role-rule edge cases, no-action behavior, self/consecutive doctor protection,
   post-departure target rejection, exact server-deadline rejection, duplicate request
   idempotency, and invalid participant-count starts are `Java service test` results.
@@ -1037,7 +1052,10 @@ When source inspection is used to explain a result, inspect these contracts dire
 - `GamePhase`: `ROLE_ASSIGNMENT` is 15 seconds and `FINAL_DEFENSE` is 20 seconds; both are part of the server phase enum.
 - `RoomGameService.submitAction`: `ROLE_CONFIRM` is accepted only during `ROLE_ASSIGNMENT`, once per living player, and all confirmations can advance the room early to `DAY_DISCUSSION`.
 - `RoomGameService.moveAfterNominationVote`/`validateChat`: a unique nominee enters `FINAL_DEFENSE`, and only that nominee may use public chat during the defense phase.
-- `RoomGameRules.determineWinner`: citizen victory is checked first when `aliveMafia == 0`; mafia victory is checked only when `aliveMafia > aliveCitizenFaction`.
+- `RoomGameRules.determineWinner`: citizen victory is checked first when `aliveMafia == 0`; Mafia victory follows when `aliveMafia >= aliveCitizenFaction`.
+- Restart recovery: `RoomPresenceService.resetInterruptedGamesAfterRestart` resets persisted `PLAYING` rooms when the application is ready; `RoomMapper.resetInterruptedGamesToWaiting` must leave already-`WAITING` rooms unchanged. Verify both the service test and `MapperIntegrationTest.interruptedGameRecoveryResetsOnlyRoomsThatArePlaying`.
+- Anonymous lobby count requests: `WebSocketAuthorizationInterceptor` permits `/app/rooms/presence`; `RoomPresenceService.broadcastRoomCounts` limits each session to one accepted request per second and coalesces lobby broadcasts to at most one per 250 ms, with a trailing update for queued requests.
+- Game startup: `RoomPresenceController.startGame` delegates with the WebSocket session ID to `RoomPresenceService.startGame`; the service transitions the room before creating the in-memory game, restores `WAITING` if creation fails, and `RoomGameService.startGame` removes a partially created game if its initial state publication fails.
 - `RoomGameService.handlePlayerDeparture`: after the reconnect grace period, a player whose last room session disconnects becomes non-alive, pending actions are removed, and victory is re-evaluated.
 - `RoomPresenceService`: the last session retains a playing participant for 10 seconds, reconnect cancels the departure, expiry removes the participant and notifies the game service, a departed dead player may rejoin as a spectator without revival, and game start accepts only 4–8 current participants.
 - `RoomService.updateRoomSettings`/`RoomPresenceService.updateRoomSettings`: only a waiting-room host may update settings; capacities stay within 4–8 and cannot drop below live participants; password changes are normalized, encoded, removable, and broadcast with the updated capacity/lock state.
@@ -1175,6 +1193,7 @@ The MVP validation table and the per-scenario results must explicitly report:
 - `ROLE_ASSIGNMENT`: role delivery is private, the public game state does not reveal roles, each living player can confirm once, duplicate confirmation is rejected, and the phase advances on all confirmations or after 15 seconds.
 - `FINAL_DEFENSE`: a unique nominee enters the 20-second phase, only the nominee can use public chat, non-nominees are rejected, and a nominee departure skips execution and advances to night.
 - Measured server-side phase durations: approximately 15 seconds for role assignment, 60 seconds for day discussion, 20 seconds for nomination, 20 seconds for final defense, 20 seconds for execution, and 35 seconds for night.
+- Restart recovery, Mafia parity, anonymous lobby throttling/coalescing, and game-start ordering/rollback: report validation items 46–49 with their Java evidence, and distinguish the `MapperIntegrationTest` database result from service and controller unit tests.
 
 For every result, include:
 

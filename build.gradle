@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'kr.or.oti'
-version = '0.3.1-alpha'
+version = '0.3.2-alpha'
 
 java {
 	toolchain {

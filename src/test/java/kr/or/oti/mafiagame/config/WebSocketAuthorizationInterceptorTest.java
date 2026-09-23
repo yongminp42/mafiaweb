@@ -6,9 +6,9 @@ import static org.mockito.Mockito.when;
 
 import java.security.Principal;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.Message;
@@ -26,18 +26,21 @@ class WebSocketAuthorizationInterceptorTest {
     @Mock
     private RoomPresenceService roomPresenceService;
 
-    private final @NonNull MessageChannel channel = (message, timeout) -> true;
-
+    @InjectMocks
     private WebSocketAuthorizationInterceptor interceptor;
 
-    @BeforeEach
-    void setUp() {
-        interceptor = new WebSocketAuthorizationInterceptor(roomPresenceService);
-    }
+    private final @NonNull MessageChannel channel = (message, timeout) -> true;
 
     @Test
     void allowsPublicLobbySubscriptionWithoutLogin() {
         var message = message(StompCommand.SUBSCRIBE, "/topic/rooms/presence", null);
+
+        assertThat(interceptor.preSend(message, channel)).isSameAs(message);
+    }
+
+    @Test
+    void allowsAnonymousLobbyPresenceRequests() {
+        var message = message(StompCommand.SEND, "/app/rooms/presence", null);
 
         assertThat(interceptor.preSend(message, channel)).isSameAs(message);
     }
@@ -111,10 +114,6 @@ class WebSocketAuthorizationInterceptorTest {
         accessor.setDestination(destination);
         accessor.setSessionId("session");
         accessor.setUser(principal);
-        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
-        if (message == null) {
-            throw new IllegalStateException("Test message must not be null.");
-        }
-        return message;
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 }

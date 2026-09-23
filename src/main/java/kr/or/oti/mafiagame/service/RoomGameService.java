@@ -89,25 +89,32 @@ public class RoomGameService {
         // 타이머 예약은 방별 잠금 안에서 처리한다.
         RoomGameRules.assignRoles(game.players);
 
-        RoomGameState state;
-        List<RoleDelivery> roleDeliveries;
-        game.lock.lock();
         try {
-            // 같은 방에서 이전 게임의 타이머가 남아 있을 수 있으므로 먼저 취소한다.
-            phaseScheduler.cancel(roomId);
-            gamesByRoom.put(roomId, game);
-            moveTo(game, GamePhase.ROLE_ASSIGNMENT, System.currentTimeMillis(),
-                    "본인의 역할을 확인해 주세요.");
-            state = snapshot(game, System.currentTimeMillis());
-            roleDeliveries = roleDeliveries(game);
-            scheduleNextPhase(game);
-        } finally {
-            game.lock.unlock();
-        }
+            RoomGameState state;
+            List<RoleDelivery> roleDeliveries;
+            game.lock.lock();
+            try {
+                // 같은 방에서 이전 게임의 타이머가 남아 있을 수 있으므로 먼저 취소한다.
+                phaseScheduler.cancel(roomId);
+                gamesByRoom.put(roomId, game);
+                moveTo(game, GamePhase.ROLE_ASSIGNMENT, System.currentTimeMillis(),
+                        "본인의 역할을 확인해 주세요.");
+                state = snapshot(game, System.currentTimeMillis());
+                roleDeliveries = roleDeliveries(game);
+                scheduleNextPhase(game);
+            } finally {
+                game.lock.unlock();
+            }
 
-        broadcast(state);
-        broadcastPhaseSystemMessage(null, state);
-        broadcastRoleAssignments(roleDeliveries);
+            broadcast(state);
+            broadcastPhaseSystemMessage(null, state);
+            broadcastRoleAssignments(roleDeliveries);
+        } catch (RuntimeException | Error startFailure) {
+            if (gamesByRoom.remove(roomId, game)) {
+                phaseScheduler.cancel(roomId);
+            }
+            throw startFailure;
+        }
     }
 
     public void broadcastCurrentState(long roomId) {
@@ -393,6 +400,9 @@ public class RoomGameService {
         }
 
         for (String principalName : recipients) {
+            if (principalName == null || principalName.isBlank()) {
+                continue;
+            }
             messagingTemplate.convertAndSendToUser(
                     principalName,
                     DEAD_CHAT_DESTINATION,

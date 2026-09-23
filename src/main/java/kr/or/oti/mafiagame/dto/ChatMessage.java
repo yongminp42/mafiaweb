@@ -2,6 +2,8 @@ package kr.or.oti.mafiagame.dto;
 
 import java.time.Instant;
 
+import org.springframework.lang.NonNull;
+
 public record ChatMessage(
         long roomId,
         String type,
@@ -14,11 +16,14 @@ public record ChatMessage(
         this(roomId, type, sender, content, ChatChannel.PUBLIC, sentAt);
     }
 
-    public static ChatMessage system(long roomId, String content) {
+    public static @NonNull ChatMessage system(long roomId, String content) {
         return system(roomId, content, ChatChannel.PUBLIC);
     }
 
-    public static ChatMessage system(long roomId, String content, ChatChannel channel) {
+    public static @NonNull ChatMessage system(
+            long roomId,
+            String content,
+            ChatChannel channel) {
         return new ChatMessage(
                 roomId,
                 "SYSTEM",

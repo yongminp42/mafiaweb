@@ -6,7 +6,6 @@ import static org.mockito.Mockito.when;
 
 import java.security.Principal;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +19,6 @@ import kr.or.oti.mafiagame.dto.ChatMessageRequest;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.service.ChatService;
-import kr.or.oti.mafiagame.service.RoomGameService;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,8 +29,6 @@ class ControllerDelegationTest {
     private ChatService chatService;
     @Mock
     private RoomPresenceService roomPresenceService;
-    @Mock
-    private RoomGameService roomGameService;
 
     @Test
     void chatControllerPublishesServiceResultToRoomTopic() {
@@ -51,7 +47,7 @@ class ControllerDelegationTest {
 
     @Test
     void presenceControllerDelegatesSessionAwareOperations() {
-        RoomPresenceController controller = new RoomPresenceController(roomPresenceService, roomGameService);
+        RoomPresenceController controller = new RoomPresenceController(roomPresenceService);
         SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create();
         headers.setSessionId("session");
         Principal principal = () -> "player";
@@ -61,31 +57,28 @@ class ControllerDelegationTest {
 
         assertThat(controller.join(2L, headers, principal)).isEqualTo(joinedState);
         controller.updateReady(2L, request, headers);
-        controller.sendRoomCounts();
+        controller.sendRoomCounts(headers);
 
         verify(roomPresenceService).join(2L, "session", principal, false);
         verify(roomPresenceService).updateReady(2L, "session", request);
-        verify(roomPresenceService).broadcastRoomCounts();
+        verify(roomPresenceService).broadcastRoomCounts("session");
     }
 
     @Test
-    void presenceControllerStartsTheGameAfterPresenceTransition() {
-        RoomPresenceController controller = new RoomPresenceController(roomPresenceService, roomGameService);
+    void presenceControllerDelegatesGameStartToPresenceService() {
+        RoomPresenceController controller = new RoomPresenceController(roomPresenceService);
         SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create();
         headers.setSessionId("session");
-        RoomPresenceState state = new RoomPresenceState(2L, List.of());
-        when(roomPresenceService.startGame(2L, "session")).thenReturn(state);
-        when(roomPresenceService.currentPrincipalNames(2L)).thenReturn(Map.of(10L, "host"));
 
         controller.startGame(2L, headers);
 
-        verify(roomGameService).startGame(2L, state.participants(), Map.of(10L, "host"));
+        verify(roomPresenceService).startGame(2L, "session");
     }
 
     @Test
     void websocketExceptionsAreConvertedToErrorPayloads() {
         ChatController chatController = new ChatController(messagingTemplate, chatService);
-        RoomPresenceController presenceController = new RoomPresenceController(roomPresenceService, roomGameService);
+        RoomPresenceController presenceController = new RoomPresenceController(roomPresenceService);
         var exception = new kr.or.oti.mafiagame.exception.RoomWebSocketException("failed");
 
         assertThat(chatController.handleRoomWebSocketException(exception).message()).isEqualTo("failed");

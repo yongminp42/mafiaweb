@@ -14,17 +14,14 @@ import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
 import kr.or.oti.mafiagame.exception.RoomWebSocketException;
 import kr.or.oti.mafiagame.security.RoomAccess;
-import kr.or.oti.mafiagame.service.RoomGameService;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 
 @Controller
 public class RoomPresenceController {
     private final RoomPresenceService roomPresenceService;
-    private final RoomGameService roomGameService;
 
-    public RoomPresenceController(RoomPresenceService roomPresenceService, RoomGameService roomGameService) {
+    public RoomPresenceController(RoomPresenceService roomPresenceService) {
         this.roomPresenceService = roomPresenceService;
-        this.roomGameService = roomGameService;
     }
 
     @MessageMapping("/rooms/{roomId}/join")
@@ -62,19 +59,12 @@ public class RoomPresenceController {
     public void startGame(
             @DestinationVariable("roomId") long roomId,
             SimpMessageHeaderAccessor headers) {
-        // 1단계: 방장 여부, 인원수, 모든 참가자의 준비 상태를 확인하고 방을 PLAYING으로 전환한다.
-        RoomPresenceState state = roomPresenceService.startGame(roomId, headers.getSessionId());
-
-        // 2단계: 위 전환이 성공한 참가자 목록으로 실제 게임 상태와 역할을 생성한다.
-        roomGameService.startGame(
-                roomId,
-                state.participants(),
-                roomPresenceService.currentPrincipalNames(roomId));
+        roomPresenceService.startGame(roomId, headers.getSessionId());
     }
 
     @MessageMapping("/rooms/presence")
-    public void sendRoomCounts() {
-        roomPresenceService.broadcastRoomCounts();
+    public void sendRoomCounts(SimpMessageHeaderAccessor headers) {
+        roomPresenceService.broadcastRoomCounts(headers.getSessionId());
     }
 
     @MessageExceptionHandler(RoomWebSocketException.class)
