@@ -102,7 +102,7 @@
         </div>
       </div>
       <div class="modal-body p-4 patch-notes-content">
-        <p class="text-secondary mb-4">대기 중 게임방 설정과 조사 결과 표시를 개선하고 게임 종료 채널을 안정화했습니다.</p>
+        <p class="text-secondary mb-4">대기 중 게임방 설정과 경찰 조사 결과 표시를 개선하고 게임 종료 채널을 안정화했습니다.</p>
 
         <div class="patch-note-item">
           <strong>게임방 설정</strong>
@@ -117,8 +117,8 @@
           <p class="text-secondary small mb-0 mt-1">게임 종료 후에는 생존 여부와 관계없이 전체 채널만 사용할 수 있고, 공개 메시지도 전체 채널로 전달됩니다.</p>
         </div>
         <div class="patch-note-item">
-          <strong>진영 우선 조사 결과</strong>
-          <p class="text-secondary small mb-0 mt-1">조사 결과에 마피아팀·시민팀을 먼저 표시하고 필요한 직업 정보는 별도로 안내합니다.</p>
+          <strong>경찰 조사 결과</strong>
+          <p class="text-secondary small mb-0 mt-1">대상의 진영을 마피아팀 또는 시민팀으로 표시합니다.</p>
         </div>
         <div class="patch-note-item">
           <strong>버전별 패치노트 보기</strong>
@@ -175,13 +175,13 @@
             <li><code>FINISHED</code> 상태에서는 서버와 화면 모두 <code>PUBLIC</code>(전체) 채널만 허용합니다.</li>
             <li>게임 종료 시 마피아·사망자 채널을 숨기고 현재 채널을 전체 채널로 전환합니다.</li>
             <li>사망한 참가자가 종료 후 보내는 공개 메시지도 전체 채널로 전달되도록 수정했습니다.</li>
-            <li>경찰·스파이·영매사 조사 결과에 <code>마피아팀</code> 또는 <code>시민팀</code>을 먼저 표시하고, 필요한 역할 정보는 <code>직업: 마피아</code>처럼 별도로 표시합니다.</li>
+            <li>경찰 조사 결과에는 대상의 진영(<code>마피아팀</code> 또는 <code>시민팀</code>)만 표시합니다.</li>
           </ul>
           <h4 class="h6 mt-4 mb-2">패치노트·QA 업데이트</h4>
           <ul class="patch-note-detail-list text-secondary small">
             <li>메인 화면 패치노트에 <code>상세보기</code> 버튼을 추가해 README의 모든 패치노트를 최신 버전순으로 확인할 수 있도록 했습니다.</li>
             <li>패치노트 내용이 변경되면 기존의 오늘 하루 숨김 설정이 자동으로 무효화되는 동작을 유지했습니다.</li>
-            <li>게임방 설정, 종료 채널, 진영 우선 표시, 재접속 및 실시간 동기화에 대한 JavaScript·Java·Playwright QA 검증 항목을 갱신했습니다.</li>
+            <li>게임방 설정, 종료 채널, 경찰 조사 진영 표시, 재접속 및 실시간 동기화에 대한 JavaScript·Java·Playwright QA 검증 항목을 갱신했습니다.</li>
             <li>Smoke·Regression·Full 프로필의 인원수, 재플레이, UI 시나리오, 페이즈 시간과 증거 정책을 실행 코드와 QA 문서에 맞췄습니다. 프로필을 지정하지 않거나 해당 프로필 범위 밖의 인원수를 요청하면 E2E 실행을 시작하지 않습니다.</li>
             <li>프로필별 기본 설정이 코드와 일치하는지 확인하는 JavaScript 테스트를 추가했습니다.</li>
             <li>테스트 산출물은 <code>output/test_output/YYYY-MM-DD/&lt;테스트명&gt;/</code> 규칙으로 보관하도록 QA 문서와 실행 설정을 정리했습니다.</li>
@@ -189,7 +189,7 @@
           <h4 class="h6 mt-4 mb-2">릴리스 버전</h4>
           <ul class="patch-note-detail-list text-secondary small mb-0">
             <li>Gradle 프로젝트 버전을 <code>0.2.0-alpha</code>에서 <code>0.3.0-alpha</code>로 변경했습니다.</li>
-            <li>기존 게임 규칙은 유지하면서 방 관리, 종료 상태의 채널 권한, 조사 결과 안내와 QA 추적성을 강화한 알파 업데이트입니다.</li>
+            <li>기존 게임 규칙은 유지하면서 방 관리, 종료 상태의 채널 권한, 경찰 조사 결과 안내와 QA 추적성을 강화한 알파 업데이트입니다.</li>
           </ul>
         </article>
 
