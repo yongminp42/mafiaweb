@@ -11,6 +11,7 @@ public record UserProfile(
         String bio,
         int totalGames,
         int wins,
+        int losses,
         Integer mafiaGames,
         Integer mafiaWins,
         String joinedAt,

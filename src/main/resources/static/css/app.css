@@ -467,7 +467,7 @@ a {
 .chat-panel {
   display: flex;
   width: 100%;
-  height: var(--room-column-height);
+  height: 100%;
   min-height: 0;
   flex-direction: column;
 }
@@ -503,15 +503,6 @@ a {
 
 .game-panel-placeholder-body {
   padding: 1.25rem;
-}
-
-.room-settings {
-  padding: .5rem .75rem;
-  line-height: 1.25;
-}
-
-.room-settings span {
-  line-height: inherit;
 }
 
 .ready-note,
@@ -586,15 +577,20 @@ a {
 
 .room-content-layout {
   align-items: stretch;
+  height: var(--room-column-height);
   margin-bottom: .5rem !important;
+}
+
+.room-left-column,
+.room-chat-column {
+  height: 100%;
 }
 
 .room-left-column {
   display: grid;
-  height: var(--room-column-height);
   min-height: 0;
   align-self: stretch;
-  grid-template-rows: minmax(0, 1fr) 240px;
+  grid-template-rows: minmax(0, 1fr) 300px;
   gap: 1.5rem;
 }
 
@@ -613,7 +609,7 @@ a {
 
 #gamePanelHost #gamePanelPlaceholder {
   min-width: 0;
-  min-height: 240px;
+  min-height: 300px;
   flex: 1 1 auto;
 }
 
@@ -631,7 +627,6 @@ a {
 
 .room-chat-column {
   display: flex;
-  height: var(--room-column-height);
   align-self: stretch;
 }
 
@@ -1007,6 +1002,10 @@ a {
 }
 
 @media (max-width: 991.98px) {
+  .room-content-layout {
+    height: auto;
+  }
+
   .room-left-column {
     display: flex;
     height: auto;

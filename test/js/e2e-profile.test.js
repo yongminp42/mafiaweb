@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 test('QA profile definitions match the executable scenario scope', async () => {
   const previousProfile = process.env.E2E_PROFILE;
@@ -63,4 +64,26 @@ test('QA profile definitions match the executable scenario scope', async () => {
       process.env.E2E_PROFILE = previousProfile;
     }
   }
+});
+
+test('all QA profiles share orphan-safe server startup and cleanup', async () => {
+  const runbook = await readFile(
+    new URL('../../docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md', import.meta.url),
+    'utf8'
+  );
+  const lifecycleStart = runbook.indexOf('### 3.1 Prepare the Test Environment');
+  const lifecycleEnd = runbook.indexOf('### 3.5 Delete Test Accounts After the Run');
+  assert.notEqual(lifecycleStart, -1);
+  assert.notEqual(lifecycleEnd, -1);
+  const lifecycle = runbook.slice(lifecycleStart, lifecycleEnd);
+
+  assert.match(lifecycle, /Smoke, Regression, and Full all use this same server lifecycle/);
+  assert.match(lifecycle, /\| Smoke \|[^\n]*\| Shared sections 3\.1–3\.4 \|/);
+  assert.match(lifecycle, /\| Regression \|[^\n]*\| Shared sections 3\.1–3\.4 \|/);
+  assert.match(lifecycle, /\| Full \|[^\n]*\| Shared sections 3\.1–3\.4 \|/);
+  assert.match(lifecycle, /Starting MafiagameApplication using \.\* with PID/);
+  assert.match(lifecycle, /taskkill\.exe \/PID \$appProcess\.Id \/T \/F/);
+  assert.match(lifecycle, /\$launcherTreeTerminationConfirmed = \$true/);
+  assert.match(lifecycle, /Stop-Process -Id \$qaApplicationProcessId/);
+  assert.match(lifecycle, /QA server cleanup PASS/);
 });

@@ -30,6 +30,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 
 import kr.or.oti.mafiagame.domain.User;
+import kr.or.oti.mafiagame.domain.UserStats;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
 import kr.or.oti.mafiagame.dto.RoomSummary;
@@ -562,7 +563,7 @@ class RoomPresenceServiceTest {
                 .password("encoded")
                 .user_level(1)
                 .build();
-        CustomUserDetails details = new CustomUserDetails(user);
+        CustomUserDetails details = new CustomUserDetails(user, UserStats.DEFAULT_RATING);
         return new UsernamePasswordAuthenticationToken(details, details.getPassword(), details.getAuthorities());
     }
 

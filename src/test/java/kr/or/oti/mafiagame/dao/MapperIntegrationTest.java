@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import kr.or.oti.mafiagame.domain.Room;
 import kr.or.oti.mafiagame.domain.User;
+import kr.or.oti.mafiagame.domain.UserStats;
 import kr.or.oti.mafiagame.dto.RoomSummary;
 
 @MybatisTest
@@ -28,7 +29,11 @@ class MapperIntegrationTest {
         assertThat(userMapper.existsByEmail("user@example.com")).isTrue();
         assertThat(userMapper.findByEmail("user@example.com"))
                 .hasValueSatisfying(found -> assertThat(found.getUserName()).isEqualTo("player"));
-        assertThat(userMapper.findStatsByUserId(user.getUserId()).getTotalGames()).isZero();
+        UserStats stats = userMapper.findStatsByUserId(user.getUserId());
+        assertThat(stats.getTotalGames()).isZero();
+        assertThat(stats.getWins()).isZero();
+        assertThat(stats.getLosses()).isZero();
+        assertThat(stats.getRating()).isEqualTo(UserStats.DEFAULT_RATING);
     }
 
     @Test

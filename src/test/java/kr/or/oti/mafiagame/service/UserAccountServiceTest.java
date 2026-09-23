@@ -34,6 +34,7 @@ class UserAccountServiceTest {
         UserStats stats = new UserStats();
         stats.setTotalGames(10);
         stats.setWins(6);
+        stats.setLosses(4);
         when(userMapper.findById(5L)).thenReturn(Optional.of(user));
         when(userMapper.findStatsByUserId(5L)).thenReturn(stats);
 
@@ -42,6 +43,8 @@ class UserAccountServiceTest {
         assertThat(profile.nickname()).isEqualTo("player");
         assertThat(profile.bio()).isEqualTo("아직 소개가 없습니다.");
         assertThat(profile.totalGames()).isEqualTo(10);
+        assertThat(profile.wins()).isEqualTo(6);
+        assertThat(profile.losses()).isEqualTo(4);
         assertThat(profile.winRate()).isEqualTo(60);
         assertThat(profile.joinedAt()).isEqualTo("2026년 9월 가입");
     }
@@ -57,22 +60,50 @@ class UserAccountServiceTest {
     @Test
     void loginLookupNormalizesEmailAndBuildsUserDetails() {
         User user = user(5L, "player@example.com", "player");
+        UserStats stats = new UserStats();
+        stats.setRating(2000);
         when(userMapper.findByEmail("player@example.com")).thenReturn(Optional.of(user));
+        when(userMapper.findStatsByUserId(5L)).thenReturn(stats);
 
         CustomUserDetails details = (CustomUserDetails) new CustomUserDetailsService(userMapper)
                 .loadUserByUsername(" Player@Example.COM ");
 
         assertThat(details.getUserId()).isEqualTo(5L);
         assertThat(details.getNickname()).isEqualTo("player");
+        assertThat(details.getLevel()).isEqualTo(2);
         verify(userMapper).findByEmail("player@example.com");
+        verify(userMapper).findStatsByUserId(5L);
+    }
+
+    @Test
+    void ratingAdvancesOneLevelForEachAdditionalThousandPoints() {
+        assertThat(UserStats.levelForRating(-1)).isEqualTo(1);
+        assertThat(UserStats.levelForRating(999)).isEqualTo(1);
+        assertThat(UserStats.levelForRating(1000)).isEqualTo(1);
+        assertThat(UserStats.levelForRating(1999)).isEqualTo(1);
+        assertThat(UserStats.levelForRating(2000)).isEqualTo(2);
+        assertThat(UserStats.levelForRating(2999)).isEqualTo(2);
+        assertThat(UserStats.levelForRating(3000)).isEqualTo(3);
+    }
+
+    @Test
+    void loginLookupUsesDefaultRatingWhenStatsRowIsMissing() {
+        User user = user(5L, "player@example.com", "player");
+        when(userMapper.findByEmail("player@example.com")).thenReturn(Optional.of(user));
+
+        CustomUserDetails details = (CustomUserDetails) new CustomUserDetailsService(userMapper)
+                .loadUserByUsername("player@example.com");
+
+        assertThat(details.getLevel()).isEqualTo(1);
+        verify(userMapper).findStatsByUserId(5L);
     }
 
     @Test
     void loginLookupRejectsUnknownEmail() {
         when(userMapper.findByEmail("missing@example.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> new CustomUserDetailsService(userMapper)
-                .loadUserByUsername("missing@example.com"))
+        CustomUserDetailsService userDetailsService = new CustomUserDetailsService(userMapper);
+        assertThatThrownBy(() -> userDetailsService.loadUserByUsername("missing@example.com"))
                 .isInstanceOf(UsernameNotFoundException.class);
     }
 
