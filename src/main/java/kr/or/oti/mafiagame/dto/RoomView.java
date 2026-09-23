@@ -5,6 +5,7 @@ package kr.or.oti.mafiagame.dto;
  */
 public record RoomView(
         long roomId,
+        long hostUserId,
         String title,
         String description,
         String hostName,
@@ -16,6 +17,7 @@ public record RoomView(
     public static RoomView from(RoomSummary room) {
         return new RoomView(
                 room.getRoomId(),
+                room.getHostUserId(),
                 room.getTitle(),
                 room.getHostName() + "님이 만든 대기방 · 인원이 모이면 시작해요",
                 room.getHostName(),
@@ -25,9 +27,22 @@ public record RoomView(
                 room.isLocked());
     }
 
+    public RoomView(
+            long roomId,
+            String title,
+            String description,
+            String hostName,
+            int players,
+            int capacity,
+            String status,
+            boolean locked) {
+        this(roomId, 0L, title, description, hostName, players, capacity, status, locked);
+    }
+
     public RoomView withPlayerCount(int playerCount) {
         return new RoomView(
                 roomId,
+                hostUserId,
                 title,
                 description,
                 hostName,

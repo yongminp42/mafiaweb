@@ -273,13 +273,14 @@ public class RoomGameService {
             if (!isCurrentGame(game)) {
                 throw new RoomWebSocketException("게임 세션이 변경되었습니다.");
             }
+            if (game.phase == GamePhase.FINISHED) {
+                if (channel != ChatChannel.PUBLIC) {
+                    throw new RoomWebSocketException("게임이 종료되어 전체 채널만 사용할 수 있습니다.");
+                }
+                return;
+            }
             GamePlayerState player = game.players.get(userId);
             if (player == null) {
-                // A new participant may join the same room after the previous game finished.
-                // They can use the public waiting-room channel, but never inherit old roles.
-                if (game.phase == GamePhase.FINISHED && channel == ChatChannel.PUBLIC) {
-                    return;
-                }
                 throw new RoomWebSocketException("게임 참가자 정보를 찾을 수 없습니다.");
             }
             if (game.phase == GamePhase.ROLE_ASSIGNMENT) {
@@ -306,9 +307,6 @@ public class RoomGameService {
             }
             if (game.phase == GamePhase.NIGHT && channel == ChatChannel.PUBLIC) {
                 throw new RoomWebSocketException("밤에는 마피아 채널만 사용할 수 있습니다.");
-            }
-            if (game.phase == GamePhase.FINISHED && channel == ChatChannel.MAFIA) {
-                throw new RoomWebSocketException("게임이 종료되어 마피아 채널을 사용할 수 없습니다.");
             }
         } finally {
             game.lock.unlock();
@@ -413,6 +411,7 @@ public class RoomGameService {
 
         List<String> deadRecipients = new ArrayList<>();
         boolean deadSender = false;
+        boolean finishedGame = false;
         GameRoom game = gamesByRoom.get(message.roomId());
         if (game == null) {
             messagingTemplate.convertAndSend(
@@ -428,6 +427,7 @@ public class RoomGameService {
             }
             GamePlayerState sender = game.players.get(senderId);
             deadSender = sender != null && !sender.alive;
+            finishedGame = game.phase == GamePhase.FINISHED;
             if (deadSender) {
                 for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
                     GamePlayerState player = game.players.get(entry.getKey());
@@ -443,7 +443,7 @@ public class RoomGameService {
             game.lock.unlock();
         }
 
-        if (!deadSender) {
+        if (!deadSender || finishedGame) {
             messagingTemplate.convertAndSend(
                     formatDestination(CHAT_DESTINATION, message.roomId()),
                     message);

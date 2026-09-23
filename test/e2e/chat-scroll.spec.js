@@ -1,22 +1,34 @@
 import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  PROFILE_CONFIG,
+  shouldCaptureScreenshots,
+  shouldCaptureVideo
+} from './e2e-profile.js';
+import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const PASSWORD = process.env.E2E_PASSWORD || 'MafiaTest2026!';
 const RUN_ID = process.env.E2E_RUN_ID || `local-${Date.now().toString(36)}-${process.pid}`;
 
 test('role slot is visible before game and chat scrolls without growing the page', async ({ browser }) => {
-  const artifactDirectory = path.resolve(`output/chat-scroll-test-${RUN_ID}`);
+  test.skip(!PROFILE_CONFIG.runChatScroll, 'chat-scroll runs in Regression and Full QA only.');
+
+  const artifactDirectory = resolveTestOutputDirectory('chat-scroll-test', RUN_ID);
   await mkdir(artifactDirectory, { recursive: true });
 
   const context = await browser.newContext({
     baseURL: BASE_URL,
     viewport: { width: 1440, height: 1000 },
-    recordVideo: {
-      dir: artifactDirectory,
-      size: { width: 1440, height: 1000 }
-    }
+    ...(shouldCaptureVideo()
+      ? {
+        recordVideo: {
+          dir: artifactDirectory,
+          size: { width: 1440, height: 1000 }
+        }
+      }
+      : {})
   });
   const page = await context.newPage();
   const video = page.video();
@@ -83,10 +95,12 @@ test('role slot is visible before game and chat scrolls without growing the page
     expect(chatTypography.textWidth).toBeLessThanOrEqual(chatTypography.availableWidth);
     const inputBox = await input.boundingBox();
     expect(inputBox?.height).toBeGreaterThanOrEqual(40);
-    await page.screenshot({
-      path: path.join(artifactDirectory, 'waiting-room.png'),
-      fullPage: false
-    });
+    if (shouldCaptureScreenshots()) {
+      await page.screenshot({
+        path: path.join(artifactDirectory, 'waiting-room.png'),
+        fullPage: false
+      });
+    }
 
     const readMetrics = () => page.locator('#messages').evaluate(messages => ({
       clientHeight: messages.clientHeight,
@@ -97,12 +111,13 @@ test('role slot is visible before game and chat scrolls without growing the page
     }));
 
     const before = await readMetrics();
-    for (let index = 1; index <= 210; index += 1) {
+    for (let index = 1; index <= PROFILE_CONFIG.chatMessageCount; index += 1) {
       await input.fill(`scroll-test-${index}`);
       await input.press('Enter');
     }
 
-    await expect(page.locator('#messages .chat-message')).toHaveCount(200, {
+    const expectedMessageCount = Math.min(PROFILE_CONFIG.chatMessageCount, 200);
+    await expect(page.locator('#messages .chat-message')).toHaveCount(expectedMessageCount, {
       timeout: 20_000
     });
     await expect.poll(
@@ -114,22 +129,28 @@ test('role slot is visible before game and chat scrolls without growing the page
     expect(after.scrollHeight).toBeGreaterThan(after.clientHeight);
     expect(after.scrollTop).toBeGreaterThan(0);
     expect(after.scrollTop + after.clientHeight).toBeGreaterThanOrEqual(after.scrollHeight - 1);
-    expect(after.messageCount).toBe(200);
+    expect(after.messageCount).toBe(expectedMessageCount);
     expect(Math.abs(after.pageScrollHeight - before.pageScrollHeight)).toBeLessThanOrEqual(1);
 
-    await page.screenshot({
-      path: path.join(artifactDirectory, 'chat-scroll.png'),
-      fullPage: false
-    });
-  } finally {
-    await page.screenshot({
-      path: path.join(artifactDirectory, 'final-state.png'),
-      fullPage: false
-    }).catch(() => {});
-    await context.close();
-    if (!video) {
-      throw new Error('QA evidence video is not available for the chat-scroll scenario.');
+    if (shouldCaptureScreenshots()) {
+      await page.screenshot({
+        path: path.join(artifactDirectory, 'chat-scroll.png'),
+        fullPage: false
+      });
     }
-    await video.saveAs(path.join(artifactDirectory, 'chat-scroll.webm'));
+  } finally {
+    if (shouldCaptureScreenshots()) {
+      await page.screenshot({
+        path: path.join(artifactDirectory, 'final-state.png'),
+        fullPage: false
+      }).catch(() => {});
+    }
+    await context.close();
+    if (shouldCaptureVideo()) {
+      if (!video) {
+        throw new Error('QA evidence video is not available for the chat-scroll scenario.');
+      }
+      await video.saveAs(path.join(artifactDirectory, 'chat-scroll.webm'));
+    }
   }
 });

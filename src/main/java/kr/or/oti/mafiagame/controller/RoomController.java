@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import jakarta.servlet.http.HttpSession;
 
@@ -20,6 +21,7 @@ import kr.or.oti.mafiagame.security.RoomAccess;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 import kr.or.oti.mafiagame.service.RoomService;
 import kr.or.oti.mafiagame.service.RoomService.RoomCreationException;
+import kr.or.oti.mafiagame.service.RoomService.RoomSettingsException;
 
 @Controller
 public class RoomController {
@@ -94,7 +96,8 @@ public class RoomController {
         if (room == null) {
             return "redirect:/rooms";
         }
-        if (room.locked() && !RoomAccess.isGranted(session, roomId)) {
+        boolean isHost = user != null && room.hostUserId() == user.getUserId();
+        if (room.locked() && !isHost && !RoomAccess.isGranted(session, roomId)) {
             model.addAttribute("room", room);
             return "rooms/access";
         }
@@ -116,7 +119,33 @@ public class RoomController {
 
         model.addAttribute("room", room);
         model.addAttribute("members", members);
+        model.addAttribute("isHost", isHost);
         return "rooms/detail";
+    }
+
+    @PostMapping("/rooms/{roomId}/settings")
+    public String updateRoomSettings(
+            @PathVariable("roomId") long roomId,
+            @RequestParam(name = "maxPlayers", required = false) Integer maxPlayers,
+            @RequestParam(name = "passwordEnabled", defaultValue = "false") boolean passwordEnabled,
+            @RequestParam(name = "password", required = false) String password,
+            @AuthenticationPrincipal CustomUserDetails user,
+            RedirectAttributes redirectAttributes) {
+        try {
+            if (user == null) {
+                throw new RoomSettingsException("로그인 후 게임방 설정을 변경할 수 있어요.");
+            }
+            roomPresenceService.updateRoomSettings(
+                    roomId,
+                    user.getUserId(),
+                    maxPlayers,
+                    passwordEnabled,
+                    password);
+            redirectAttributes.addFlashAttribute("roomSettingsSuccess", "게임방 설정을 저장했어요.");
+        } catch (RoomSettingsException exception) {
+            redirectAttributes.addFlashAttribute("roomSettingsError", exception.getMessage());
+        }
+        return "redirect:/rooms/" + roomId;
     }
 
     @PostMapping("/rooms/{roomId}/access")

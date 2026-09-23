@@ -9,6 +9,8 @@ public enum GamePhase {
     NIGHT("밤", 35),
     FINISHED("게임 종료", 0);
 
+    private static final String PHASE_PROFILE_ENV = "MAFIAGAME_PHASE_PROFILE";
+
     private final String label;
     private final long durationSeconds;
 
@@ -22,6 +24,9 @@ public enum GamePhase {
     }
 
     public long durationSeconds() {
+        if ("short".equalsIgnoreCase(System.getenv(PHASE_PROFILE_ENV))) {
+            return durationSeconds == 0 ? 0 : 3;
+        }
         return durationSeconds;
     }
 }

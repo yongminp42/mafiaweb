@@ -1,7 +1,11 @@
 (() => {
   const patchNotesModalElement = document.querySelector('#patchNotesModal');
   const patchNotesHideToday = document.querySelector('#patchNotesHideToday');
-  const patchNotesContent = patchNotesModalElement?.querySelector('.patch-notes-content');
+  const patchNotesContent = [
+    ...document.querySelectorAll(
+      '#patchNotesModal .patch-notes-content, #patchNotesDetailModal .patch-notes-detail-content'
+    )
+  ];
   const PatchNotesModal = window.bootstrap?.Modal;
   const patchNotesStorageKey = 'mafiagame.patch-notes.preference';
 
@@ -13,7 +17,10 @@
   }
 
   function getPatchNotesFingerprint() {
-    return patchNotesContent?.textContent.replace(/\s+/g, ' ').trim() || '';
+    return patchNotesContent
+      .map(element => element.textContent.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join(' | ');
   }
 
   function readPatchNotesPreference() {
@@ -46,8 +53,9 @@
     }
   }
 
+  let patchNotesModal = null;
   if (patchNotesModalElement && PatchNotesModal && !isHiddenToday()) {
-    const patchNotesModal = PatchNotesModal.getOrCreateInstance(patchNotesModalElement);
+    patchNotesModal = PatchNotesModal.getOrCreateInstance(patchNotesModalElement);
     let patchNotesCloseRequested = false;
     const patchNotesCloseButton = patchNotesModalElement.querySelector(
       '[data-bs-dismiss="modal"]'
@@ -70,6 +78,23 @@
       patchNotesModal.hide();
     });
     window.setTimeout(() => patchNotesModal.show(), 150);
+  }
+
+  const patchNotesDetailButton = document.querySelector('#patchNotesDetailButton');
+  const patchNotesDetailModalElement = document.querySelector('#patchNotesDetailModal');
+  if (patchNotesDetailButton && patchNotesDetailModalElement && PatchNotesModal) {
+    let patchNotesDetailModal = null;
+    patchNotesDetailButton.addEventListener('click', () => {
+      patchNotesDetailModal ??= PatchNotesModal.getOrCreateInstance(patchNotesDetailModalElement);
+      const showDetailModal = () => patchNotesDetailModal.show();
+
+      if (patchNotesModal && patchNotesModalElement.classList.contains('show')) {
+        patchNotesModalElement.addEventListener('hidden.bs.modal', showDetailModal, { once: true });
+        patchNotesModal.hide();
+      } else {
+        showDetailModal();
+      }
+    });
   }
 
   const cards = new Map(

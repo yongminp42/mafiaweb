@@ -1145,6 +1145,10 @@ a {
   max-width: 560px;
 }
 
+.patch-notes-detail-modal .modal-dialog {
+  max-width: 920px;
+}
+
 .patch-notes-modal .modal-content {
   border-radius: 1.25rem;
   overflow: hidden;
@@ -1180,6 +1184,31 @@ a {
   background: #fbfbfc;
 }
 
+.patch-notes-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
+.patch-note-version + .patch-note-version {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #eceef2;
+}
+
+.patch-note-version h3 {
+  color: var(--mafia-navy);
+}
+
+.patch-note-detail-list {
+  padding-left: 1.25rem;
+}
+
+.patch-note-detail-list li + li {
+  margin-top: .6rem;
+}
+
 @media (max-width: 575.98px) {
   .patch-notes-header,
   .patch-notes-footer {
@@ -1196,5 +1225,9 @@ a {
 
   .patch-notes-footer .form-check-label {
     white-space: nowrap;
+  }
+
+  .patch-notes-footer-actions {
+    flex-wrap: wrap;
   }
 }

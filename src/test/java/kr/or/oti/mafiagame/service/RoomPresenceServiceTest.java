@@ -165,6 +165,41 @@ class RoomPresenceServiceTest {
     }
 
     @Test
+    void keepsHostDuringReconnectGracePeriodForWaitingRoom() throws InterruptedException {
+        RoomPresenceService reconnectingService = new RoomPresenceService(
+                messagingTemplate,
+                roomService,
+                Duration.ZERO,
+                Duration.ofMillis(100),
+                roomGameService);
+        try {
+            reconnectingService.join(1L, "host-session", principal(10L, "host"));
+            reconnectingService.join(1L, "guest-session", principal(11L, "guest"));
+
+            reconnectingService.leave("host-session");
+
+            assertThat(reconnectingService.currentState(1L).participants())
+                    .singleElement()
+                    .satisfies(participant -> {
+                        assertThat(participant.userId()).isEqualTo(11L);
+                        assertThat(participant.host()).isFalse();
+                    });
+            verify(roomService, never()).transferHost(1L, 11L);
+
+            reconnectingService.join(1L, "reconnected-host-session", principal(10L, "host"));
+            Thread.sleep(250L);
+
+            assertThat(reconnectingService.currentState(1L).participants())
+                    .filteredOn(participant -> participant.userId() == 10L)
+                    .singleElement()
+                    .satisfies(participant -> assertThat(participant.host()).isTrue());
+            verify(roomService, never()).transferHost(1L, 11L);
+        } finally {
+            reconnectingService.shutdownCleanupExecutor();
+        }
+    }
+
+    @Test
     void keepsEmptyRoomVisibleDuringCleanupGracePeriod() {
         RoomPresenceService delayedService = new RoomPresenceService(
                 messagingTemplate, roomService, Duration.ofSeconds(1));
@@ -380,13 +415,45 @@ class RoomPresenceServiceTest {
 
     @Test
     void lockedRoomRequiresVerifiedHttpSessionAccess() {
-        Principal user = principal(40L, "host");
+        Principal host = principal(40L, "host");
+        Principal user = principal(41L, "guest");
+
+        presenceService.join(4L, "host-session", host, false);
+        assertThat(presenceService.isParticipant(4L, "host-session")).isTrue();
 
         assertThatThrownBy(() -> presenceService.join(4L, "locked-session", user, false))
                 .isInstanceOf(RoomWebSocketException.class);
 
         presenceService.join(4L, "locked-session", user, true);
         assertThat(presenceService.isParticipant(4L, "locked-session")).isTrue();
+    }
+
+    @Test
+    void broadcastsUpdatedCapacityAndLockStateToAllRoomParticipants() {
+        RoomSummary room = room(1L, 10L, 8);
+        when(roomService.getRoom(1L)).thenReturn(room);
+        doAnswer(invocation -> {
+            room.setMaxPlayers(invocation.getArgument(2, Integer.class));
+            room.setLocked(invocation.getArgument(3, Boolean.class));
+            return null;
+        }).when(roomService).updateRoomSettings(1L, 10L, 6, true, "secret", 2);
+
+        presenceService.join(1L, "host-session", principal(10L, "host"));
+        presenceService.join(1L, "guest-session", principal(11L, "guest"));
+
+        RoomPresenceState updated = presenceService.updateRoomSettings(
+                1L,
+                10L,
+                6,
+                true,
+                "secret");
+
+        assertThat(updated).isNotNull();
+        assertThat(updated.participants()).hasSize(2);
+        assertThat(updated.capacity()).isEqualTo(6);
+        assertThat(updated.locked()).isTrue();
+        verify(roomService).updateRoomSettings(1L, 10L, 6, true, "secret", 2);
+        verify(messagingTemplate).convertAndSend("/topic/rooms/1/presence", updated);
     }
 
     @Test

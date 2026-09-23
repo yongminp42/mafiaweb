@@ -92,6 +92,14 @@
         WHERE room_id = #{roomId}
     </update>
 
+    <update id="updateSettings">
+        UPDATE game_room
+        SET max_players = #{maxPlayers},
+            room_password = #{roomPassword}
+        WHERE room_id = #{roomId}
+          AND status = 'WAITING'
+    </update>
+
     <update id="updateStatus">
         UPDATE game_room
         SET status = #{status}

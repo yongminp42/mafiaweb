@@ -12,9 +12,9 @@ import {
 const stompSource = await readClientScript('stomp-client.js');
 const chatSource = await readClientScript('chat.js');
 
-function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
+function chatMarkup({ nickname = 'alice', userId = 10, isHost = false } = {}) {
   return `<!doctype html>
-    <html><body data-room-id="7" data-nickname="${nickname}" data-user-id="${userId}" data-capacity="4">
+    <html><body data-room-id="7" data-nickname="${nickname}" data-user-id="${userId}" data-capacity="4" data-is-host="${isHost}">
       <form id="chatForm">
         <select id="chatChannel"><option value="PUBLIC">전체 채널</option><option value="MAFIA" hidden disabled>마피아 채널</option><option value="DEAD" hidden disabled>사망자 채널</option></select>
         <input name="content">
@@ -23,9 +23,25 @@ function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
       <button id="ready">ready</button>
       <button id="startGame" hidden>start</button>
       <p id="startGameNotice" hidden></p>
+      <button id="roomSettingsButton">settings</button>
+      <form id="roomSettingsForm">
+        <select id="roomSettingsMaxPlayers">
+          <option value="4">4명</option>
+          <option value="5">5명</option>
+          <option value="6">6명</option>
+          <option value="7">7명</option>
+          <option value="8" selected>8명</option>
+        </select>
+        <div id="roomSettingsCapacityWarning" hidden>
+          현재 참가자가 <strong id="roomSettingsCurrentPlayers">0</strong>명
+        </div>
+        <button id="roomSettingsSaveButton" type="submit">save settings</button>
+      </form>
       <div id="memberGrid"></div>
       <span id="roomPlayerCount">0</span>
       <span id="roomMemberCount">0</span>
+      <span id="roomCapacity">4</span>
+      <span id="roomLockIndicator" class="d-none"></span>
       <span id="roomStatus">대기 중</span>
       <section id="gamePanel" hidden>
         <h2 id="gamePhaseTitle"></h2>
@@ -55,7 +71,7 @@ function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
           </div>
         </div>
         <p id="gameActionStatus"></p>
-        <div id="nightResultPanel" hidden><strong id="nightResultTitle">경찰 조사 결과</strong><span id="nightResultLabel"></span><span id="nightResultMafiaList" hidden></span></div>
+        <div id="nightResultPanel" hidden><strong id="nightResultTitle">경찰 조사 결과</strong><span id="nightResultFactionLabel"></span><span id="nightResultLabel" hidden></span><span id="nightResultMafiaList" hidden></span></div>
       </section>
       <div id="messages"></div>
       <div id="chatNotice"></div>
@@ -64,6 +80,134 @@ function chatMarkup({ nickname = 'alice', userId = 10 } = {}) {
       <div id="toast"></div>
     </body></html>`;
 }
+
+test('chat applies room settings from presence updates and keeps host controls unavailable in game', () => {
+  const dom = createDom(chatMarkup({ isHost: true }));
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [{ userId: 10, nickname: 'alice', host: true, ready: false }];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'WAITING', capacity: 6, locked: true })
+    ));
+
+    assert.equal(dom.window.document.querySelector('#roomCapacity').textContent, '6');
+    assert.equal(dom.window.document.querySelector('#roomLockIndicator').hidden, false);
+    assert.equal(dom.window.document.querySelectorAll('#memberGrid .member').length, 6);
+    assert.equal(dom.window.document.querySelector('#roomSettingsButton').hidden, false);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/presence' },
+      JSON.stringify({ roomId: 7, participants, status: 'WAITING', capacity: 8, locked: false })
+    ));
+    assert.equal(dom.window.document.querySelector('#roomCapacity').textContent, '8');
+    assert.equal(dom.window.document.querySelector('#roomLockIndicator').hidden, true);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/presence' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING', capacity: 6, locked: true })
+    ));
+
+    assert.equal(dom.window.document.querySelector('#roomSettingsButton').hidden, true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('chat hides room settings from a non-host participant', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: false, ready: false },
+      { userId: 11, nickname: 'bob', host: true, ready: false }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'WAITING', capacity: 8, locked: false })
+    ));
+
+    assert.equal(dom.window.document.querySelector('#roomSettingsButton').hidden, true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('chat warns and blocks room capacity below the live participant count', () => {
+  const dom = createDom(chatMarkup({ isHost: true }));
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: false },
+      { userId: 11, nickname: 'bob', host: false, ready: false },
+      { userId: 12, nickname: 'cindy', host: false, ready: false },
+      { userId: 13, nickname: 'dave', host: false, ready: false },
+      { userId: 14, nickname: 'erin', host: false, ready: false }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'WAITING', capacity: 8, locked: false })
+    ));
+
+    const form = dom.window.document.querySelector('#roomSettingsForm');
+    const maxPlayers = dom.window.document.querySelector('#roomSettingsMaxPlayers');
+    const warning = dom.window.document.querySelector('#roomSettingsCapacityWarning');
+    const saveButton = dom.window.document.querySelector('#roomSettingsSaveButton');
+
+    assert.equal(maxPlayers.querySelector('option[value="4"]').disabled, true);
+    assert.equal(maxPlayers.querySelector('option[value="5"]').disabled, false);
+
+    maxPlayers.value = '5';
+    maxPlayers.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    assert.equal(warning.hidden, true);
+    assert.equal(saveButton.disabled, false);
+
+    const expandedParticipants = [...participants, { userId: 15, nickname: 'faye', host: false, ready: false }];
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/presence' },
+      JSON.stringify({ roomId: 7, participants: expandedParticipants, status: 'WAITING', capacity: 8, locked: false })
+    ));
+
+    assert.equal(maxPlayers.querySelector('option[value="5"]').disabled, true);
+    assert.equal(warning.hidden, false);
+    assert.match(warning.textContent, /6/);
+    assert.equal(saveButton.disabled, true);
+    const submitEvent = new dom.window.Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(submitEvent);
+    assert.equal(submitEvent.defaultPrevented, true);
+
+    maxPlayers.value = '6';
+    maxPlayers.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    assert.equal(warning.hidden, true);
+    assert.equal(saveButton.disabled, false);
+  } finally {
+    dom.window.close();
+  }
+});
 
 test('chat subscribes to room topics only after the room join acknowledgement', () => {
   const dom = createDom(chatMarkup());
@@ -355,6 +499,85 @@ test('chat renders game phases and sends nomination and execution votes', () => 
       })
     ));
     assert.equal(dom.window.document.body.classList.contains('night-phase'), false);
+    const channel = dom.window.document.querySelector('#chatChannel');
+    assert.equal(channel.value, 'PUBLIC');
+    assert.equal(channel.querySelector('option[value="PUBLIC"]').disabled, false);
+    assert.equal(channel.querySelector('option[value="MAFIA"]').hidden, true);
+    assert.equal(channel.querySelector('option[value="MAFIA"]').disabled, true);
+    assert.equal(channel.querySelector('option[value="DEAD"]').hidden, true);
+    assert.equal(channel.querySelector('option[value="DEAD"]').disabled, true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('chat returns a dead medium to the public channel when the game finishes', () => {
+  const dom = createDom(chatMarkup());
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, chatSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const participants = [
+      { userId: 10, nickname: 'alice', host: true, ready: true },
+      { userId: 11, nickname: 'bob', host: false, ready: true }
+    ];
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame('MESSAGE', { destination: '/user/queue/room-joined' },
+      JSON.stringify({ roomId: 7, participants, status: 'PLAYING' })));
+    socket.receive(createFrame('MESSAGE', { subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'MEDIUM', roleLabel: 'medium' })));
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'NIGHT',
+        phaseEndsAt: Date.now() + 35_000,
+        remainingSeconds: 35,
+        players: [
+          { userId: 10, nickname: 'alice', alive: true },
+          { userId: 11, nickname: 'bob', alive: false }
+        ]
+      })));
+
+    assert.equal(dom.window.document.querySelector('#chatChannel').value, 'DEAD');
+    socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
+      JSON.stringify({
+        roomId: 7,
+        phase: 'FINISHED',
+        phaseEndsAt: Date.now(),
+        remainingSeconds: 0,
+        players: [
+          { userId: 10, nickname: 'alice', alive: false, role: 'MEDIUM' },
+          { userId: 11, nickname: 'bob', alive: false, role: 'MAFIA' }
+        ],
+        gameOver: true,
+        winningFaction: 'MAFIA'
+      })));
+
+    const channel = dom.window.document.querySelector('#chatChannel');
+    assert.equal(channel.value, 'PUBLIC');
+    assert.equal(channel.querySelector('option[value="MAFIA"]').hidden, true);
+    assert.equal(channel.querySelector('option[value="MAFIA"]').disabled, true);
+    assert.equal(channel.querySelector('option[value="DEAD"]').hidden, true);
+    assert.equal(channel.querySelector('option[value="DEAD"]').disabled, true);
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, false);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/7/chat' },
+      JSON.stringify({
+        type: 'CHAT',
+        sender: 'bob',
+        content: '게임 종료 후 공개 메시지',
+        channel: 'PUBLIC'
+      })
+    ));
+    const finishedPublicMessage = dom.window.document.querySelector('#messages .chat-message:last-child');
+    assert.equal(finishedPublicMessage.dataset.channel, 'PUBLIC');
+    assert.equal(finishedPublicMessage.classList.contains('channel-public'), true);
+    assert.match(finishedPublicMessage.textContent, /게임 종료 후 공개 메시지/);
   } finally {
     dom.window.close();
   }
@@ -713,6 +936,28 @@ test('chat lets the medium investigate only dead players and send dead-channel m
       action: 'MEDIUM_INVESTIGATE'
     });
 
+    socket.receive(createFrame(
+      'MESSAGE',
+      { subscription: 'night-result' },
+      JSON.stringify({
+        roomId: 7,
+        targetUserId: 11,
+        targetNickname: 'bob',
+        faction: 'CITIZEN',
+        factionLabel: '시민팀',
+        role: 'CITIZEN',
+        roleLabel: '시민'
+      })
+    ));
+    assert.equal(
+      dom.window.document.querySelector('#nightResultFactionLabel').textContent,
+      'bob님의 진영: 시민팀'
+    );
+    assert.equal(
+      dom.window.document.querySelector('#nightResultLabel').textContent,
+      '직업: 시민'
+    );
+
     const chatInput = dom.window.document.querySelector('#chatForm input[name="content"]');
     chatInput.value = '사망자 채널 메시지';
     dom.window.document.querySelector('#chatForm').dispatchEvent(
@@ -799,15 +1044,16 @@ test('chat renders a police investigation result from the private night queue', 
         targetUserId: 11,
         targetNickname: 'bob',
         faction: 'MAFIA',
-        factionLabel: '마피아'
+        factionLabel: '마피아팀'
       })
     ));
 
     assert.equal(dom.window.document.querySelector('#nightResultPanel').hidden, false);
     assert.equal(
-      dom.window.document.querySelector('#nightResultLabel').textContent,
-      ' bob님은 마피아입니다.'
+      dom.window.document.querySelector('#nightResultFactionLabel').textContent,
+      'bob님의 진영: 마피아팀'
     );
+    assert.equal(dom.window.document.querySelector('#nightResultLabel').hidden, true);
   } finally {
     dom.window.close();
   }
@@ -840,7 +1086,7 @@ test('chat renders an exact-role investigation result for spy or medium', () => 
         targetUserId: 11,
         targetNickname: 'bob',
         faction: 'MAFIA',
-        factionLabel: '마피아',
+        factionLabel: '마피아팀',
         role: 'MAFIA',
         roleLabel: '마피아',
         mafiaPlayers: [{ userId: 11, nickname: 'bob', alive: true, role: 'MAFIA' }]
@@ -852,8 +1098,12 @@ test('chat renders an exact-role investigation result for spy or medium', () => 
       '직업 조사 결과'
     );
     assert.equal(
+      dom.window.document.querySelector('#nightResultFactionLabel').textContent,
+      'bob님의 진영: 마피아팀'
+    );
+    assert.equal(
       dom.window.document.querySelector('#nightResultLabel').textContent,
-      ' bob님은 마피아입니다.'
+      '직업: 마피아'
     );
     assert.equal(
       dom.window.document.querySelector('#nightResultMafiaList').textContent,
