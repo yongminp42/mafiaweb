@@ -44,7 +44,8 @@ import kr.or.oti.mafiagame.security.PrincipalIdentity;
 
 @Service
 public class RoomPresenceService {
-    private static final Duration DEFAULT_GAME_DEPARTURE_GRACE_PERIOD = Duration.ofSeconds(10);
+    private static final Duration DEFAULT_GAME_DEPARTURE_GRACE_PERIOD = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_HOST_TRANSFER_GRACE_PERIOD = Duration.ofSeconds(10);
     private static final long LOBBY_COUNT_REQUEST_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(1);
     private static final long LOBBY_COUNT_BROADCAST_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
     private static final Logger log = LoggerFactory.getLogger(RoomPresenceService.class);
@@ -55,6 +56,7 @@ public class RoomPresenceService {
     private final RoomService roomService;
     private final RoomGameService roomGameService;
     private final Duration gameDepartureGracePeriod;
+    private final Duration hostTransferGracePeriod;
     private final ReentrantReadWriteLock presenceLock = new ReentrantReadWriteLock();
     private final Lock readLock = presenceLock.readLock();
     private final Lock writeLock = presenceLock.writeLock();
@@ -85,7 +87,23 @@ public class RoomPresenceService {
                 roomService,
                 emptyRoomCleanupDelay,
                 DEFAULT_GAME_DEPARTURE_GRACE_PERIOD,
+                DEFAULT_HOST_TRANSFER_GRACE_PERIOD,
                 null);
+    }
+
+    public RoomPresenceService(
+            SimpMessagingTemplate messagingTemplate,
+            RoomService roomService,
+            @Value("${mafiagame.room.empty-cleanup-delay:15s}") Duration emptyRoomCleanupDelay,
+            @Value("${mafiagame.room.game-departure-grace-period:30s}") Duration gameDepartureGracePeriod,
+            @Lazy RoomGameService roomGameService) {
+        this(
+                messagingTemplate,
+                roomService,
+                emptyRoomCleanupDelay,
+                gameDepartureGracePeriod,
+                DEFAULT_HOST_TRANSFER_GRACE_PERIOD,
+                roomGameService);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -93,7 +111,8 @@ public class RoomPresenceService {
             SimpMessagingTemplate messagingTemplate,
             RoomService roomService,
             @Value("${mafiagame.room.empty-cleanup-delay:15s}") Duration emptyRoomCleanupDelay,
-            @Value("${mafiagame.room.game-departure-grace-period:10s}") Duration gameDepartureGracePeriod,
+            @Value("${mafiagame.room.game-departure-grace-period:30s}") Duration gameDepartureGracePeriod,
+            @Value("${mafiagame.room.host-transfer-grace-period:10s}") Duration hostTransferGracePeriod,
             @Lazy RoomGameService roomGameService) {
         this.messagingTemplate = messagingTemplate;
         this.roomService = roomService;
@@ -104,6 +123,9 @@ public class RoomPresenceService {
         this.gameDepartureGracePeriod = gameDepartureGracePeriod.isNegative()
                 ? Duration.ZERO
                 : gameDepartureGracePeriod;
+        this.hostTransferGracePeriod = hostTransferGracePeriod.isNegative()
+                ? Duration.ZERO
+                : hostTransferGracePeriod;
         ThreadFactory threadFactory = runnable -> {
             Thread thread = new Thread(runnable, "room-presence-cleanup");
             thread.setDaemon(true);
@@ -706,7 +728,7 @@ public class RoomPresenceService {
         // 닫힐 수 있으므로, 재접속 유예 시간 동안 기존 방장을 유지한다.
         boolean deferHostTransfer = hostLeaves
                 && "WAITING".equals(roomStatusByRoom.getOrDefault(roomId, "WAITING"))
-                && !gameDepartureGracePeriod.isZero();
+                && !hostTransferGracePeriod.isZero();
         ParticipantPresence successor = hostLeaves && !deferHostTransfer
                 ? participants.values().stream()
                         .filter(candidate -> !candidate.equals(participant)
@@ -865,7 +887,7 @@ public class RoomPresenceService {
         if (previousTask != null) {
             previousTask.cancel(false);
         }
-        if (gameDepartureGracePeriod.isZero()) {
+        if (hostTransferGracePeriod.isZero()) {
             completeScheduledHostTransfer(roomId, departingHostUserId);
             return;
         }
@@ -874,7 +896,7 @@ public class RoomPresenceService {
                 roomId,
                 cleanupExecutor.schedule(
                         () -> completeScheduledHostTransfer(roomId, departingHostUserId),
-                        gameDepartureGracePeriod.toMillis(),
+                        hostTransferGracePeriod.toMillis(),
                         TimeUnit.MILLISECONDS));
     }
 

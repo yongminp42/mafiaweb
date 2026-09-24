@@ -135,11 +135,33 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await host.locator('#roomSettingsPassword').fill(password);
     await host.locator('#roomSettingsSaveButton').click();
     await expect(host).toHaveURL(roomUrl);
+    await expect(host.locator('#roomSettingsModal')).toBeVisible();
+    await expect(host.locator('#roomSettingsModal .modal-footer [role="status"]'))
+      .toHaveText('방 설정이 저장되었습니다.');
     await expect(host.locator('#roomLockIndicator')).toBeVisible();
     await expect(pages[1].locator('#roomLockIndicator')).toBeVisible({ timeout: 15_000 });
 
     await host.reload({ waitUntil: 'domcontentloaded' });
     await expect(host.locator('#roomSettingsButton')).toBeVisible({ timeout: 15_000 });
+    await host.locator('#roomSettingsButton').click();
+    await expect(host.locator('#roomSettingsModal')).toBeVisible();
+    await expect(host.locator('#roomSettingsPasswordEnabled')).toBeChecked();
+    await host.locator('#roomSettingsPassword').fill(`${password}-changed`);
+    await host.locator('#roomSettingsSaveButton').click();
+    await expect(host.locator('#roomSettingsModal')).toBeVisible();
+    await expect(host.locator('#roomSettingsModal .modal-footer [role="status"]'))
+      .toHaveText('방 설정이 저장되었습니다.');
+    await expect(pages[1].locator('#roomLockIndicator')).toBeVisible({ timeout: 15_000 });
+
+    await host.locator('#roomSettingsPasswordEnabled').uncheck();
+    await host.locator('#roomSettingsSaveButton').click();
+    await expect(host.locator('#roomSettingsModal')).toBeVisible();
+    await expect(host.locator('#roomSettingsModal .modal-footer [role="status"]'))
+      .toHaveText('방 설정이 저장되었습니다.');
+    await expect(host.locator('#roomLockIndicator')).toBeHidden();
+    await expect(pages[1].locator('#roomLockIndicator')).toBeHidden({ timeout: 15_000 });
+    await host.locator('#roomSettingsModal button[data-bs-dismiss="modal"]').first().click();
+    await expect(host.locator('#roomSettingsModal')).toBeHidden();
 
     const backLink = host.locator('.room-back-link');
     await expect(backLink).toBeVisible();

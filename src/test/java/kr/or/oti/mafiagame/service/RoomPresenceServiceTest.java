@@ -65,6 +65,7 @@ class RoomPresenceServiceTest {
                 roomService,
                 Duration.ZERO,
                 Duration.ZERO,
+                Duration.ZERO,
                 roomGameService);
         lenient().when(roomService.getRoom(anyLong())).thenAnswer(invocation -> switch (invocation.<Long>getArgument(0).intValue()) {
             case 1 -> room(1L, 10L);
@@ -126,7 +127,8 @@ class RoomPresenceServiceTest {
                 messagingTemplate,
                 roomService,
                 Duration.ZERO,
-                Duration.ofMillis(100),
+                Duration.ofSeconds(30),
+                Duration.ofSeconds(10),
                 roomGameService);
         try {
             reconnectingService.join(1L, "old-session", principal(10L, "host"));
@@ -181,6 +183,7 @@ class RoomPresenceServiceTest {
                 messagingTemplate,
                 roomService,
                 Duration.ZERO,
+                Duration.ofMillis(100),
                 Duration.ofMillis(100),
                 roomGameService);
         try {

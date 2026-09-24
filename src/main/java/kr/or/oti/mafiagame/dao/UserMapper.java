@@ -14,6 +14,18 @@ public interface UserMapper {
 
     int insertStats(@Param("userId") long userId);
 
+    int insertGameCompletion(
+            @Param("gameId") String gameId,
+            @Param("roomId") long roomId,
+            @Param("winnerFaction") String winnerFaction);
+
+    boolean gameCompletionExists(@Param("gameId") String gameId);
+
+    int incrementGameStats(
+            @Param("userId") long userId,
+            @Param("wins") int wins,
+            @Param("losses") int losses);
+
     Optional<User> findById(@Param("userId") Long userId);
 
     UserStats findStatsByUserId(@Param("userId") long userId);

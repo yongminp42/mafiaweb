@@ -19,6 +19,14 @@ CREATE TABLE user_stats (
     FOREIGN KEY (user_id) REFERENCES `user` (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE game_completion (
+    game_id CHAR(36) NOT NULL,
+    room_id BIGINT NOT NULL,
+    winner_faction VARCHAR(16) NOT NULL,
+    completed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (game_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE game_room (
     room_id BIGINT NOT NULL AUTO_INCREMENT,
     host_user_id BIGINT NOT NULL,

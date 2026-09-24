@@ -39,6 +39,7 @@ import kr.or.oti.mafiagame.domain.UserStats;
 import kr.or.oti.mafiagame.dto.ChatChannel;
 import kr.or.oti.mafiagame.dto.ChatMessage;
 import kr.or.oti.mafiagame.dto.GameActionRequest;
+import kr.or.oti.mafiagame.dto.GameFaction;
 import kr.or.oti.mafiagame.dto.GameInvestigationResult;
 import kr.or.oti.mafiagame.dto.GamePhase;
 import kr.or.oti.mafiagame.dto.GameResult;
@@ -57,12 +58,15 @@ class RoomGameServiceTest {
     private SimpMessagingTemplate messagingTemplate;
     @Mock
     private RoomPresenceService roomPresenceService;
+    @Mock
+    private GameResultStatsService gameResultStatsService;
 
     private RoomGameService gameService;
 
     @BeforeEach
     void setUp() {
-        gameService = new RoomGameService(messagingTemplate, roomPresenceService);
+        gameService = new RoomGameService(
+                messagingTemplate, roomPresenceService, gameResultStatsService);
     }
 
     @AfterEach
@@ -120,9 +124,9 @@ class RoomGameServiceTest {
             assertThat(roles).hasSize(playerCount);
             List<String> expectedRoles = switch (playerCount) {
                 case 4 -> List.of("MAFIA", "POLICE", "DOCTOR", "CITIZEN");
-                case 5 -> List.of("MAFIA", "SPY", "POLICE", "DOCTOR", "CITIZEN");
+                case 5 -> List.of("MAFIA", "POLICE", "DOCTOR", "CITIZEN", "CITIZEN");
                 case 6 -> List.of("MAFIA", "SPY", "POLICE", "DOCTOR", "SOLDIER", "CITIZEN");
-                case 7 -> List.of("MAFIA", "MAFIA", "SPY", "POLICE", "DOCTOR", "SOLDIER", "CITIZEN");
+                case 7 -> List.of("MAFIA", "MAFIA", "POLICE", "DOCTOR", "SOLDIER", "MEDIUM", "CITIZEN");
                 case 8 -> List.of("MAFIA", "MAFIA", "SPY", "POLICE", "DOCTOR", "SOLDIER", "MEDIUM", "CITIZEN");
                 default -> throw new IllegalArgumentException("unexpected player count");
             };
@@ -144,7 +148,7 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void confirmsRolesPrivatelyAndStartsDayWhenEveryLivingPlayerConfirms() {
+    void confirmsRolesPrivatelyAndStartsTheFirstNightWhenEveryLivingPlayerConfirms() throws Exception {
         gameService.startGame(ROOM_ID, nightParticipants(), principalNamesForFourPlayers());
         RoomGameState initial = latestPublicState();
         assertThat(initial.phase()).isEqualTo("ROLE_ASSIGNMENT");
@@ -182,11 +186,17 @@ class RoomGameServiceTest {
             gameService.submitAction(ROOM_ID, principal(userId, nickname),
                     new GameActionRequest(null, null, "ROLE_CONFIRM"));
         }
+        RoomGameState firstNight = latestPublicState();
+        assertThat(firstNight.phase()).isEqualTo("NIGHT");
+        assertThat(firstNight.phaseEndsAt() - System.currentTimeMillis()).isBetween(30_000L, 35_000L);
+
+        advanceCurrentPhase();
+
         assertThat(latestPublicState().phase()).isEqualTo("DAY_DISCUSSION");
     }
 
     @Test
-    void startsDayWhenTheRoleConfirmationTimerExpiresInRealTime() throws Exception {
+    void startsTheFirstNightWhenTheRoleConfirmationTimerExpiresInRealTime() throws Exception {
         long startedAt = System.currentTimeMillis();
         gameService.startGame(ROOM_ID, nightParticipants(), principalNamesForFourPlayers());
 
@@ -196,8 +206,46 @@ class RoomGameServiceTest {
             Thread.sleep(100L);
         }
 
-        assertThat(latestPublicState().phase()).isEqualTo("DAY_DISCUSSION");
+        RoomGameState firstNight = latestPublicState();
+        assertThat(firstNight.phase()).isEqualTo("NIGHT");
+        assertThat(firstNight.phaseEndsAt() - System.currentTimeMillis()).isBetween(30_000L, 35_000L);
         assertThat(System.currentTimeMillis() - startedAt).isGreaterThanOrEqualTo(13_000L);
+    }
+
+    @Test
+    void recordsOneOutcomeForEveryParticipantWhenTheGameFinishes() throws Exception {
+        gameService.startGame(
+                ROOM_ID,
+                participantsForCount(4),
+                principalNamesForFourPlayers());
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.POLICE);
+        setRole(3L, GameRole.DOCTOR);
+        setRole(4L, GameRole.CITIZEN);
+
+        gameService.handlePlayerDeparture(ROOM_ID, 1L);
+        gameService.handlePlayerDeparture(ROOM_ID, 1L);
+
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        ArgumentCaptor<List<GameResultStatsService.PlayerOutcome>> outcomes =
+                (ArgumentCaptor) ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<String> gameId = ArgumentCaptor.forClass(String.class);
+        verify(gameResultStatsService).recordCompletedGame(
+                gameId.capture(), eq(ROOM_ID), eq(GameFaction.CITIZEN), outcomes.capture());
+        assertThat(gameId.getValue()).isNotBlank();
+        assertThat(outcomes.getValue()).containsExactlyInAnyOrder(
+                new GameResultStatsService.PlayerOutcome(1L, false),
+                new GameResultStatsService.PlayerOutcome(2L, true),
+                new GameResultStatsService.PlayerOutcome(3L, true),
+                new GameResultStatsService.PlayerOutcome(4L, true));
+    }
+
+    @Test
+    void doesNotRecordStatisticsBeforeACompletedGame() {
+        gameService.startGame(ROOM_ID, nightParticipants(), principalNamesForFourPlayers());
+
+        verify(gameResultStatsService, never()).recordCompletedGame(
+                anyString(), eq(ROOM_ID), any(), any());
     }
 
     @Test
@@ -221,6 +269,16 @@ class RoomGameServiceTest {
         assertThat(initialMessage.getValue().content())
                 .contains("역할 확인")
                 .contains("역할 확인 완료");
+
+        clearInvocations(messagingTemplate);
+        advancePhaseOnce();
+
+        ArgumentCaptor<ChatMessage> nightMessage = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messagingTemplate).convertAndSend(
+                eq("/topic/rooms/1/chat"), nightMessage.capture());
+        assertThat(nightMessage.getValue().type()).isEqualTo("SYSTEM");
+        assertThat(nightMessage.getValue().content())
+                .contains("첫 밤");
 
         clearInvocations(messagingTemplate);
         advancePhaseOnce();
@@ -263,7 +321,7 @@ class RoomGameServiceTest {
                 2L, "bob@example.com",
                 3L, "carol@example.com");
         gameService.startGame(ROOM_ID, participants(), principalNames);
-        advanceCurrentPhase();
+        advanceToNominationVote();
         gameService.submitAction(ROOM_ID, principal(1L, "alice"),
                 new GameActionRequest(2L, null));
         advanceCurrentPhase();
@@ -666,6 +724,28 @@ class RoomGameServiceTest {
     }
 
     @Test
+    void countsOnlyAContactedSpyTowardTheMafiaParityThreshold() throws Exception {
+        gameService.startGame(
+                ROOM_ID,
+                participantsForCount(5),
+                principalNamesForCount(5));
+        setRole(1L, GameRole.MAFIA);
+        setRole(2L, GameRole.SPY);
+        setRole(3L, GameRole.POLICE);
+        setRole(4L, GameRole.DOCTOR);
+        setRole(5L, GameRole.CITIZEN);
+
+        gameService.handlePlayerDeparture(ROOM_ID, 5L);
+        assertThat(latestPublicState().gameOver()).isFalse();
+
+        setMafiaChatUnlocked(2L, true);
+        gameService.handlePlayerDeparture(ROOM_ID, 4L);
+
+        assertThat(latestPublicState().phase()).isEqualTo("FINISHED");
+        assertThat(latestPublicState().winningFaction()).isEqualTo("MAFIA");
+    }
+
+    @Test
     void departedPlayerCanRejoinAsDeadWithoutReviving() throws Exception {
         gameService.startGame(ROOM_ID, participantsForCount(4), principalNamesForCount(4));
         setRole(1L, GameRole.MAFIA);
@@ -765,7 +845,7 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void endsFivePlayerGameAfterMafiaAndSpyAreExecutedByMajorityVotes() throws Exception {
+    void endsFivePlayerGameAfterItsOnlyMafiaIsExecutedByMajorityVotes() throws Exception {
         assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(5);
     }
 
@@ -775,7 +855,7 @@ class RoomGameServiceTest {
     }
 
     @Test
-    void endsSevenPlayerGameAfterBothMafiaAndSpyAreExecutedByMajorityVotes() throws Exception {
+    void endsSevenPlayerGameAfterBothMafiaAreExecutedByMajorityVotes() throws Exception {
         assertThatAllMafiaTeamPlayersCanBeExecutedByMajority(7);
     }
 
@@ -1205,10 +1285,10 @@ class RoomGameServiceTest {
         assignExactRolesForCount(7);
 
         gameService.submitAction(ROOM_ID, principal(1L, "user1"),
-                new GameActionRequest(5L, null, "MAFIA_KILL"));
+                new GameActionRequest(7L, null, "MAFIA_KILL"));
         advanceCurrentPhase();
 
-        assertThat(isAlive(5L)).isFalse();
+        assertThat(isAlive(7L)).isFalse();
         assertThat(isAlive(6L)).isTrue();
     }
 
@@ -1259,7 +1339,7 @@ class RoomGameServiceTest {
 
     private void startNominationVote(List<RoomParticipant> gameParticipants) throws Exception {
         gameService.startGame(ROOM_ID, gameParticipants);
-        advanceCurrentPhase();
+        advanceToNominationVote();
     }
 
     private void startExecutionVote() throws Exception {
@@ -1277,7 +1357,7 @@ class RoomGameServiceTest {
             List<RoomParticipant> gameParticipants,
             Map<Long, String> principalNames) throws Exception {
         gameService.startGame(ROOM_ID, gameParticipants, principalNames);
-        advanceCurrentPhase();
+        advanceToNominationVote();
         gameService.submitAction(ROOM_ID, principal(1L, "alice"),
                 new GameActionRequest(2L, null));
         advanceCurrentPhase();
@@ -1324,12 +1404,12 @@ class RoomGameServiceTest {
         gameService.startGame(ROOM_ID, gameParticipants, principalNamesForCount(playerCount));
         assignExactRolesForCount(playerCount);
 
-        List<Long> mafiaTeamIds = playerCount <= 6
-                ? List.of(2L, 1L)
-                : List.of(2L, 1L, 3L);
+        List<Long> mafiaTeamIds = playerCount == 8
+                ? List.of(2L, 1L, 3L)
+                : List.of(2L, 1L);
         List<Long> nominatorIds = List.of(1L, 4L, 5L);
 
-        advanceCurrentPhase();
+        advanceToNominationVote();
         for (int index = 0; index < mafiaTeamIds.size(); index++) {
             long targetId = mafiaTeamIds.get(index);
             submitNominationAndMajorityExecution(
@@ -1357,9 +1437,9 @@ class RoomGameServiceTest {
         List<GameRole> roles = switch (playerCount) {
             case 5 -> List.of(
                     GameRole.MAFIA,
-                    GameRole.SPY,
                     GameRole.POLICE,
                     GameRole.DOCTOR,
+                    GameRole.CITIZEN,
                     GameRole.CITIZEN);
             case 6 -> List.of(
                     GameRole.MAFIA,
@@ -1371,10 +1451,10 @@ class RoomGameServiceTest {
             case 7 -> List.of(
                     GameRole.MAFIA,
                     GameRole.MAFIA,
-                    GameRole.SPY,
                     GameRole.POLICE,
                     GameRole.DOCTOR,
                     GameRole.SOLDIER,
+                    GameRole.MEDIUM,
                     GameRole.CITIZEN);
             case 8 -> List.of(
                     GameRole.MAFIA,
@@ -1441,6 +1521,16 @@ class RoomGameServiceTest {
         }
     }
 
+    private void advanceToNominationVote() throws Exception {
+        if ("ROLE_ASSIGNMENT".equals(currentPhase()) || "NIGHT".equals(currentPhase())) {
+            advanceCurrentPhase();
+        }
+        if ("DAY_DISCUSSION".equals(currentPhase())) {
+            advanceCurrentPhase();
+        }
+        assertThat(currentPhase()).isEqualTo("NOMINATION_VOTE");
+    }
+
     private String currentPhase() throws Exception {
         Object game = gamesByRoom().get(ROOM_ID);
         Field phase = game.getClass().getDeclaredField("phase");
@@ -1505,6 +1595,17 @@ class RoomGameServiceTest {
         Field aliveField = player.getClass().getDeclaredField("alive");
         aliveField.setAccessible(true);
         aliveField.setBoolean(player, alive);
+    }
+
+    private void setMafiaChatUnlocked(long userId, boolean unlocked) throws Exception {
+        Object game = gamesByRoom().get(ROOM_ID);
+        Field playersField = game.getClass().getDeclaredField("players");
+        playersField.setAccessible(true);
+        Map<?, ?> players = (Map<?, ?>) playersField.get(game);
+        Object player = players.get(userId);
+        Field unlockedField = player.getClass().getDeclaredField("mafiaChatUnlocked");
+        unlockedField.setAccessible(true);
+        unlockedField.setBoolean(player, unlocked);
     }
 
     private boolean isAlive(long userId) throws Exception {

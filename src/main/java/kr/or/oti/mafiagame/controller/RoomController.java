@@ -141,7 +141,7 @@ public class RoomController {
                     maxPlayers,
                     passwordEnabled,
                     password);
-            redirectAttributes.addFlashAttribute("roomSettingsSuccess", "게임방 설정을 저장했어요.");
+            redirectAttributes.addFlashAttribute("roomSettingsSuccess", "방 설정이 저장되었습니다.");
         } catch (RoomSettingsException exception) {
             redirectAttributes.addFlashAttribute("roomSettingsError", exception.getMessage());
         }

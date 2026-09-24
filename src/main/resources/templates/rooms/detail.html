@@ -9,7 +9,7 @@
 </head>
 <body
     class="bg-light"
-    th:attr="data-room-id=${roomId},data-nickname=${nickname},data-user-id=${userId},data-capacity=${room.capacity},data-is-host=${isHost},data-settings-error=${roomSettingsError != null}">
+    th:attr="data-room-id=${roomId},data-nickname=${nickname},data-user-id=${userId},data-capacity=${room.capacity},data-is-host=${isHost},data-settings-error=${roomSettingsError != null},data-settings-success=${roomSettingsSuccess != null}">
 <main class="container-xl py-3 py-lg-4">
   <header>
     <nav class="navbar py-2" aria-label="주 메뉴">
@@ -49,11 +49,6 @@
       <small>참가 중</small>
     </div>
   </section>
-
-  <div th:if="${roomSettingsSuccess}" class="alert alert-success mt-3 mb-0" role="alert"
-       th:text="${roomSettingsSuccess}">게임방 설정을 저장했어요.</div>
-  <div th:if="${roomSettingsError}" class="alert alert-danger mt-3 mb-0" role="alert"
-       th:text="${roomSettingsError}">게임방 설정을 확인해 주세요.</div>
 
   <section class="row g-4 mt-2 mb-4 room-content-layout">
     <section class="col-lg-8 room-left-column" aria-labelledby="players-title">
@@ -288,6 +283,12 @@
         <div class="form-text">비밀번호를 해제하려면 스위치를 끄세요.</div>
       </div>
       <div class="modal-footer">
+        <div class="me-auto">
+          <div th:if="${roomSettingsSuccess}" class="alert alert-success py-2 px-3 mb-0 small"
+               role="status" aria-live="polite" th:text="${roomSettingsSuccess}">방 설정이 저장되었습니다.</div>
+          <div th:if="${roomSettingsError}" class="alert alert-danger py-2 px-3 mb-0 small"
+               role="alert" aria-live="assertive" th:text="${roomSettingsError}">방 설정을 확인해 주세요.</div>
+        </div>
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
         <button type="submit" class="btn btn-dark" id="roomSettingsSaveButton">저장</button>
       </div>
@@ -438,7 +439,8 @@
   }
   passwordEnabled?.addEventListener('change', syncPasswordInput);
   syncPasswordInput();
-  if (settingsModal && document.body.dataset.settingsError === 'true') {
+  if (settingsModal && (document.body.dataset.settingsError === 'true'
+      || document.body.dataset.settingsSuccess === 'true')) {
     bootstrap.Modal.getOrCreateInstance(settingsModal).show();
   }
 </script>

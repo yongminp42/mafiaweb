@@ -40,6 +40,28 @@
         VALUES (#{userId})
     </insert>
 
+    <insert id="insertGameCompletion">
+        INSERT INTO game_completion (game_id, room_id, winner_faction)
+        VALUES (#{gameId}, #{roomId}, #{winnerFaction})
+    </insert>
+
+    <select id="gameCompletionExists" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM game_completion
+            WHERE game_id = #{gameId}
+        )
+    </select>
+
+    <update id="incrementGameStats">
+        UPDATE user_stats
+        SET
+            total_games = total_games + 1,
+            wins = wins + #{wins},
+            losses = losses + #{losses}
+        WHERE user_id = #{userId}
+    </update>
+
     <select id="findById" resultMap="userResultMap">
         SELECT
             user_id,

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReentrantLock;
@@ -48,19 +49,28 @@ public class RoomGameService {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final RoomPresenceService roomPresenceService;
+    private final GameResultStatsService gameResultStatsService;
     private final GamePhaseScheduler phaseScheduler;
     private final Map<Long, GameRoom> gamesByRoom = new ConcurrentHashMap<>();
 
     public RoomGameService(SimpMessagingTemplate messagingTemplate) {
-        this(messagingTemplate, null);
+        this(messagingTemplate, null, null);
+    }
+
+    public RoomGameService(
+            SimpMessagingTemplate messagingTemplate,
+            RoomPresenceService roomPresenceService) {
+        this(messagingTemplate, roomPresenceService, null);
     }
 
     @Autowired
     public RoomGameService(
             SimpMessagingTemplate messagingTemplate,
-            RoomPresenceService roomPresenceService) {
+            RoomPresenceService roomPresenceService,
+            GameResultStatsService gameResultStatsService) {
         this.messagingTemplate = messagingTemplate;
         this.roomPresenceService = roomPresenceService;
+        this.gameResultStatsService = gameResultStatsService;
         this.phaseScheduler = new GamePhaseScheduler();
     }
 
@@ -231,8 +241,8 @@ public class RoomGameService {
                 // 역할 확인 타이머가 끝나면 게임이 진행된다.
                 if (game.confirmedRoleUserIds.size() == game.players.values().stream()
                         .filter(candidate -> candidate.alive).count()) {
-                    moveTo(game, GamePhase.DAY_DISCUSSION, System.currentTimeMillis(),
-                            "낮 토론이 시작되었습니다.");
+                    moveTo(game, GamePhase.NIGHT, System.currentTimeMillis(),
+                            "첫 밤이 시작되었습니다.");
                     scheduleNextPhase(game);
                 }
             } else if (game.phase == GamePhase.NOMINATION_VOTE) {
@@ -555,8 +565,8 @@ public class RoomGameService {
             } else if (game.phase == GamePhase.ROLE_ASSIGNMENT
                     && game.confirmedRoleUserIds.size() == game.players.values().stream()
                             .filter(candidate -> candidate.alive).count()) {
-                moveTo(game, GamePhase.DAY_DISCUSSION, System.currentTimeMillis(),
-                        "낮 토론이 시작되었습니다.");
+                moveTo(game, GamePhase.NIGHT, System.currentTimeMillis(),
+                        "첫 밤이 시작되었습니다.");
                 scheduleNextPhase(game);
             }
             state = snapshot(game, System.currentTimeMillis());
@@ -682,8 +692,8 @@ public class RoomGameService {
 
             // 타이머 콜백은 현재 페이즈의 종료 시점에서 다음 페이즈와 결과를 확정한다.
             switch (game.phase) {
-                case ROLE_ASSIGNMENT -> moveTo(game, GamePhase.DAY_DISCUSSION, now,
-                        "낮 토론이 시작되었습니다.");
+                case ROLE_ASSIGNMENT -> moveTo(game, GamePhase.NIGHT, now,
+                        "첫 밤이 시작되었습니다.");
                 case DAY_DISCUSSION -> moveTo(
                         game,
                         GamePhase.NOMINATION_VOTE,
@@ -796,6 +806,16 @@ public class RoomGameService {
     }
 
     private void finishGame(GameRoom game, long now, GameFaction winner) {
+        if (gameResultStatsService != null) {
+            List<GameResultStatsService.PlayerOutcome> outcomes = game.players.values().stream()
+                    .map(player -> {
+                        boolean mafiaTeam = player.role != null && player.role.isMafiaTeam();
+                        boolean won = (winner == GameFaction.MAFIA) == mafiaTeam;
+                        return new GameResultStatsService.PlayerOutcome(player.userId, won);
+                    })
+                    .toList();
+            gameResultStatsService.recordCompletedGame(game.gameId, game.roomId, winner, outcomes);
+        }
         game.winningFaction = winner;
         moveTo(game, GamePhase.FINISHED, now, winner.label() + " 승리!");
     }
@@ -1141,6 +1161,7 @@ public class RoomGameService {
 
     private static final class GameRoom {
         private final ReentrantLock lock = new ReentrantLock();
+        private final String gameId = UUID.randomUUID().toString();
         private final long roomId;
         private final Map<Long, GamePlayerState> players = new LinkedHashMap<>();
         private final Map<Long, String> principalNames = new HashMap<>();
@@ -1185,6 +1206,11 @@ public class RoomGameService {
         @Override
         public boolean alive() {
             return alive;
+        }
+
+        @Override
+        public boolean mafiaChatUnlocked() {
+            return mafiaChatUnlocked;
         }
 
         @Override

@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ui.ExtendedModelMap;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import kr.or.oti.mafiagame.domain.User;
 import kr.or.oti.mafiagame.domain.UserStats;
@@ -124,6 +125,25 @@ class RoomControllerTest {
         assertThat(controller.roomDetail(2L, host, new MockHttpSession(), model))
                 .isEqualTo("rooms/detail");
         assertThat(model.get("isHost")).isEqualTo(true);
+    }
+
+    @Test
+    void savingRoomSettingsFlashesTheSuccessMessageForTheModal() {
+        CustomUserDetails host = new CustomUserDetails(User.builder()
+                .userId(40L)
+                .userName("host")
+                .email("host@example.com")
+                .password("encoded")
+                .user_level(1)
+                .build(), UserStats.DEFAULT_RATING);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateRoomSettings(
+                2L, 6, false, null, host, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/rooms/2");
+        assertThat(redirectAttributes.getFlashAttributes().get("roomSettingsSuccess"))
+                .isEqualTo("방 설정이 저장되었습니다.");
     }
 
     private static RoomView room(long roomId, int players) {
