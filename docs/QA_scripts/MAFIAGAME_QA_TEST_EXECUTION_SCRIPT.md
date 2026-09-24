@@ -27,6 +27,10 @@ $qaReportDirectory = 'docs/QA_report'
 $sourceModificationAllowed = $false
 $deleteExistingData = $false
 $deleteTestAccounts = $true
+$qaFinalVerdict = $null
+$qaFinalVerdictReason = ''
+$accountCleanupStatus = 'NOT RUN'
+$serverCleanupStatus = 'NOT RUN'
 ```
 
 ### Interactive profile selection (required for every request that omits a profile)
@@ -157,7 +161,7 @@ is profile-aware:
 - Full keeps traces, screenshots, and videos for every executed browser scenario and is the required profile for release evidence and production timing.
 - DuckDNS stores its Node test output and Korean report in its own run-specific directory; it creates no Playwright artifacts.
 - If a required artifact for the selected profile is missing, report that affected item as `BLOCKED`; do not require Full-only video evidence from Smoke.
-- Java/JavaScript console output and reports remain mandatory for Smoke, Regression, and Full. DuckDNS-only captures the isolated Node test output and report; it does not run Java, Gradle, or browser checks. A desktop recording is optional for Smoke/Regression and required only when the release QA process explicitly requests it.
+- Java/JavaScript console output and reports remain mandatory for Smoke, Regression, and Full. Full requires a continuous desktop progress video covering preflight through final result and cleanup; initialize and validate the recorder below before any test command. Smoke/Regression record MVP item 41 as `NOT REQUIRED` and do not block on a desktop video. DuckDNS-only records item 41 as `NOT APPLICABLE`; it captures only its isolated Node test output and report.
 - Store screenshots, videos, traces, logs, and other test evidence in `output/test_output/YYYY-MM-DD/<test-name>/`, using a run-specific test name keyed by `E2E_RUN_ID`; never overwrite evidence from an earlier run.
 - Record the exact generated paths in the QA report. Screenshots and videos supplement, but never replace, console output, logs, JUnit XML, Gradle reports, Playwright traces, and assertions.
 - Ensure credentials, tokens, personal data, and unrelated desktop content are not visible in captured evidence.
@@ -165,6 +169,215 @@ is profile-aware:
 - Save the final QA report under `$projectPath\$qaReportDirectory`.
 - Use a unique report filename containing the execution date and `E2E_RUN_ID` for Smoke, Regression, and Full. DuckDNS profile 4 uses its qa-duckdns timestamp run identifier instead.
 - Do not modify source code unless `$sourceModificationAllowed = $true` in a separate request.
+
+### Full QA progress recording (required)
+
+For Smoke and Regression, set the progress evidence state to `NOT REQUIRED`. For
+DuckDNS-only, report `NOT APPLICABLE`. Full must start a continuous desktop recording
+after the user confirms the selected profile and before file inspection, DB/dependency
+preflight, Java, JavaScript, server startup, or Playwright. This catches missing
+screen-capture permissions before a long QA run can finish without the required file.
+
+Use a dedicated visible PowerShell window for the whole run. Keep it unminimized and
+show the current command output; close or hide unrelated windows first. Never type or
+display passwords, tokens, or personal data during capture. Do not install FFmpeg
+automatically during QA. If `ffmpeg.exe`/`ffprobe.exe` is missing or desktop capture
+cannot start, stop before running tests, report Full as `BLOCKED`, and include the
+preflight error and `NOT RUN` test scopes in the Korean report.
+
+After interactive profile selection and confirmation, run this block for game QA
+profiles before `## Initial Inspection` and `## 0. Environment Preflight`. Do not run
+it for DuckDNS-only; that profile has its own run ID and artifact directory.
+
+```powershell
+if ($e2eProfile -ne 'duckdns') {
+    $env:E2E_RUN_ID = 'qa-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+    $testOutputDate = Get-Date -Format 'yyyy-MM-dd'
+    $testResultPath = Join-Path $projectPath (Join-Path 'output\test_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
+    if (Test-Path -LiteralPath $testResultPath) {
+        throw "QA output already exists; refusing to overwrite: $testResultPath"
+    }
+    New-Item -ItemType Directory -Force -Path $testResultPath | Out-Null
+
+    $progressRecordingState = 'NOT REQUIRED'
+    $progressRecorderProcess = $null
+    $progressRecorderErrorTask = $null
+    if ($e2eProfile -eq 'full') {
+        $progressVideoPath = Join-Path $testResultPath 'qa-progress-full.mp4'
+        $progressStartScreenshotPath = Join-Path $testResultPath 'qa-progress-start.png'
+        $progressFinalScreenshotPath = Join-Path $testResultPath 'qa-progress-final.png'
+        $progressRecorderLogPath = Join-Path $testResultPath 'qa-progress-recorder.log'
+        function Save-QAProgressPreflightBlockedReport {
+            param([Parameter(Mandatory)][string]$Reason)
+
+            $reportDirectoryPath = Join-Path $projectPath $qaReportDirectory
+            New-Item -ItemType Directory -Force -Path $reportDirectoryPath | Out-Null
+            $reportPath = Join-Path $reportDirectoryPath ("MAFIAGAME_QA_REPORT_{0}_{1}.md" -f $testOutputDate, $env:E2E_RUN_ID)
+            if (Test-Path -LiteralPath $reportPath) {
+                throw "Refusing to overwrite an existing QA report: $reportPath"
+            }
+            $report = @"
+# MAFIAGAME Full QA 보고서
+
+- 실행 날짜: $testOutputDate
+- 실행 ID: $env:E2E_RUN_ID
+- 선택 프로필: Full
+- 최종 판정: BLOCKED
+- 차단 단계: 필수 QA 진행 화면 녹화 사전 점검
+- 차단 원인: $Reason
+- MVP 41: BLOCKED (필수 진행 스크린샷/영상 증거를 생성하지 못함)
+- Java 테스트: NOT RUN (진행 녹화 시작 전에 중단)
+- JavaScript 테스트: NOT RUN (진행 녹화 시작 전에 중단)
+- Playwright/서버/계정 정리: NOT RUN (진행 녹화 시작 전에 중단)
+- 진행 영상 경로: $progressVideoPath
+- 진행 스크린샷 경로: $progressStartScreenshotPath; $progressFinalScreenshotPath
+- 녹화 로그: $progressRecorderLogPath
+- 실행 산출물 경로: $testResultPath
+
+진행 화면 증거 준비가 끝나지 않아 어떤 테스트 명령도 실행하지 않았다. 이 보고서는 사전 점검 결과를 기록하며, 미실행 테스트는 PASS로 간주하지 않는다.
+"@
+            Set-Content -LiteralPath $reportPath -Encoding utf8 -Value $report
+            Write-Host "[QA_PROGRESS] Preflight BLOCKED report: $reportPath" -ForegroundColor Yellow
+        }
+        $ffmpegCommand = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+        $ffprobeCommand = Get-Command ffprobe.exe -ErrorAction SilentlyContinue
+        if (-not $ffmpegCommand -or -not $ffprobeCommand) {
+            $progressRecordingState = 'BLOCKED'
+            $qaFinalVerdict = 'BLOCKED'
+            $qaFinalVerdictReason = 'Full QA progress capture tools are unavailable; test execution did not start.'
+            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value 'ffmpeg.exe and/or ffprobe.exe was not found on PATH.'
+            Save-QAProgressPreflightBlockedReport -Reason 'ffmpeg.exe and/or ffprobe.exe was not found on PATH.'
+            throw 'Full QA progress recording is BLOCKED: ffmpeg.exe and ffprobe.exe must be installed and available on PATH before QA starts.'
+        }
+
+        $ffmpegStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $ffmpegStartInfo.FileName = $ffmpegCommand.Source
+        $ffmpegStartInfo.Arguments = '-hide_banner -loglevel error -nostats -y -f gdigrab -framerate 2 -draw_mouse 1 -i desktop -vf scale=1280:-2 -an -c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p -movflags +faststart -f mp4 "' + $progressVideoPath + '"'
+        $ffmpegStartInfo.UseShellExecute = $false
+        $ffmpegStartInfo.CreateNoWindow = $true
+        $ffmpegStartInfo.RedirectStandardInput = $true
+        $ffmpegStartInfo.RedirectStandardError = $true
+        $progressRecorderProcess = [System.Diagnostics.Process]::new()
+        $progressRecorderProcess.StartInfo = $ffmpegStartInfo
+        try {
+            $recorderStarted = $progressRecorderProcess.Start()
+        } catch {
+            $progressRecordingState = 'BLOCKED'
+            $qaFinalVerdict = 'BLOCKED'
+            $qaFinalVerdictReason = $_.Exception.Message
+            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $_.Exception.ToString()
+            Save-QAProgressPreflightBlockedReport -Reason $_.Exception.ToString()
+            throw "Full QA progress recording is BLOCKED: ffmpeg could not start. $($_.Exception.Message)"
+        }
+        if (-not $recorderStarted) {
+            $progressRecordingState = 'BLOCKED'
+            $qaFinalVerdict = 'BLOCKED'
+            $qaFinalVerdictReason = 'FFmpeg failed to start; tests did not run.'
+            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value 'Process.Start returned false.'
+            Save-QAProgressPreflightBlockedReport -Reason 'Process.Start returned false.'
+            throw 'Full QA progress recording is BLOCKED: ffmpeg did not start.'
+        }
+        $progressRecorderErrorTask = $progressRecorderProcess.StandardError.ReadToEndAsync()
+        $progressRecordingStartedAt = Get-Date
+        Start-Sleep -Seconds 2
+        if ($progressRecorderProcess.HasExited) {
+            $recorderError = $progressRecorderErrorTask.Result
+            $progressRecordingState = 'BLOCKED'
+            $qaFinalVerdict = 'BLOCKED'
+            $qaFinalVerdictReason = 'FFmpeg exited before environment preflight; tests did not run.'
+            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $recorderError
+            Save-QAProgressPreflightBlockedReport -Reason $recorderError
+            throw "Full QA progress recording is BLOCKED: ffmpeg exited during startup. $recorderError"
+        }
+
+        $progressRecordingState = 'RECORDING'
+        Write-Host "[QA_PROGRESS] Recording started before preflight: $progressVideoPath" -ForegroundColor Green
+        Write-Host "[QA_PROGRESS] Start screenshot: $progressStartScreenshotPath" -ForegroundColor Green
+    }
+}
+```
+
+Keep the recorder alive across the complete Full run, including DB/dependency and
+Playwright-worker preflight, Java and JavaScript suites, server startup/health checks,
+core and UI E2E, current-run account cleanup, server/port cleanup, and the final
+verdict. Print a visible `[QA_PROGRESS]` stage marker before each phase and before
+cleanup; the continuous recording must show the same dedicated PowerShell window and
+actual command output throughout. Do not substitute separate Playwright scenario
+videos, traces, a generated slideshow, or a text transcript for this recording.
+
+After all test/account/server cleanup is complete and the final verdict has been
+calculated, but before saving the report, display the final verdict and cleanup result
+in the visible PowerShell window and keep recording for at least three seconds. Then
+send `q` to FFmpeg's standard input so it finalizes the MP4 container. Extract the
+start/end progress screenshots from the finalized video, validate their image files,
+the video duration, and the complete video decode. Use this finalization block:
+
+Calculate the provisional verdict from executed evidence before this step: any failed
+test is `FAIL`; otherwise any blocked required test, incomplete cleanup, or missing
+required evidence is `BLOCKED`; use `PASS` only when every required item passes.
+Set `$qaFinalVerdict` and `$qaFinalVerdictReason` to the actual result and show that
+same value in the final screen marker. Capture validation below may downgrade it to
+`BLOCKED`, but never upgrade a `FAIL` or `BLOCKED` result.
+
+```powershell
+if ($e2eProfile -eq 'full') {
+    Write-Host "[QA_PROGRESS] 6/6 Final verdict: $qaFinalVerdict; account cleanup: $accountCleanupStatus; server cleanup: $serverCleanupStatus" -ForegroundColor Cyan
+    Start-Sleep -Seconds 3
+    $progressRecordingEndedAt = Get-Date
+    Write-Host "[QA_PROGRESS] Capture started: $($progressRecordingStartedAt.ToString('o')); final result/cleanup displayed: $($progressRecordingEndedAt.ToString('o'))" -ForegroundColor Cyan
+    Start-Sleep -Milliseconds 500
+
+    if ($null -ne $progressRecorderProcess -and -not $progressRecorderProcess.HasExited) {
+        $progressRecorderProcess.StandardInput.WriteLine('q')
+        $progressRecorderProcess.StandardInput.Close()
+        if (-not $progressRecorderProcess.WaitForExit(15000)) {
+            Stop-Process -Id $progressRecorderProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $recorderError = if ($null -ne $progressRecorderErrorTask -and $progressRecorderErrorTask.IsCompleted) { $progressRecorderErrorTask.Result } else { 'Recorder stderr was not fully collected.' }
+    Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $recorderError
+    $startFrameOutput = & $ffmpegCommand.Source -hide_banner -loglevel error -ss 00:00:02 -i $progressVideoPath -frames:v 1 -y $progressStartScreenshotPath 2>&1
+    $startFrameExitCode = $LASTEXITCODE
+    $finalFrameOutput = & $ffmpegCommand.Source -hide_banner -loglevel error -sseof -2 -i $progressVideoPath -frames:v 1 -y $progressFinalScreenshotPath 2>&1
+    $finalFrameExitCode = $LASTEXITCODE
+    $videoDurationText = & $ffprobeCommand.Source -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 $progressVideoPath 2>&1
+    $videoProbeExitCode = $LASTEXITCODE
+    $videoDecodeOutput = & $ffmpegCommand.Source -hide_banner -v error -i $progressVideoPath -f null NUL 2>&1
+    $videoDecodeExitCode = $LASTEXITCODE
+    $recorderExitCode = if ($null -ne $progressRecorderProcess -and $progressRecorderProcess.HasExited) { $progressRecorderProcess.ExitCode } else { -1 }
+    $screenshotsValid = $startFrameExitCode -eq 0 -and $finalFrameExitCode -eq 0 -and (Test-Path -LiteralPath $progressStartScreenshotPath) -and (Test-Path -LiteralPath $progressFinalScreenshotPath) -and ((Get-Item -LiteralPath $progressStartScreenshotPath).Length -gt 0) -and ((Get-Item -LiteralPath $progressFinalScreenshotPath).Length -gt 0)
+    $durationSeconds = 0.0
+    $durationText = [string]($videoDurationText | Select-Object -Last 1)
+    $durationIsValid = [double]::TryParse($durationText, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$durationSeconds) -and $durationSeconds -ge 10
+    $expectedDurationSeconds = ($progressRecordingEndedAt - $progressRecordingStartedAt).TotalSeconds
+    $coversFullRun = $durationSeconds -ge [Math]::Max(10, ($expectedDurationSeconds - 5))
+
+    if ($screenshotsValid -and $videoProbeExitCode -eq 0 -and $videoDecodeExitCode -eq 0 -and $recorderExitCode -eq 0 -and $durationIsValid -and $coversFullRun) {
+        $progressRecordingState = 'PASS'
+    } else {
+        $progressRecordingState = 'BLOCKED'
+        $qaFinalVerdict = 'BLOCKED'
+        $qaFinalVerdictReason = 'Full QA 진행 화면의 시작/종료 스크린샷 또는 전체 구간 영상이 없거나, MP4 재생 검증에 실패했습니다.'
+    }
+    Write-Host "[QA_PROGRESS] Evidence state: $progressRecordingState; expected duration: $expectedDurationSeconds; actual duration: $durationText; recorder exit: $recorderExitCode; video: $progressVideoPath" -ForegroundColor $(if ($progressRecordingState -eq 'PASS') { 'Green' } else { 'Yellow' })
+    if ($progressRecordingState -ne 'PASS') {
+        Write-Warning "[QA_PROGRESS] start-frame: $($startFrameOutput -join ' '); end-frame: $($finalFrameOutput -join ' '); probe: $($videoDurationText -join ' '); decode: $($videoDecodeOutput -join ' '); recorder: $recorderError"
+    }
+}
+```
+
+If capture startup fails, do not run tests. If final validation fails, retain all
+partial artifacts, set MVP 41 and the Full verdict to `BLOCKED`, and include the
+exact stderr/ffprobe/decode output. Do not relabel missing or corrupt recording as
+`NOT RUN` or `PASS`. The report must list the video, start/end screenshot, and
+recorder-log paths plus the measured duration. Smoke/Regression use `NOT REQUIRED`;
+DuckDNS uses `NOT APPLICABLE`.
+
+When the startup gate throws before tests, still save a Korean preflight report with
+the selected profile, `BLOCKED` verdict, exact recorder error and log path, MVP 41
+`BLOCKED`, Java/JavaScript/Playwright/server/account-cleanup scopes as `NOT RUN`, and
+the created run-specific artifact path. Do not proceed to test sections in that run.
 
 ## DuckDNS-only profile
 
@@ -289,6 +502,8 @@ Record the relevant project structure, test scripts, test configuration, and MVP
 Run this gate before any Java, JavaScript, or Playwright command:
 
 ```powershell
+Write-Host '[QA_PROGRESS] 0/6 Environment preflight started.' -ForegroundColor Cyan
+
 $databaseProbe = Test-NetConnection `
     -ComputerName $dbHost `
     -Port $dbPort `
@@ -390,13 +605,20 @@ the script must not start MariaDB or install a missing client/service.
 
 ## 1. Java Tests
 
+Before starting, print `[QA_PROGRESS] 1/6 Java test suite started.` in the recorded
+PowerShell window. After the actual command exits, print its exit code and summary.
+For Full, confirm that the progress recorder is still running before continuing.
+
 The same complete Gradle Java test suite runs for Smoke, Regression, and Full; the selected profile changes the Playwright E2E scope, timing, and evidence policy, not the Java test set. The restart recovery, Mafia parity, anonymous lobby throttling, and game-start ordering/rollback checks listed below are required in every profile. Do not mark them `NOT RUN` just because an E2E case is skipped by Smoke or Regression; if the Java suite cannot execute or complete, report the affected checks as `BLOCKED` or `NOT RUN` based on the actual output.
 
 Run:
 
 ```powershell
 $env:GRADLE_USER_HOME="$projectPath\.gradle-test"
+Write-Host '[QA_PROGRESS] 1/6 Java test suite started.' -ForegroundColor Cyan
 .\gradlew.bat test --no-daemon --rerun-tasks -x jsTest
+$javaTestExitCode = $LASTEXITCODE
+Write-Host "[QA_PROGRESS] Java test suite exited with code $javaTestExitCode." -ForegroundColor Cyan
 ```
 
 `build.gradle` makes the Gradle `test` task depend on `jsTest`. The QA run executes
@@ -427,14 +649,21 @@ Collect and report:
 
 ## 2. JavaScript Tests
 
+Print `[QA_PROGRESS] 2/6 JavaScript test suite started.` before the command and
+record its real exit code and summary afterward. For Full, confirm that the progress
+recorder is still running before continuing.
+
 Run:
 
 ```powershell
+Write-Host '[QA_PROGRESS] 2/6 JavaScript test suite started.' -ForegroundColor Cyan
 node --test --test-isolation=none `
     test/js/stomp-client.test.js `
     test/js/room-list.test.js `
     test/js/chat.test.js `
     test/js/e2e-profile.test.js
+$javaScriptTestExitCode = $LASTEXITCODE
+Write-Host "[QA_PROGRESS] JavaScript test suite exited with code $javaScriptTestExitCode." -ForegroundColor Cyan
 ```
 
 This is the same four-file test set declared by `package.json`'s `test:js` script and used by Smoke, Regression, and Full. DuckDNS is excluded from these three profiles and runs only through the standalone DuckDNS profile 4.
@@ -485,6 +714,11 @@ replace it with source inspection.
 
 ## 3. Playwright E2E Tests
 
+Print `[QA_PROGRESS] 3/6 Playwright/server lifecycle started.` before the shared
+lifecycle. Keep the continuous recording active while the fresh server starts,
+health checks, test discovery, core/UI scenarios, account cleanup, server shutdown,
+and port-release checks run.
+
 The environment preflight above checks the same `child_process.fork` capability that
 Playwright needs for its worker runner. Smoke, Regression, and Full all use this
 shared gate. Run sections 3.1–3.5 only when both `$e2eEnabled` and
@@ -500,13 +734,13 @@ checked before the `Start-Process` block in section 3.1.
 
 ### 3.1 Prepare the Test Environment
 
-Use the existing project path and create a dated, run-specific test result directory if necessary:
+Reuse the run ID and result directory initialized before preflight. Keep the same
+directory for Java, JavaScript, Playwright, cleanup, and report evidence:
 
 ```powershell
-$env:E2E_RUN_ID = 'qa-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-$testOutputDate = Get-Date -Format 'yyyy-MM-dd'
-$testResultPath = Join-Path $projectPath (Join-Path 'output\test_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
-New-Item -ItemType Directory -Force -Path $testResultPath | Out-Null
+if (-not $env:E2E_RUN_ID -or -not (Test-Path -LiteralPath $testResultPath)) {
+    throw 'QA run id/output directory was not initialized before preflight.'
+}
 
 function Get-QAListeningProcessIds {
     param([Parameter(Mandatory)][int]$Port)
@@ -590,6 +824,7 @@ reuse the user's existing server. This block is the first body of the shared out
 `try`; do not execute it outside the `try/finally` lifecycle:
 
 ```powershell
+Write-Host '[QA_PROGRESS] 3/6 Starting the fresh QA application server.' -ForegroundColor Cyan
 if ($existingServerProcessIds.Count -gt 0) {
     throw "QA port $serverPort is already in use by PID(s) $($existingServerProcessIds -join ', '). Choose an unused serverPort and matching baseUrl."
 }
@@ -685,6 +920,11 @@ Record the result:
 
 ### 3.3 Run Playwright
 
+Print a `[QA_PROGRESS]` marker before Playwright discovery, core scenarios, UI
+scenarios, and after each command with its actual exit code. In Full, check that the
+recorder process is still alive at each marker. A stopped recorder sets the progress
+evidence result to `BLOCKED`; finish only the cleanup needed to safely close this run.
+
 Use a unique execution ID for all test accounts and room titles:
 
 ```powershell
@@ -709,6 +949,7 @@ accounts. This keeps the release gate while avoiding two identical discovery lau
 
 ```powershell
 if ($e2eProfile -eq 'full') {
+    Write-Host '[QA_PROGRESS] 3/6 Full Playwright discovery started.' -ForegroundColor Cyan
     $env:PLAYWRIGHT_OUTPUT_STAGE = 'discovery'
     $e2eList = @(
     npm.cmd exec -- playwright test `
@@ -717,7 +958,9 @@ if ($e2eProfile -eq 'full') {
         test/e2e/room-layout.spec.js `
         --list --workers=$workerCount 2>&1
     )
-if ($LASTEXITCODE -ne 0) {
+$discoveryExitCode = $LASTEXITCODE
+Write-Host "[QA_PROGRESS] Full Playwright discovery exited with code $discoveryExitCode." -ForegroundColor Cyan
+if ($discoveryExitCode -ne 0) {
     throw 'Playwright test discovery failed; do not start the full E2E run.'
 }
 
@@ -743,10 +986,13 @@ After discovery succeeds, run the core suite and then the UI regression suite on
 
 ```powershell
 $env:PLAYWRIGHT_OUTPUT_STAGE = 'core'
+Write-Host '[QA_PROGRESS] 3/6 Playwright core suite started.' -ForegroundColor Cyan
 npm.cmd run test:e2e -- --workers=$workerCount --retries=0 --reporter=list
 $e2eExitCode = $LASTEXITCODE
+Write-Host "[QA_PROGRESS] Playwright core suite exited with code $e2eExitCode." -ForegroundColor Cyan
 
 $env:PLAYWRIGHT_OUTPUT_STAGE = 'ui'
+Write-Host '[QA_PROGRESS] 3/6 Playwright UI suite started.' -ForegroundColor Cyan
 if ($e2eProfile -eq 'smoke') {
     npm.cmd exec -- playwright test test/e2e/room-layout.spec.js `
         --workers=$workerCount --retries=0 --reporter=list
@@ -754,6 +1000,7 @@ if ($e2eProfile -eq 'smoke') {
     npm.cmd run test:e2e:ui -- --workers=$workerCount --retries=0 --reporter=list
 }
 $uiE2eExitCode = $LASTEXITCODE
+Write-Host "[QA_PROGRESS] Playwright UI suite exited with code $uiE2eExitCode." -ForegroundColor Cyan
 Remove-Item Env:E2E_CAPACITY -ErrorAction SilentlyContinue
 Remove-Item Env:E2E_PROFILE -ErrorAction SilentlyContinue
 Remove-Item Env:PLAYWRIGHT_OUTPUT_STAGE -ErrorAction SilentlyContinue
@@ -943,6 +1190,11 @@ For failed Playwright tests, inspect:
 
 ### 3.4 Clean Up Only the Test Server
 
+Print `[QA_PROGRESS] 5/6 QA server cleanup started.` before the shared finalizer and
+`[QA_PROGRESS] 5/6 QA server cleanup finished.` only after both verified process
+termination and port release have been checked. Keep Full recording active during
+this finalizer.
+
 Use this same finalizer for Smoke, Regression, and Full; do not fork or bypass it in
 profile-specific branches. The outer `try` begins before the server is launched and
 contains health checks, discovery, all selected-profile E2E commands, account
@@ -958,8 +1210,12 @@ try {
     # Health check, Playwright discovery, and Playwright execution
 }
 finally {
+    Write-Host '[QA_PROGRESS] 4/6 Current-run test-account cleanup started.' -ForegroundColor Cyan
     # Run the section 3.5 account cleanup first when it is enabled.
+    # Set $accountCleanupStatus to PASS only after remaining_test_accounts is verified as 0.
+    Write-Host "[QA_PROGRESS] Account cleanup result: $accountCleanupStatus" -ForegroundColor Cyan
     Remove-Item Env:PLAYWRIGHT_OUTPUT_STAGE -ErrorAction SilentlyContinue
+    Write-Host '[QA_PROGRESS] 5/6 QA server cleanup started.' -ForegroundColor Cyan
     if ($startedServer) {
         $cleanupProblems = [System.Collections.Generic.List[string]]::new()
         $launcherTreeTerminationConfirmed = $false
@@ -1046,11 +1302,14 @@ finally {
         }
 
         if ($cleanupProblems.Count -gt 0) {
+            $serverCleanupStatus = 'BLOCKED'
             Write-Warning "QA server cleanup is BLOCKED: $($cleanupProblems -join ' ')"
         } else {
+            $serverCleanupStatus = 'PASS'
             Write-Host "QA server cleanup PASS: app PID $qaApplicationProcessId and its launcher tree were stopped; port $serverPort is free."
         }
     }
+    Write-Host "[QA_PROGRESS] 5/6 QA server cleanup finished: $serverCleanupStatus" -ForegroundColor Cyan
 }
 ```
 
@@ -1064,7 +1323,15 @@ cleanup `PASS`.
 
 ### 3.5 Delete Test Accounts After the Run
 
+Print `[QA_PROGRESS] 4/6 current-run test-account cleanup started.` before cleanup,
+then show the matching account count, deleted count, and result. Preserve the same
+`E2E_RUN_ID` used for creation. Keep Full recording active until both account and
+server cleanup are complete.
+
 After Playwright completes, delete every account created by this QA run. Do this before writing the final report, and record the number of accounts found and deleted.
+Set `$accountCleanupStatus` to `PASS` only when the run-specific cleanup succeeds and
+the remaining account count is zero; otherwise set it to `BLOCKED` and record the
+exact database output. Keep the PowerShell cleanup result visible in the recording.
 
 The E2E test account email format is:
 
@@ -1181,7 +1448,7 @@ Validate the following:
 38. System phase-message type, public delivery, one-message-per-transition behavior, and phase-specific guidance
 39. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
 40. Server-rendered game-room screenshots and a normal→night→normal browser video
-41. Screenshot and video evidence covering the full QA progress from preflight through final result and cleanup
+41. Full profile: start/end screenshots and a continuous, decodable desktop video covering preflight through final result, test-account cleanup, server cleanup, and port release. Smoke/Regression: `NOT REQUIRED`; DuckDNS-only: `NOT APPLICABLE`
 42. Host-only room settings UI after friend-invite and help, with 4–8 capacity choices and password set/change/remove behavior
 43. Capacity reduction below the live participant count is blocked in the UI and rejected by the server; updated capacity and lock state synchronize to every participant
 44. After `FINISHED`, only the public channel remains available and public messages from dead participants are delivered to the public topic
@@ -1355,7 +1622,7 @@ Before saving:
 4. If E2E is disabled, include `E2E: NOT RUN` and the reason in the report.
 5. If a test is blocked or not executed, do not mark it as `PASS`.
 6. Report the absolute saved file path in the final response.
-7. Include the run-specific progress screenshot and video paths; if either evidence type is missing, report the affected QA result as `BLOCKED`.
+7. For Full, include the run-specific start/end progress screenshot and continuous-video paths, expected and measured duration, recorder exit code, and `ffprobe`/full-decode result. Missing, truncated, or unreadable evidence makes MVP 41 and the overall Full result `BLOCKED`. For Smoke/Regression explicitly report MVP 41 `NOT REQUIRED`; for DuckDNS-only report it `NOT APPLICABLE`, so those profiles are not blocked by a Full-only desktop video.
 
 The PowerShell setup for the report path is:
 
@@ -1413,7 +1680,8 @@ For every result, include:
 - Related source files and line numbers
 - JUnit XML paths
 - Gradle HTML report path
-- Test-progress screenshot and video paths for the complete QA run
+- Full-profile start/end progress screenshot and continuous-video paths; for Smoke/Regression report `NOT REQUIRED`, and for DuckDNS-only report `NOT APPLICABLE`
+- For Full, progress capture start/end timestamps, expected/measured duration, FFmpeg exit code, `ffprobe` result, full MP4 decode result, and recorder log; for other profiles, the profile-aware `NOT REQUIRED`/`NOT APPLICABLE` status
 - Playwright trace, screenshot, and video paths
 - Playwright core discovery output and the seven required scenario names
 - Playwright UI discovery output and the two required UI scenario names
