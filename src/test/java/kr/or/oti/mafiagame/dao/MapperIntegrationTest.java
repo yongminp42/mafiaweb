@@ -5,18 +5,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 
 import kr.or.oti.mafiagame.domain.Room;
 import kr.or.oti.mafiagame.domain.User;
 import kr.or.oti.mafiagame.domain.UserStats;
+import kr.or.oti.mafiagame.dto.GameFaction;
 import kr.or.oti.mafiagame.dto.RoomSummary;
+import kr.or.oti.mafiagame.service.GameResultStatsService;
 
 @MybatisTest
+@Import(GameResultStatsService.class)
 class MapperIntegrationTest {
     @Autowired
     private UserMapper userMapper;
     @Autowired
     private RoomMapper roomMapper;
+    @Autowired
+    private GameResultStatsService gameResultStatsService;
 
     @Test
     void userMapperPersistsAndQueriesUserAndStats() {
@@ -34,6 +40,27 @@ class MapperIntegrationTest {
         assertThat(stats.getWins()).isZero();
         assertThat(stats.getLosses()).isZero();
         assertThat(stats.getRating()).isEqualTo(UserStats.DEFAULT_RATING);
+    }
+
+    @Test
+    void completedGameUpdatesEachAccountOnceEvenWhenTheResultIsReplayed() {
+        User winner = insertUser("winner@example.com", "winner");
+        User loser = insertUser("loser@example.com", "loser");
+        String gameId = java.util.UUID.randomUUID().toString();
+        var outcomes = java.util.List.of(
+                new GameResultStatsService.PlayerOutcome(winner.getUserId(), true),
+                new GameResultStatsService.PlayerOutcome(loser.getUserId(), false));
+
+        gameResultStatsService.recordCompletedGame(gameId, 77L, GameFaction.CITIZEN, outcomes);
+        gameResultStatsService.recordCompletedGame(gameId, 77L, GameFaction.CITIZEN, outcomes);
+
+        assertThat(userMapper.gameCompletionExists(gameId)).isTrue();
+        assertThat(userMapper.findStatsByUserId(winner.getUserId()).getTotalGames()).isEqualTo(1);
+        assertThat(userMapper.findStatsByUserId(winner.getUserId()).getWins()).isEqualTo(1);
+        assertThat(userMapper.findStatsByUserId(winner.getUserId()).getLosses()).isZero();
+        assertThat(userMapper.findStatsByUserId(loser.getUserId()).getTotalGames()).isEqualTo(1);
+        assertThat(userMapper.findStatsByUserId(loser.getUserId()).getWins()).isZero();
+        assertThat(userMapper.findStatsByUserId(loser.getUserId()).getLosses()).isEqualTo(1);
     }
 
     @Test

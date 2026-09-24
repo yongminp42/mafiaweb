@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule MAFIAGAME DuckDNS updates
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+Persistent=true
+Unit=mafiagame-duckdns.service
+
+[Install]
+WantedBy=timers.target

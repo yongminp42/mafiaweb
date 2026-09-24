@@ -45,9 +45,9 @@ final class RoomGameRules {
                         GameRole.CITIZEN);
                 case 5 -> List.of(
                         GameRole.MAFIA,
-                        GameRole.SPY,
                         GameRole.POLICE,
                         GameRole.DOCTOR,
+                        GameRole.CITIZEN,
                         GameRole.CITIZEN);
                 case 6 -> List.of(
                         GameRole.MAFIA,
@@ -59,10 +59,10 @@ final class RoomGameRules {
                 case 7 -> List.of(
                         GameRole.MAFIA,
                         GameRole.MAFIA,
-                        GameRole.SPY,
                         GameRole.POLICE,
                         GameRole.DOCTOR,
                         GameRole.SOLDIER,
+                        GameRole.MEDIUM,
                         GameRole.CITIZEN);
                 case 8 -> List.of(
                         GameRole.MAFIA,
@@ -97,23 +97,28 @@ final class RoomGameRules {
     }
 
     static GameFaction determineWinner(Collection<? extends GameRulePlayer> players) {
-        int mafiaAlive = 0;
+        int mafiaTeamAlive = 0;
+        int mafiaTeamAliveForParity = 0;
         int citizenFactionAlive = 0;
         for (GameRulePlayer player : players) {
             if (!player.alive()) {
                 continue;
             }
-            if (player.role() != null && player.role().isMafiaTeam()) {
-                mafiaAlive++;
+            GameRole role = player.role();
+            if (role != null && role.isMafiaTeam()) {
+                mafiaTeamAlive++;
+                if (role != GameRole.SPY || player.mafiaChatUnlocked()) {
+                    mafiaTeamAliveForParity++;
+                }
             } else {
                 citizenFactionAlive++;
             }
         }
 
-        if (mafiaAlive == 0) {
+        if (mafiaTeamAlive == 0) {
             return GameFaction.CITIZEN;
         }
-        return mafiaAlive >= citizenFactionAlive ? GameFaction.MAFIA : null;
+        return mafiaTeamAliveForParity >= citizenFactionAlive ? GameFaction.MAFIA : null;
     }
 
     static Long findNominee(
@@ -256,6 +261,10 @@ final class RoomGameRules {
         }
 
         default boolean consumeSoldierShield() {
+            return false;
+        }
+
+        default boolean mafiaChatUnlocked() {
             return false;
         }
     }

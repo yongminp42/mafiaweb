@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:js": "node --test test/js/stomp-client.test.js test/js/room-list.test.js test/js/chat.test.js test/js/e2e-profile.test.js",
+    "qa:duckdns": "node --test --test-isolation=none test/js/duckdns.test.js",
+    "test:js": "node --test --test-isolation=none test/js/stomp-client.test.js test/js/room-list.test.js test/js/chat.test.js test/js/e2e-profile.test.js",
     "test:e2e": "playwright test test/e2e/mafia-mvp.spec.js",
     "test:e2e:ui": "playwright test test/e2e/chat-scroll.spec.js test/e2e/room-layout.spec.js"
   },

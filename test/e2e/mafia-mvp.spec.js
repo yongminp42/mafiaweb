@@ -282,6 +282,24 @@ async function readUserId(page) {
   return userId;
 }
 
+async function readOwnProfileStats(roomPage) {
+  const profilePage = await roomPage.context().newPage();
+  try {
+    await profilePage.goto('/rooms');
+    await dismissPatchNotes(profilePage);
+    await profilePage.locator('.user-menu-toggle').click();
+    await profilePage.locator('.user-menu-dropdown a[href^="/users/"]').click();
+    await expect(profilePage).toHaveURL(/\/users\/\d+$/);
+    const values = await profilePage
+      .locator('.app-profile-hero + section article strong')
+      .allTextContents();
+    expect(values).toHaveLength(3);
+    return values.map(value => Number(value.trim()));
+  } finally {
+    await profilePage.close();
+  }
+}
+
 async function waitForRoomParticipantCount(page, playerCount, timeout = 30_000) {
   await expect(page.locator('#chatConnectionStatus')).toHaveText('실시간', {
     timeout
@@ -434,9 +452,9 @@ function expectedMafiaCount(playerCount) {
 function expectedRoleCounts(playerCount) {
   return {
     4: { MAFIA: 1, SPY: 0, DOCTOR: 1, POLICE: 1, SOLDIER: 0, MEDIUM: 0, CITIZEN: 1 },
-    5: { MAFIA: 1, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 0, MEDIUM: 0, CITIZEN: 1 },
+    5: { MAFIA: 1, SPY: 0, DOCTOR: 1, POLICE: 1, SOLDIER: 0, MEDIUM: 0, CITIZEN: 2 },
     6: { MAFIA: 1, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 0, CITIZEN: 1 },
-    7: { MAFIA: 2, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 0, CITIZEN: 1 },
+    7: { MAFIA: 2, SPY: 0, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 1, CITIZEN: 1 },
     8: { MAFIA: 2, SPY: 1, DOCTOR: 1, POLICE: 1, SOLDIER: 1, MEDIUM: 1, CITIZEN: 1 }
   }[playerCount];
 }
@@ -527,6 +545,9 @@ async function startReplayGame(pages, traces) {
   const nextDayOccurrence = traces[0].gameStates
     .filter(state => state.phase === 'DAY_DISCUSSION')
     .length;
+  const nextNightOccurrence = traces[0].gameStates
+    .filter(state => state.phase === 'NIGHT')
+    .length;
 
   await Promise.all(
     pages.map(async page => {
@@ -555,12 +576,20 @@ async function startReplayGame(pages, traces) {
   expect(secondRoleState.players.every(player => player.role == null)).toBeTruthy();
   await confirmAllRoles(pages);
 
+  await waitForPhase(pages, PHASE_LABELS.NIGHT, 20_000);
+  const secondNightState = await waitForGameState(
+    traces[0], 'NIGHT', nextNightOccurrence, 25_000
+  );
+  await waitForSystemMessage(traces, '\uBC24 \uC548\uB0B4');
+  await waitForPhase(pages, PHASE_LABELS.DAY, PHASE_WAIT_TIMEOUT);
+
   const secondDayState = await waitForGameState(
     traces[0],
     'DAY_DISCUSSION',
     nextDayOccurrence,
     25_000
   );
+  expect(secondDayState.receivedAt).toBeGreaterThanOrEqual(secondNightState.phaseEndsAt - 1_000);
   if (FULL_TIMING_ASSERTIONS) {
     expect(secondDayState.phaseEndsAt - secondDayState.receivedAt)
       .toBeGreaterThan(55_000);
@@ -880,12 +909,22 @@ for (const playerCount of PLAYER_COUNTS) {
           expect(rolePages[role]).toHaveLength(1);
         }
 
-        await waitForPhase(pages, PHASE_LABELS.DAY, 20_000);
+        await waitForPhase(pages, PHASE_LABELS.NIGHT, 20_000);
+        const firstNightState = await waitForGameState(traces[0], 'NIGHT');
+        await waitForSystemMessage(traces, '\uBC24 \uC548\uB0B4');
+        expect(firstNightState.receivedAt).toBeLessThan(roleState.phaseEndsAt);
+        expect(firstNightState.receivedAt - roleState.receivedAt).toBeLessThan(8_000);
+        await waitForPhase(pages, PHASE_LABELS.DAY, PHASE_WAIT_TIMEOUT);
         const dayState = await waitForGameState(traces[0], 'DAY_DISCUSSION');
         await waitForSystemMessage(traces, '\uB0AE \uD1A0\uB860');
-        expect(dayState.receivedAt).toBeLessThan(roleState.phaseEndsAt);
-        expect(dayState.receivedAt - roleState.receivedAt).toBeLessThan(8_000);
+        expect(dayState.receivedAt).toBeGreaterThanOrEqual(firstNightState.phaseEndsAt - 1_000);
+        expect(dayState.players.every(player => player.alive)).toBeTruthy();
+        expect(dayState.receivedAt - firstNightState.receivedAt).toBeGreaterThanOrEqual(2_000);
         if (FULL_TIMING_ASSERTIONS) {
+          expect(firstNightState.phaseEndsAt - firstNightState.receivedAt)
+            .toBeGreaterThanOrEqual(34_000);
+          expect(firstNightState.phaseEndsAt - firstNightState.receivedAt)
+            .toBeLessThanOrEqual(36_000);
           expect(dayState.phaseEndsAt - dayState.receivedAt).toBeGreaterThan(55_000);
           expect(dayState.phaseEndsAt - dayState.receivedAt).toBeLessThanOrEqual(65_000);
         }
@@ -951,10 +990,7 @@ for (const playerCount of PLAYER_COUNTS) {
           )
         );
 
-        // Executing a citizen with five or seven players would end the game at parity.
-        const initialExecutionTargetId = [5, 7].includes(playerCount)
-          ? rolePages.SPY[0]?.userId
-          : citizenUserIds[0];
+        const initialExecutionTargetId = citizenUserIds[0];
         expect(initialExecutionTargetId).toBeTruthy();
 
         await submitNominationVotes(
@@ -1026,7 +1062,7 @@ for (const playerCount of PLAYER_COUNTS) {
 
         await waitForPhase(pages, PHASE_LABELS.NIGHT, 25_000);
         await assertTimersAreSynchronized(pages);
-        const nightState = await waitForGameState(traces[0], 'NIGHT');
+        const nightState = await waitForGameState(traces[0], 'NIGHT', 1);
         await waitForSystemMessage(traces, '\uBC24 \uC548\uB0B4');
         if (FULL_TIMING_ASSERTIONS) {
           expect(nightState.receivedAt - executionState.receivedAt).toBeGreaterThanOrEqual(18_000);
@@ -1402,8 +1438,20 @@ for (const playerCount of PLAYER_COUNTS) {
         );
         await captureScenarioScreenshot(pages[0], artifactDirectory, 'finished');
 
+        await Promise.all(pages.map(async (page, index) => {
+          const stats = await readOwnProfileStats(page);
+          const won = (finishedState.winningFaction === 'MAFIA')
+            === mafiaTeamUserIds.includes(userIds[index]);
+          expect(stats).toEqual([1, won ? 1 : 0, won ? 0 : 1]);
+        }));
+
         if (shouldReplayPlayerCount(playerCount)) {
           await startReplayGame(pages, traces);
+          await Promise.all(pages.map(async page => {
+            const stats = await readOwnProfileStats(page);
+            expect(stats[0]).toBe(2);
+            expect(stats[1] + stats[2]).toBe(2);
+          }));
         }
       } finally {
         if (lobbyPage) {
@@ -1419,11 +1467,12 @@ for (const playerCount of PLAYER_COUNTS) {
 
 if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
   test('closing a waiting-room tab changes six players to the five-player role threshold', async ({ browser }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(150_000);
     const scenarioId = 'th6-' + RUN_ID;
     const artifactDirectory = path.join(ARTIFACT_ROOT, 'six-to-five-threshold');
     const contexts = [];
     const pages = [];
+    const traces = [];
     let hostVideo;
 
     await mkdir(artifactDirectory, { recursive: true });
@@ -1436,6 +1485,7 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
         const page = await context.newPage();
         contexts.push(context);
         pages.push(page);
+        traces.push(attachGameTrace(page));
         if (index === 0) {
           hostVideo = page.video();
         }
@@ -1460,7 +1510,9 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
       await pages[0].locator('#startGame').click();
       await waitForPhase(pages.slice(0, 5), PHASE_LABELS.ROLE, 20_000);
       await confirmAllRoles(pages.slice(0, 5));
-      await waitForPhase(pages.slice(0, 5), PHASE_LABELS.DAY, 25_000);
+      await waitForPhase(pages.slice(0, 5), PHASE_LABELS.NIGHT, 20_000);
+      await waitForGameState(traces[0], 'NIGHT', 0, 25_000);
+      await waitForPhase(pages.slice(0, 5), PHASE_LABELS.DAY, PHASE_WAIT_TIMEOUT);
       const roles = await Promise.all(pages.slice(0, 5).map(async page =>
         (await page.locator('#gameRoleLabel').textContent()).trim()
       ));
@@ -1474,7 +1526,7 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
   });
 
   test('browser deadline, reconnect grace, and expired night action', async ({ browser }) => {
-    test.setTimeout(4 * 60 * 1000);
+    test.setTimeout(5 * 60 * 1000);
     const scenarioId = 'gr6-' + RUN_ID;
     const artifactDirectory = path.join(ARTIFACT_ROOT, 'deadline-reconnect');
     const contexts = [];
@@ -1517,7 +1569,10 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
       const roleState = await waitForGameState(traces[0], 'ROLE_ASSIGNMENT');
       expect(roleState.players.every(player => player.role == null)).toBeTruthy();
       await confirmAllRoles(pages);
-      await waitForPhase(pages, PHASE_LABELS.DAY, 25_000);
+      await waitForPhase(pages, PHASE_LABELS.NIGHT, 20_000);
+      await waitForGameState(traces[0], 'NIGHT', 0, 25_000);
+      await waitForPhase(pages, PHASE_LABELS.DAY, PHASE_WAIT_TIMEOUT);
+      await waitForGameState(traces[0], 'DAY_DISCUSSION', 0, PHASE_WAIT_TIMEOUT);
       const roles = await Promise.all(pages.map(async page =>
         (await page.locator('#gameRoleLabel').textContent()).trim()
       ));
@@ -1557,7 +1612,7 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
         await waitForPhase([observer], PHASE_LABELS.NIGHT, 55_000);
       }
 
-      const night = await waitForGameState(observerTrace, 'NIGHT');
+      const night = await waitForGameState(observerTrace, 'NIGHT', 1);
       expect(night.phaseEndsAt - Date.now()).toBeGreaterThan(27_000);
       const returningMafia = mafiaIndexes[0];
       const departingSpy = spyIndexes[0];
@@ -1570,7 +1625,7 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
       await expect(returnPage.locator('#chatConnectionStatus')).toHaveText('실시간', {
         timeout: 8_000
       });
-      expect(Date.now() - earlyDisconnectAt).toBeLessThan(10_000);
+      expect(Date.now() - earlyDisconnectAt).toBeLessThan(30_000);
       expect(Date.now()).toBeLessThan(night.phaseEndsAt);
 
       await submitNightActionForPage(pages[departingSpy], userIds[citizenIndexes[0]]);
@@ -1578,15 +1633,14 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
       const lateDisconnectAt = Date.now();
       await waitUntil(
         () => observerTrace.gameStates.find(state =>
-          state.phase === 'NIGHT'
-          && state.players.some(player =>
+          state.players.some(player =>
             Number(player.userId) === userIds[departingSpy] && !player.alive
           )
         ),
-        15_000,
-        'departed mafia removal after reconnect grace'
+        40_000,
+        'departed player removal after reconnect grace'
       );
-      expect(Date.now() - lateDisconnectAt).toBeGreaterThanOrEqual(9_000);
+      expect(Date.now() - lateDisconnectAt).toBeGreaterThanOrEqual(29_000);
       const spectatorPage = await contexts[departingSpy].newPage();
       await spectatorPage.goto(roomUrl);
       await expect(spectatorPage.locator('#gamePanel')).toBeVisible({ timeout: 8_000 });

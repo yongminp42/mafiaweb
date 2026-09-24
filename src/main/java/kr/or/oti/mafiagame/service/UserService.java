@@ -46,7 +46,7 @@ public class UserService {
                 formatJoinedAt(user.getCreatedAt()),
                 List.of());
 
-        // 현재 스키마에는 게임 종료 이력 테이블이 없으므로 임의의 기록을 만들지 않는다.
+        // 완료 게임 테이블은 중복 집계 방지용이며, 경기별 상세 전적은 저장하지 않는다.
         return profile;
     }
 
