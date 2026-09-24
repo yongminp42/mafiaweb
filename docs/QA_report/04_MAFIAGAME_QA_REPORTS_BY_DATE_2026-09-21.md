@@ -1,0 +1,258 @@
+# MAFIAGAME QA 보고서 — 2026-09-21
+
+- 포함 보고서 수: 1
+- 날짜 및 실행 시각 순서: 오래된 보고서부터
+
+## 목차
+
+1. `MAFIAGAME_QA_REPORT_2026-09-21_qa-20260921-174132.md`
+
+---
+
+## 문서 1: `MAFIAGAME_QA_REPORT_2026-09-21_qa-20260921-174132.md`
+
+# MAFIAGAME QA 실행 보고서
+
+- 실행일: 2026-09-21
+- 실행 ID: `qa-20260921-174132`
+- 보조 재실행 ID: `qa-20260921-174132-rerun`
+- 브랜치: `develop`
+- 기본 URL: `http://127.0.0.1:8080`
+- 최종 판정: `FAIL`
+
+## 1. 실행 환경
+
+- 운영체제: Windows PowerShell
+- 프로젝트 경로: `C:\workspace-sts-5.3.0\mafiagame`
+- QA 설정: E2E 활성화, 플레이어 수 `4,5,6,8`, UI 용량 `8`, Playwright worker `1`, retry `0`
+- 애플리케이션은 QA 실행 전에 포트 8080이 비어 있는지 확인한 뒤 새로 기동했다.
+
+## 2. MariaDB 사전 점검 및 의존성
+
+- MariaDB `127.0.0.1:23306`: `PASS`
+- Node/npm/jsdom/Playwright 확인: 모두 `PASS`
+- `/login` 상태 확인: HTTP 200, `PASS`
+- DB 정리는 최초 MariaDB 클라이언트의 TLS 오류(`TLS/SSL error: no credentials`)가 발생했으나 `--skip-ssl`로 재시도하여 완료했다.
+
+## 3. 확인한 파일과 디렉터리
+
+- QA 스크립트: `docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md`
+- Java 소스 및 테스트: `src/main/**`, `src/test/java/**`
+- JavaScript 테스트: `test/js/**`
+- Playwright 테스트: `test/e2e/**`
+- Gradle 결과: `build/test-results/test/**`, `build/reports/tests/test/index.html`
+- E2E 실행 로그: `test-results/bootRun.qa-20260921-174132.stdout.log`, `test-results/bootRun.qa-20260921-174132.stderr.log`
+
+## 4. 실행 명령
+
+```powershell
+$env:GRADLE_USER_HOME='C:\workspace-sts-5.3.0\mafiagame\.gradle-test'
+.\gradlew.bat test --no-daemon --rerun-tasks -x jsTest
+```
+
+```powershell
+node --test --test-isolation=none test/js/stomp-client.test.js test/js/room-list.test.js test/js/chat.test.js
+```
+
+```powershell
+$env:E2E_RUN_ID='qa-20260921-174132'
+$env:PLAYER_COUNTS='4,5,6,8'
+$env:BASE_URL='http://127.0.0.1:8080'
+npm.cmd run test:e2e -- --workers=1 --retries=0 --reporter=list
+```
+
+```powershell
+$env:E2E_RUN_ID='qa-20260921-174132'
+$env:BASE_URL='http://127.0.0.1:8080'
+$env:E2E_CAPACITY='8'
+npm.cmd run test:e2e:ui -- --workers=1 --retries=0 --reporter=list
+```
+
+보조 확인으로 실패와 무관한 브라우저 마감 시나리오를 별도 실행했다.
+
+```powershell
+$env:E2E_RUN_ID='qa-20260921-174132-rerun'
+$env:PLAYER_COUNTS='4,5,6,8'
+$env:BASE_URL='http://127.0.0.1:8080'
+npm.cmd run test:e2e -- --workers=1 --retries=0 --reporter=list --grep "browser deadline"
+```
+
+## 5. Java 테스트 결과
+
+- 결과: `PASS`
+- Gradle 결과: `BUILD SUCCESSFUL in 59s`
+- 총 테스트: 103
+- 성공: 103
+- 실패: 0
+- 오류: 0
+- 스킵: 0
+- JUnit XML: `build/test-results/test/*.xml`
+- HTML 보고서: `build/reports/tests/test/index.html`
+
+주요 검증 항목:
+
+- `RoomGameServiceTest.assignsRolesAndSendsEachRoleOnlyToItsPrincipal`
+- `RoomGameServiceTest.confirmsRolesPrivatelyAndStartsDayWhenEveryLivingPlayerConfirms`
+- `RoomGameServiceTest.startsDayWhenTheRoleConfirmationTimerExpiresInRealTime`
+- `RoomGameServiceTest.usesTheMvpServerDurationsForEveryTimedPhase`
+- `RoomGameServiceTest.givesTheNomineeASeparateDefensePhaseBeforeExecutionVoting`
+- `RoomGameServiceTest.skipsExecutionWhenTheDefendantLeavesDuringFinalDefense`
+- `RoomGameServiceTest.enforcesNightChatPermissionsByRoleAndAliveState`
+- `RoomGameServiceTest.declaresCitizenVictoryImmediatelyAfterTheLastMafiaIsExecuted`
+- `RoomGameServiceTest.appliesMafiaKillWhenDoctorAndPoliceSubmitNoAction`
+- `RoomGameServiceTest.leavesEveryoneAliveWhenMafiaDoctorAndPoliceSubmitNoAction`
+
+콘솔 요약: `BUILD SUCCESSFUL in 59s`
+
+## 6. JavaScript 테스트 결과
+
+- 결과: `PASS`
+- 실행 파일: `test/js/stomp-client.test.js`, `test/js/room-list.test.js`, `test/js/chat.test.js`
+- 총 테스트: 24
+- 성공: 24
+- 실패: 0
+
+STOMP 프레임 처리, 대기방 참가자 동기화, 준비 상태, 게임 단계와 역할 확인, 최종 변론 채팅 권한, 투표, 경찰 조사 결과, 사망 상태(`.participant-dead`와 `사망`), 게임 결과 및 재접속 처리를 확인했다.
+
+콘솔 요약: `24 tests, 24 pass, 0 fail`
+
+## 7. 서버 기동 및 상태 확인
+
+- 새 서버 기동: `PASS`
+- 기동 로그: `test-results/bootRun.qa-20260921-174132.stdout.log`
+- 오류 로그: `test-results/bootRun.qa-20260921-174132.stderr.log` (내용 없음)
+- 상태 확인: `GET /login -> 200`
+- 종료 후 포트 확인: `8080 FREE`
+
+## 8. Playwright 발견 및 E2E 요약
+
+핵심 6개 시나리오와 UI 2개 시나리오를 모두 발견했다.
+
+핵심 발견 목록:
+
+- `MVP 4인 핵심 게임 흐름`
+- `MVP 5인 핵심 게임 흐름`
+- `MVP 6인 핵심 게임 흐름`
+- `MVP 8인 핵심 게임 흐름`
+- `closing a waiting-room tab changes six players to the five-player role threshold`
+- `browser deadline, reconnect grace, and expired night action`
+
+UI 발견 목록:
+
+- `role slot is visible before game and chat scrolls without growing the page`
+- `waiting and started room layout (8 players)`
+
+실제 실행 결과:
+
+- 핵심 E2E: 6개 중 5개 성공, 1개 실패, exit code `1`
+- UI E2E: 2개 중 2개 성공, exit code `0`
+- 보조 재실행: 브라우저 마감 시나리오 1개 성공
+- worker: `1`
+- retry: `0`
+
+## 9. 시나리오별 결과
+
+| 시나리오 | 결과 | 실제 결과 |
+|---|---|---|
+| 4인 핵심 게임 흐름 | `FAIL` | 두 번째 게임의 종료 대기에서 `게임 종료` 대신 `처형 투표` 유지 |
+| 5인 핵심 게임 흐름 | `PASS` | 9.3분 내 완료 |
+| 6인 핵심 게임 흐름 | `PASS` | 9.3분 내 완료 |
+| 8인 핵심 게임 흐름 | `PASS` | 9.4분 내 완료 |
+| 6인 대기방 이탈 후 5인 역할 기준 | `PASS` | 9.4초 |
+| 재접속·마감·만료 밤 행동 | `PASS` | 2.0분 |
+| 채팅 스크롤·폰트·오버플로 UI | `PASS` | 1.5분 내 완료 |
+| 8인 대기/시작 방 레이아웃 UI | `PASS` | 1.5분 내 완료 |
+
+## 10. MVP 검증 표
+
+| 항목 | 근거 | 결과 |
+|---|---|---|
+| `ROLE_ASSIGNMENT` 역할 비공개 전달 및 공개 상태 역할 비노출 | `RoomGameServiceTest.assignsRolesAndSendsEachRoleOnlyToItsPrincipal`, `chat.test.js` | `PASS` |
+| 역할 1회 확인, 중복 확인 거부, 전원 확인 시 낮 전환 | `RoomGameServiceTest.confirmsRolesPrivatelyAndStartsDayWhenEveryLivingPlayerConfirms` | `PASS` |
+| 역할 확인 15초 실제 경과 자동 전환 | `RoomGameServiceTest.startsDayWhenTheRoleConfirmationTimerExpiresInRealTime` | `PASS` |
+| `FINAL_DEFENSE` 단일 지목 대상 및 피고인 전용 공개 채팅 | `RoomGameServiceTest.givesTheNomineeASeparateDefensePhaseBeforeExecutionVoting`, JS 테스트 | `PASS` |
+| 최종 변론 중 피고인 이탈 시 처형 생략 후 밤 전환 | `RoomGameServiceTest.skipsExecutionWhenTheDefendantLeavesDuringFinalDefense` | `PASS` |
+| 역할별 미행동 및 밤 권한 | `RoomGameServiceTest.appliesMafiaKillWhenDoctorAndPoliceSubmitNoAction`, `leavesEveryoneAliveWhenMafiaDoctorAndPoliceSubmitNoAction` | `PASS` |
+| 사망 카드 스타일과 `사망` 문구 | `chat.test.js`, `mafia-mvp.spec.js` | `PASS` |
+| 채널 선택·채팅 입력 폰트 11px 및 마피아 채널 잘림 | `chat-scroll.spec.js` | `PASS` |
+| 서버 측 단계 시간 | `GamePhase.java`, `RoomGameServiceTest.usesTheMvpServerDurationsForEveryTimedPhase` | `PASS` |
+
+확인된 서버 시간은 역할 확인 15초, 낮 60초, 지목 투표 20초, 최종 변론 20초, 처형 투표 20초, 밤 35초다.
+
+## 11. 실패 및 차단 항목
+
+실패 항목은 4인 핵심 E2E 한 건이다.
+
+- 테스트: `MVP 4인 핵심 게임 흐름`
+- 위치: `test/e2e/mafia-mvp.spec.js:1109` 부근의 `waitForPhase(..., PHASE_LABELS.FINISHED, 20_000)`
+- 오류: `Expected: "게임 종료"; Received: "처형 투표"; Timeout: 20000ms`
+- 핵심 실행의 콘솔 오류는 위와 같으며, 이후 보조 재실행에서 `test-results/.last-run.json`이 갱신되어 원본 Playwright error-context 파일은 보존되지 않았다.
+- 차단 항목: 없음
+
+## 12. 재현 절차
+
+1. MariaDB를 `127.0.0.1:23306`에서 실행한다.
+2. `SERVER_PORT=8080`으로 현재 소스의 `bootRun`을 시작한다.
+3. `E2E_RUN_ID`를 새 값으로 지정하고 `PLAYER_COUNTS=4,5,6,8`로 설정한다.
+4. `npm.cmd run test:e2e -- --workers=1 --retries=0 --reporter=list`를 실행한다.
+5. 4인 시나리오에서 첫 게임 종료 후 재대기방에서 두 번째 게임을 시작한다.
+6. 두 번째 게임의 최종 처형 투표 제출 뒤 `#gamePhaseTitle`이 `게임 종료`로 바뀌는지 확인한다.
+
+## 13. 원인 분석
+
+실패는 첫 번째 게임이 아니라 `startReplayGame()`의 두 번째 게임 최종 종료 확인에서 발생했다. 실행 중 최종 처형 투표 화면이 유지되어, 테스트가 기대한 `FINISHED` 상태를 20초 내 받지 못했다.
+
+현재 확보된 콘솔 출력만으로는 최종 투표가 서버에서 거부되었는지, 4인 재플레이의 생존자·과반수 조건이 충족되지 않았는지, 또는 E2E 동기화가 상태 갱신을 놓쳤는지 단정할 수 없다. 따라서 이 보고서에서는 원인을 미확정으로 분류한다. 5·6·8인 전체 흐름과 별도 마감·재접속 시나리오는 통과했으므로, 재플레이 4인 경로를 별도로 재현해 서버 상태와 제출 응답을 추가 계측해야 한다.
+
+## 14. 애플리케이션 결함과 테스트 코드 결함 분류
+
+| 항목 | 분류 | 근거 |
+|---|---|---|
+| 4인 재플레이 최종 종료 미도달 | `UNCONFIRMED` | 실행 화면은 `처형 투표`에 머물렀지만 서버 거부 로그와 원본 trace가 보존되지 않아 애플리케이션/테스트 동기화 중 어느 쪽인지 확정 불가 |
+| 나머지 Java/JS/E2E 항목 | 결함 증거 없음 | 해당 검증 통과 |
+
+## 15. 변경이 필요한 파일 및 위치
+
+추가 수정은 이번 QA 실행에서 수행하지 않았다. 실패를 해결하려면 우선 다음 위치를 계측·재검증해야 한다.
+
+- `test/e2e/mafia-mvp.spec.js:400-620`: `startReplayGame()`의 4인 재플레이 지목·처형 제출 및 종료 대기
+- `test/e2e/mafia-mvp.spec.js:1109-1110`: 최종 `FINISHED` 단계 대기
+- `src/main/java/kr/or/oti/mafiagame/service/RoomGameService.java:650-690`: 처형 투표 결과와 승리 판정 전환
+
+## 16. 권장 조치
+
+- 4인 재플레이를 단독 실행해 `EXECUTION_VOTE` 진입 직후 각 페이지의 제출 버튼 상태와 서버 응답을 기록한다.
+- `FINISHED` 미도달 시 게임 상태 trace의 `executionVotes`, 생존자 수, `nominatedUserId`, `gameOver` 값을 오류 메시지에 포함한다.
+- 서버가 과반수 투표를 정상 수신했는데도 `EXECUTION_VOTE`에 남으면 `RoomGameService`의 4인 승리 판정 경로를 수정한다.
+- 제출 자체가 E2E에서 누락되거나 비활성화되면 `submitExecutionVotes()`의 생존자 목록과 재플레이 상태 동기화를 수정한다.
+
+## 17. 생성된 테스트 산출물
+
+- `test-results/bootRun.qa-20260921-174132.stdout.log`
+- `test-results/bootRun.qa-20260921-174132.stderr.log`
+- `output/chat-scroll-test-qa-20260921-174132/chat-scroll.png`
+- `output/chat-scroll-test-qa-20260921-174132/chat-scroll.webm`
+- `output/room-layout-test-8-qa-20260921-174132/waiting-room.png`
+- `output/room-layout-test-8-qa-20260921-174132/started-room.png`
+- `build/test-results/test/*.xml`
+- `build/reports/tests/test/index.html`
+
+## 18. 기존 데이터 보존 확인
+
+기존 데이터는 보존했다. 정리 작업은 현재 QA 실행 ID와 보조 재실행 ID에 일치하는 `playwright.*@example.com` 계정만 대상으로 했으며, 해당 계정과 연결된 QA 방·멤버십·통계만 삭제했다. 광범위한 `playwright.%` 삭제는 수행하지 않았다.
+
+## 19. 테스트 계정 정리 결과
+
+- 정리 대상: `qa-20260921-174132`, `qa-20260921-174132-rerun`
+- 매칭 계정: 50개
+- 삭제 후 원본 실행 ID 잔여 계정: 0개
+- 삭제 후 보조 실행 ID 잔여 계정: 0개
+- 정리 결과: `PASS`
+
+## 20. 최종 판정
+
+`FAIL`
+
+Java 103개와 JavaScript 24개는 모두 통과했고 UI E2E도 통과했지만, 전체 핵심 E2E 6개 중 4인 재플레이 시나리오 1개가 실패했다. 따라서 QA 기준상 전체 결과를 `PASS`로 처리할 수 없다.
+
+---

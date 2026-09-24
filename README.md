@@ -137,7 +137,15 @@ npm run test:e2e -- --workers=1
 - [프로젝트 학습 가이드](./docs/PROJECT_LEARNING_GUIDE.md)
 - [로그인·DB 설정 문서](./docs/LOGIN.md)
 - [재사용 QA 실행 스크립트](./docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md)
-- [2026-09-22 QA 보고서](./docs/QA_report/MAFIAGAME_QA_REPORT_2026-09-22_qa-20260922-144340.md)
+- [QA 통합 보고서 — 최신순](./docs/QA_report/MAFIAGAME_QA_REPORT_CONSOLIDATED.md)
+- [2026-09-18 QA 보고서 7건](./docs/QA_report/01_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-18.md)
+- [2026-09-19 QA 보고서 1건](./docs/QA_report/02_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-19.md)
+- [2026-09-20 QA 보고서 10건](./docs/QA_report/03_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-20.md)
+- [2026-09-21 QA 보고서 1건](./docs/QA_report/04_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-21.md)
+- [2026-09-22 QA 보고서 4건](./docs/QA_report/05_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-22.md)
+- [2026-09-23 QA 보고서 8건](./docs/QA_report/06_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-23.md)
+- [2026-09-24 QA 보고서 6건](./docs/QA_report/07_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-24.md)
+- [2026-09-25 QA 보고서 1건](./docs/QA_report/08_MAFIAGAME_QA_REPORTS_BY_DATE_2026-09-25.md)
 
 ## 패치노트
 
@@ -162,6 +170,7 @@ npm run test:e2e -- --workers=1
 - Flyway 기반 완료 게임 테이블 마이그레이션을 추가했습니다.
 - DuckDNS 갱신을 위한 Linux systemd timer·service와 설치·진단 스크립트를 추가했습니다. 실제 DNS 갱신은 별도 운영 설정이 필요합니다.
 - QA 프로필의 DuckDNS 검사 범위를 분리하고 Playwright 자식 프로세스 권한 사전 점검을 보강했습니다.
+- 한글 인코딩이 깨진 QA 통합 기록을 복구하고, 최신순 통합본과 오래된 날짜부터 정렬된 날짜별 보고서 8개로 정리했습니다. `qa-20260922-135034`는 원문이 없어 남은 결과를 바탕으로 복구 요약을 작성했습니다.
 
 #### 릴리스 버전
 
