@@ -30,4 +30,13 @@ public record UserProfile(
                 ? 0
                 : Math.round((float) mafiaWins / mafiaGames * 100);
     }
+
+    /** 사용자 최근 게임 이력 화면 모델이다. */
+    public record GameRecord(
+            String roomTitle,
+            String role,
+            String result,
+            String status,
+            String playedAt) {
+    }
 }

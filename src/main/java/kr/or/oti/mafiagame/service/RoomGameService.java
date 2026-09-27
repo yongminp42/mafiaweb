@@ -396,15 +396,7 @@ public class RoomGameService {
             if (sender == null || (sender.alive && sender.role != GameRole.MEDIUM)) {
                 return;
             }
-            for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
-                GamePlayerState player = game.players.get(entry.getKey());
-                if (player != null
-                        && (!player.alive || player.role == GameRole.MEDIUM)
-                        && entry.getValue() != null
-                        && !entry.getValue().isBlank()) {
-                    recipients.add(entry.getValue());
-                }
-            }
+            recipients.addAll(deadChatRecipients(game));
         } finally {
             game.lock.unlock();
         }
@@ -449,15 +441,7 @@ public class RoomGameService {
             deadSender = sender != null && !sender.alive;
             finishedGame = game.phase == GamePhase.FINISHED;
             if (deadSender) {
-                for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
-                    GamePlayerState player = game.players.get(entry.getKey());
-                    if (player != null
-                            && (!player.alive || player.role == GameRole.MEDIUM)
-                            && entry.getValue() != null
-                            && !entry.getValue().isBlank()) {
-                        deadRecipients.add(entry.getValue());
-                    }
-                }
+                deadRecipients.addAll(deadChatRecipients(game));
             }
         } finally {
             game.lock.unlock();
@@ -486,6 +470,20 @@ public class RoomGameService {
                 && player.alive
                 && (player.role == GameRole.MAFIA
                         || (player.role == GameRole.SPY && player.mafiaChatUnlocked));
+    }
+
+    private static List<String> deadChatRecipients(GameRoom game) {
+        List<String> recipients = new ArrayList<>();
+        for (Map.Entry<Long, String> entry : game.principalNames.entrySet()) {
+            GamePlayerState player = game.players.get(entry.getKey());
+            if (player != null
+                    && (!player.alive || player.role == GameRole.MEDIUM)
+                    && entry.getValue() != null
+                    && !entry.getValue().isBlank()) {
+                recipients.add(entry.getValue());
+            }
+        }
+        return recipients;
     }
 
     public boolean canAccessMafiaChat(long roomId, long userId) {
