@@ -316,12 +316,6 @@ a {
   font-weight: 800;
 }
 
-.online-badge {
-  color: #a6e5d5;
-  background: rgba(74, 204, 169, .14);
-}
-
-.online-badge i,
 #chatStatusDot {
   display: inline-block;
   width: 7px;
@@ -861,37 +855,6 @@ a {
   min-height: 2.5rem;
 }
 
-.game-row {
-  min-height: 73px;
-}
-
-.result-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #b7bdc6;
-}
-
-.result-dot.win {
-  background: var(--mafia-mint);
-}
-
-.win-text {
-  color: #168b70;
-  background: #e5f7f1;
-}
-
-.loss-text {
-  color: #777f8d;
-  background: #f0f1f3;
-}
-
-.friend-button.added {
-  color: #a6e6d5;
-  border-color: #48c4a8;
-}
-
 .auth-art {
   position: relative;
   overflow: hidden;
@@ -1115,9 +1078,6 @@ a {
     font-size: 11px;
   }
 
-  .game-row time {
-    display: none;
-  }
 }
 
 @media (max-width: 359.98px) {

@@ -24,7 +24,8 @@ public interface UserMapper {
     int incrementGameStats(
             @Param("userId") long userId,
             @Param("wins") int wins,
-            @Param("losses") int losses);
+            @Param("losses") int losses,
+            @Param("experience") int experience);
 
     Optional<User> findById(@Param("userId") Long userId);
 

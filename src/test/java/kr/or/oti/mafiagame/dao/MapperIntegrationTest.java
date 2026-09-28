@@ -40,6 +40,7 @@ class MapperIntegrationTest {
         assertThat(stats.getWins()).isZero();
         assertThat(stats.getLosses()).isZero();
         assertThat(stats.getRating()).isEqualTo(UserStats.DEFAULT_RATING);
+        assertThat(stats.getExperience()).isEqualTo(UserStats.DEFAULT_RATING);
     }
 
     @Test
@@ -58,13 +59,17 @@ class MapperIntegrationTest {
         assertThat(userMapper.findStatsByUserId(winner.getUserId()).getTotalGames()).isEqualTo(1);
         assertThat(userMapper.findStatsByUserId(winner.getUserId()).getWins()).isEqualTo(1);
         assertThat(userMapper.findStatsByUserId(winner.getUserId()).getLosses()).isZero();
+        assertThat(userMapper.findStatsByUserId(winner.getUserId()).getExperience())
+                .isEqualTo(UserStats.DEFAULT_RATING + 500);
         assertThat(userMapper.findStatsByUserId(loser.getUserId()).getTotalGames()).isEqualTo(1);
         assertThat(userMapper.findStatsByUserId(loser.getUserId()).getWins()).isZero();
         assertThat(userMapper.findStatsByUserId(loser.getUserId()).getLosses()).isEqualTo(1);
+        assertThat(userMapper.findStatsByUserId(loser.getUserId()).getExperience())
+                .isEqualTo(UserStats.DEFAULT_RATING + 100);
     }
 
     @Test
-    void roomMapperPersistsListsTransfersAndDeletesRoom() {
+    void roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom() {
         User host = insertUser("host@example.com", "host");
         User guest = insertUser("guest@example.com", "guest");
         Room room = Room.builder()
@@ -81,9 +86,13 @@ class MapperIntegrationTest {
 
         RoomSummary summary = roomMapper.findById(room.getRoomId());
         assertThat(summary.getTitle()).isEqualTo("test room");
-        assertThat(summary.getCurrentPlayers()).isEqualTo(2);
+        assertThat(summary.getCurrentPlayers()).isZero();
         assertThat(roomMapper.findMemberNames(room.getRoomId())).containsExactly("host", "guest");
-        assertThat(roomMapper.findAll()).extracting(RoomSummary::getRoomId).contains(room.getRoomId());
+        RoomSummary listedRoom = roomMapper.findAll().stream()
+                .filter(candidate -> candidate.getRoomId() == room.getRoomId())
+                .findFirst()
+                .orElseThrow();
+        assertThat(listedRoom.getCurrentPlayers()).isZero();
 
         assertThat(roomMapper.updateHostUserId(room.getRoomId(), guest.getUserId())).isEqualTo(1);
         assertThat(roomMapper.findById(room.getRoomId()).getHostUserId()).isEqualTo(guest.getUserId());

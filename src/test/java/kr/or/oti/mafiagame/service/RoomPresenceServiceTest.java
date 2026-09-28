@@ -12,6 +12,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
@@ -24,10 +25,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +45,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import kr.or.oti.mafiagame.domain.User;
 import kr.or.oti.mafiagame.domain.UserStats;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
+import kr.or.oti.mafiagame.dto.OnlinePlayerCount;
+import kr.or.oti.mafiagame.dto.RoomPresenceCount;
 import kr.or.oti.mafiagame.dto.RoomReadyRequest;
 import kr.or.oti.mafiagame.dto.RoomSummary;
 import kr.or.oti.mafiagame.exception.RoomWebSocketException;
@@ -95,7 +100,7 @@ class RoomPresenceServiceTest {
     }
 
     @Test
-    void closingOneTabKeepsParticipantUntilLastSessionLeaves() {
+    void closingOneTabKeepsParticipantUntilLastSessionLeaves() throws InterruptedException {
         Principal user = principal(10L, "host");
         presenceService.join(1L, "session-1", user);
         presenceService.join(1L, "session-2", user);
@@ -108,8 +113,19 @@ class RoomPresenceServiceTest {
         verify(roomService, never()).deleteRoom(1L);
 
         presenceService.leave("session-2");
+        awaitEmptyRoomCleanup(1L);
         assertThat(presenceService.currentState(1L)).isNull();
         verify(roomService).deleteRoom(1L);
+    }
+
+    private void awaitEmptyRoomCleanup(long roomId) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            if (presenceService.currentState(roomId) == null) {
+                return;
+            }
+            Thread.sleep(10L);
+        }
     }
 
     @Test
@@ -132,6 +148,15 @@ class RoomPresenceServiceTest {
                 roomGameService);
         try {
             reconnectingService.join(1L, "old-session", principal(10L, "host"));
+            reconnectingService.join(1L, "guest-2", principal(11L, "guest-2"));
+            reconnectingService.join(1L, "guest-3", principal(12L, "guest-3"));
+            reconnectingService.join(1L, "guest-4", principal(13L, "guest-4"));
+            reconnectingService.updateReady(1L, "old-session", new RoomReadyRequest(true));
+            reconnectingService.updateReady(1L, "guest-2", new RoomReadyRequest(true));
+            reconnectingService.updateReady(1L, "guest-3", new RoomReadyRequest(true));
+            reconnectingService.updateReady(1L, "guest-4", new RoomReadyRequest(true));
+            when(roomService.startGame(1L)).thenReturn(true);
+            reconnectingService.startGame(1L, "old-session");
             reconnectingService.leave("old-session");
             reconnectingService.join(1L, "new-session", principal(10L, "host"));
 
@@ -144,13 +169,14 @@ class RoomPresenceServiceTest {
     }
 
     @Test
-    void joiningDifferentRoomRemovesEveryPreviousSession() {
+    void joiningDifferentRoomRemovesEveryPreviousSession() throws InterruptedException {
         Principal user = principal(10L, "player");
         presenceService.join(1L, "old-1", user);
         presenceService.join(1L, "old-2", user);
 
         presenceService.join(2L, "new-1", user);
 
+        awaitEmptyRoomCleanup(1L);
         assertThat(presenceService.currentState(1L)).isNull();
         assertThat(presenceService.currentState(2L).participants())
                 .singleElement()
@@ -349,26 +375,38 @@ class RoomPresenceServiceTest {
     void ongoingGameAllowsRejoinButRejectsNewParticipantWithoutChangingPresence() {
         Principal host = principal(10L, "host");
         presenceService.join(1L, "host-session", host);
-        RoomSummary playingRoom = room(1L, 10L);
-        playingRoom.setStatus("PLAYING");
-        when(roomService.getRoom(1L)).thenReturn(playingRoom);
+        presenceService.join(1L, "guest-2", principal(11L, "guest-2"));
+        presenceService.join(1L, "guest-3", principal(12L, "guest-3"));
+        presenceService.join(1L, "guest-4", principal(13L, "guest-4"));
+        presenceService.updateReady(1L, "host-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-2", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-3", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-4", new RoomReadyRequest(true));
+        when(roomService.startGame(1L)).thenReturn(true);
+        presenceService.startGame(1L, "host-session");
 
-        assertThatThrownBy(() -> presenceService.join(1L, "new-session", principal(11L, "new")))
+        assertThatThrownBy(() -> presenceService.join(1L, "new-session", principal(14L, "new")))
                 .isInstanceOf(RoomWebSocketException.class);
-        assertThat(presenceService.currentState(1L).status()).isEqualTo("WAITING");
-        assertThat(presenceService.currentOnlinePlayerCount()).isEqualTo(1);
+        assertThat(presenceService.currentState(1L).status()).isEqualTo("PLAYING");
+        assertThat(presenceService.currentOnlinePlayerCount()).isEqualTo(4);
 
         RoomPresenceState rejoined = presenceService.join(1L, "reconnected-session", host);
         assertThat(rejoined.status()).isEqualTo("PLAYING");
-        assertThat(rejoined.participants()).hasSize(1);
+        assertThat(rejoined.participants()).hasSize(4);
     }
 
     @Test
     void departedPlayerRejoinsPlayingRoomAsSpectatorButNewPlayerCannot() {
         presenceService.join(1L, "old-session", principal(10L, "host"));
-        RoomSummary playingRoom = room(1L, 10L);
-        playingRoom.setStatus("PLAYING");
-        when(roomService.getRoom(1L)).thenReturn(playingRoom);
+        presenceService.join(1L, "guest-2", principal(11L, "guest-2"));
+        presenceService.join(1L, "guest-3", principal(12L, "guest-3"));
+        presenceService.join(1L, "guest-4", principal(13L, "guest-4"));
+        presenceService.updateReady(1L, "old-session", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-2", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-3", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "guest-4", new RoomReadyRequest(true));
+        when(roomService.startGame(1L)).thenReturn(true);
+        presenceService.startGame(1L, "old-session");
         presenceService.leave("old-session");
         when(roomGameService.isDepartedPlayer(1L, 10L)).thenReturn(true);
 
@@ -376,9 +414,9 @@ class RoomPresenceServiceTest {
                 1L, "returned-session", principal(10L, "host"));
 
         assertThat(state.status()).isEqualTo("PLAYING");
-        assertThat(state.participants()).hasSize(1);
+        assertThat(state.participants()).hasSize(4);
         assertThatThrownBy(() -> presenceService.join(
-                1L, "outsider-session", principal(11L, "outsider")))
+                1L, "outsider-session", principal(14L, "outsider")))
                 .isInstanceOf(RoomWebSocketException.class);
     }
 
@@ -415,6 +453,351 @@ class RoomPresenceServiceTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries() {
+        presenceService.join(1L, "cached-room-session", principal(10L, "host"));
+        clearInvocations(roomService);
+
+        presenceService.updateReady(1L, "cached-room-session", new RoomReadyRequest(true));
+        RoomPresenceState currentState = presenceService.currentState(1L);
+
+        assertThat(currentState.capacity()).isEqualTo(8);
+        assertThat(currentState.status()).isEqualTo("WAITING");
+        assertThat(currentState.locked()).isFalse();
+        assertThat(currentState.participants()).singleElement()
+                .satisfies(participant -> assertThat(participant.ready()).isTrue());
+        verify(roomService, never()).getRoom(anyLong());
+    }
+
+    @Test
+    void databaseRoomLookupDoesNotHoldThePresenceWriteLock() throws Exception {
+        CountDownLatch lookupStarted = new CountDownLatch(1);
+        CountDownLatch allowLookupToFinish = new CountDownLatch(1);
+        when(roomService.getRoom(1L)).thenAnswer(invocation -> {
+            lookupStarted.countDown();
+            if (!allowLookupToFinish.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting to release the test room lookup.");
+            }
+            return room(1L, 10L);
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<RoomPresenceState> joining = executor.submit(() ->
+                    presenceService.join(1L, "slow-lookup-session", principal(10L, "host")));
+            assertThat(lookupStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Future<Map<Long, Integer>> counts = executor.submit(presenceService::currentCounts);
+            assertThat(counts.get(2, TimeUnit.SECONDS)).isEmpty();
+
+            allowLookupToFinish.countDown();
+            assertThat(joining.get(2, TimeUnit.SECONDS).participants()).hasSize(1);
+        } finally {
+            allowLookupToFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes() throws Exception {
+        presenceService.join(1L, "deleting-room-host", principal(10L, "host"));
+        clearInvocations(roomService);
+
+        CountDownLatch staleLookupStarted = new CountDownLatch(1);
+        CountDownLatch allowStaleLookupToFinish = new CountDownLatch(1);
+        AtomicInteger lookupCount = new AtomicInteger();
+        when(roomService.getRoom(1L)).thenAnswer(invocation -> {
+            if (lookupCount.incrementAndGet() == 1) {
+                staleLookupStarted.countDown();
+                if (!allowStaleLookupToFinish.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to release the stale room lookup.");
+                }
+                return room(1L, 10L);
+            }
+            return null;
+        });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<RoomPresenceState> joining = executor.submit(() ->
+                    presenceService.join(1L, "stale-lookup-session", principal(11L, "guest")));
+            assertThat(staleLookupStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            presenceService.leave("deleting-room-host");
+            await(Duration.ofSeconds(2), () -> assertThat(presenceService.currentState(1L)).isNull());
+            allowStaleLookupToFinish.countDown();
+
+            assertThatThrownBy(() -> joining.get(2, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(RoomWebSocketException.class);
+            assertThat(presenceService.currentOnlinePlayerCount()).isZero();
+            verify(roomService, times(2)).getRoom(1L);
+        } finally {
+            allowStaleLookupToFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void lobbyCountBroadcastsOnlyWhenParticipantCountChanges() {
+        presenceService.join(1L, "count-host", principal(10L, "host"));
+        presenceService.join(1L, "count-guest", principal(11L, "guest"));
+        clearInvocations(messagingTemplate);
+
+        presenceService.updateReady(1L, "count-guest", new RoomReadyRequest(true));
+        presenceService.updateReady(1L, "count-guest", new RoomReadyRequest(false));
+
+        verify(messagingTemplate, never()).convertAndSend(
+                eq("/topic/rooms/presence"), any(RoomPresenceCount.class));
+        verify(messagingTemplate, never()).convertAndSend(
+                eq("/topic/rooms/presence"), any(OnlinePlayerCount.class));
+
+        presenceService.join(1L, "count-third", principal(12L, "third"));
+
+        verify(messagingTemplate).convertAndSend(
+                eq("/topic/rooms/presence"), any(RoomPresenceCount.class));
+        verify(messagingTemplate).convertAndSend(
+                eq("/topic/rooms/presence"), any(OnlinePlayerCount.class));
+    }
+
+    @Test
+    void lobbySnapshotStillSynchronizesCurrentCountsAfterIncrementalBroadcasts() {
+        presenceService.join(1L, "snapshot-host", principal(10L, "host"));
+        clearInvocations(messagingTemplate);
+
+        presenceService.broadcastRoomCounts("lobby-listener");
+
+        verify(messagingTemplate).convertAndSend(
+                "/topic/rooms/presence",
+                List.of(new RoomPresenceCount(1L, 1)));
+        verify(messagingTemplate).convertAndSend(
+                "/topic/rooms/presence",
+                new OnlinePlayerCount(1));
+    }
+
+    @Test
+    void staleRoomCountBroadcastDoesNotOverwriteTheLatestPresenceCount() throws Exception {
+        CountDownLatch staleRoomBroadcastStarted = new CountDownLatch(1);
+        CountDownLatch allowStaleRoomBroadcastToContinue = new CountDownLatch(1);
+        ConcurrentLinkedQueue<Integer> sentRoomCounts = new ConcurrentLinkedQueue<>();
+        doAnswer(invocation -> {
+            String destination = invocation.getArgument(0);
+            Object payload = invocation.getArgument(1);
+            if ("/topic/rooms/1/presence".equals(destination)
+                    && payload instanceof RoomPresenceState state
+                    && state.participants().size() == 1
+                    && staleRoomBroadcastStarted.getCount() > 0) {
+                staleRoomBroadcastStarted.countDown();
+                if (!allowStaleRoomBroadcastToContinue.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to release the stale room broadcast.");
+                }
+            }
+            if ("/topic/rooms/presence".equals(destination)
+                    && payload instanceof RoomPresenceCount count
+                    && count.roomId() == 1L) {
+                sentRoomCounts.add(count.currentPlayers());
+            }
+            return null;
+        }).when(messagingTemplate).convertAndSend(any(String.class), any(Object.class));
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<RoomPresenceState> firstJoin = executor.submit(() ->
+                    presenceService.join(1L, "first-count-session", principal(10L, "host")));
+            assertThat(staleRoomBroadcastStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Future<RoomPresenceState> secondJoin = executor.submit(() ->
+                    presenceService.join(1L, "second-count-session", principal(11L, "guest")));
+            assertThat(secondJoin.get(2, TimeUnit.SECONDS).participants()).hasSize(2);
+
+            allowStaleRoomBroadcastToContinue.countDown();
+            assertThat(firstJoin.get(2, TimeUnit.SECONDS).participants()).hasSize(1);
+        } finally {
+            allowStaleRoomBroadcastToContinue.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(sentRoomCounts).containsExactly(2);
+    }
+
+    @Test
+    void lobbySnapshotIsDeliveredBeforeAnyNewerIncrementalRoomCount() throws Exception {
+        presenceService.join(1L, "snapshot-race-host", principal(10L, "host"));
+        clearInvocations(messagingTemplate);
+
+        CountDownLatch snapshotSendStarted = new CountDownLatch(1);
+        CountDownLatch allowSnapshotSendToContinue = new CountDownLatch(1);
+        CountDownLatch newerRoomStatePublished = new CountDownLatch(1);
+        ConcurrentLinkedQueue<Integer> sentRoomCounts = new ConcurrentLinkedQueue<>();
+        doAnswer(invocation -> {
+            String destination = invocation.getArgument(0);
+            Object payload = invocation.getArgument(1);
+            if ("/topic/rooms/1/presence".equals(destination)
+                    && payload instanceof RoomPresenceState state
+                    && state.participants().size() == 2) {
+                newerRoomStatePublished.countDown();
+            }
+            if ("/topic/rooms/presence".equals(destination)) {
+                if (payload instanceof List<?> counts) {
+                    boolean containsInitialRoomCount = counts.stream()
+                            .filter(RoomPresenceCount.class::isInstance)
+                            .map(RoomPresenceCount.class::cast)
+                            .anyMatch(count -> count.roomId() == 1L && count.currentPlayers() == 1);
+                    if (containsInitialRoomCount) {
+                        snapshotSendStarted.countDown();
+                        if (!allowSnapshotSendToContinue.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Timed out waiting to release the lobby snapshot.");
+                        }
+                        sentRoomCounts.add(1);
+                    }
+                } else if (payload instanceof RoomPresenceCount count && count.roomId() == 1L) {
+                    sentRoomCounts.add(count.currentPlayers());
+                }
+            }
+            return null;
+        }).when(messagingTemplate).convertAndSend(any(String.class), any(Object.class));
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> snapshot = executor.submit(() -> presenceService.broadcastRoomCounts("snapshot-race-lobby"));
+            assertThat(snapshotSendStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Future<RoomPresenceState> secondJoin = executor.submit(() ->
+                    presenceService.join(1L, "snapshot-race-guest", principal(11L, "guest")));
+            assertThat(newerRoomStatePublished.await(2, TimeUnit.SECONDS)).isTrue();
+
+            allowSnapshotSendToContinue.countDown();
+            snapshot.get(2, TimeUnit.SECONDS);
+            assertThat(secondJoin.get(2, TimeUnit.SECONDS).participants()).hasSize(2);
+        } finally {
+            allowSnapshotSendToContinue.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(sentRoomCounts).containsExactly(1, 2);
+    }
+
+    @Test
+    void stalledLobbySnapshotDoesNotBlockPresenceWrites() throws Exception {
+        presenceService.join(1L, "snapshot-write-host", principal(10L, "host"));
+        clearInvocations(messagingTemplate);
+
+        CountDownLatch snapshotSendStarted = new CountDownLatch(1);
+        CountDownLatch allowSnapshotSendToContinue = new CountDownLatch(1);
+        CountDownLatch otherRoomStatePublished = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            String destination = invocation.getArgument(0);
+            Object payload = invocation.getArgument(1);
+            if ("/topic/rooms/2/presence".equals(destination)
+                    && payload instanceof RoomPresenceState) {
+                otherRoomStatePublished.countDown();
+            }
+            if ("/topic/rooms/presence".equals(destination)
+                    && payload instanceof List<?> counts
+                    && counts.stream()
+                            .filter(RoomPresenceCount.class::isInstance)
+                            .map(RoomPresenceCount.class::cast)
+                            .anyMatch(count -> count.roomId() == 1L && count.currentPlayers() == 1)) {
+                snapshotSendStarted.countDown();
+                if (!allowSnapshotSendToContinue.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to release the stalled lobby snapshot.");
+                }
+            }
+            return null;
+        }).when(messagingTemplate).convertAndSend(any(String.class), any(Object.class));
+
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            Future<?> snapshot = executor.submit(() -> presenceService.broadcastRoomCounts("write-race-lobby"));
+            assertThat(snapshotSendStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Future<RoomPresenceState> otherRoomJoin = executor.submit(() ->
+                    presenceService.join(2L, "other-room-session", principal(20L, "other")));
+            assertThat(otherRoomStatePublished.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> readyUpdate = executor.submit(() ->
+                    presenceService.updateReady(1L, "snapshot-write-host", new RoomReadyRequest(true)));
+            await(Duration.ofSeconds(2), () -> assertThat(presenceService.currentState(1L)
+                    .participants().get(0).ready()).isTrue());
+
+            allowSnapshotSendToContinue.countDown();
+            snapshot.get(2, TimeUnit.SECONDS);
+            assertThat(otherRoomJoin.get(2, TimeUnit.SECONDS).participants()).hasSize(1);
+            readyUpdate.get(2, TimeUnit.SECONDS);
+        } finally {
+            allowSnapshotSendToContinue.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked() throws Exception {
+        CountDownLatch maintenanceDeletesStarted = new CountDownLatch(2);
+        CountDownLatch allowMaintenanceDeletesToFinish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            maintenanceDeletesStarted.countDown();
+            if (!allowMaintenanceDeletesToFinish.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting to release maintenance deletion tasks.");
+            }
+            return null;
+        }).when(roomService).deleteRoom(anyLong());
+
+        presenceService.join(1L, "first-maintenance-host", principal(10L, "first"));
+        presenceService.join(2L, "second-maintenance-host", principal(20L, "second"));
+        presenceService.leave("first-maintenance-host");
+        presenceService.leave("second-maintenance-host");
+        try {
+            assertThat(maintenanceDeletesStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            clearInvocations(messagingTemplate);
+
+            Field lastBroadcastField = RoomPresenceService.class
+                    .getDeclaredField("lastLobbyCountBroadcastNanos");
+            lastBroadcastField.setAccessible(true);
+            lastBroadcastField.set(presenceService, System.nanoTime() + Duration.ofMillis(200).toNanos());
+
+            presenceService.broadcastRoomCounts("lobby-session");
+
+            await(Duration.ofSeconds(2), () -> verify(messagingTemplate, times(2)).convertAndSend(
+                    eq("/topic/rooms/presence"), any(Object.class)));
+        } finally {
+            allowMaintenanceDeletesToFinish.countDown();
+        }
+        await(Duration.ofSeconds(2), () -> {
+            assertThat(presenceService.currentState(1L)).isNull();
+            assertThat(presenceService.currentState(2L)).isNull();
+        });
+    }
+
+    @Test
+    void emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock() throws Exception {
+        CountDownLatch deleteStarted = new CountDownLatch(1);
+        CountDownLatch allowDeleteToFinish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            deleteStarted.countDown();
+            if (!allowDeleteToFinish.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting to release the test room deletion.");
+            }
+            return null;
+        }).when(roomService).deleteRoom(1L);
+
+        presenceService.join(1L, "delete-room-host", principal(10L, "host"));
+        presenceService.join(2L, "other-room-host", principal(20L, "other"));
+        ExecutorService observer = Executors.newSingleThreadExecutor();
+        try {
+            presenceService.leave("delete-room-host");
+            assertThat(deleteStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Future<Map<Long, Integer>> counts = observer.submit(presenceService::currentCounts);
+            assertThat(counts.get(2, TimeUnit.SECONDS))
+                    .containsEntry(1L, 0)
+                    .containsEntry(2L, 1);
+        } finally {
+            allowDeleteToFinish.countDown();
+            observer.shutdownNow();
+        }
+
+        await(Duration.ofSeconds(2), () -> assertThat(presenceService.currentState(1L)).isNull());
     }
 
     @Test

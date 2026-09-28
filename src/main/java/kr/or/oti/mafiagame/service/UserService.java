@@ -2,7 +2,6 @@ package kr.or.oti.mafiagame.service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,13 +40,17 @@ public class UserService {
                 stats.getTotalGames(),
                 stats.getWins(),
                 stats.getLosses(),
-                null,
-                null,
-                formatJoinedAt(user.getCreatedAt()),
-                List.of());
+                stats.getExperience(),
+                formatJoinedAt(user.getCreatedAt()));
 
-        // 완료 게임 테이블은 중복 집계 방지용이며, 경기별 상세 전적은 저장하지 않는다.
         return profile;
+    }
+
+    @Transactional(readOnly = true)
+    public int getLevel(long userId) {
+        UserStats stats = userMapper.findStatsByUserId(userId);
+        int experience = stats == null ? UserStats.DEFAULT_RATING : stats.getExperience();
+        return UserStats.levelForExperience(experience);
     }
 
     private String normalizeBio(String bio) {

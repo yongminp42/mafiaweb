@@ -11,11 +11,11 @@ public class CustomUserDetails extends org.springframework.security.core.userdet
     private final String nickname;
     private final int level;
 
-    public CustomUserDetails(User user, int rating) {
+    public CustomUserDetails(User user, int experience) {
         super(user.getEmail(), user.getPassword(), List.of(new SimpleGrantedAuthority("ROLE_USER")));
         this.userId = user.getUserId();
         this.nickname = user.getUserName();
-        this.level = UserStats.levelForRating(rating);
+        this.level = UserStats.levelForExperience(experience);
     }
 
     public long getUserId() { return userId; }

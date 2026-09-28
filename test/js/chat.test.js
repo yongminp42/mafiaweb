@@ -500,19 +500,23 @@ test('chat renders game phases and sends nomination and execution votes', () => 
     ));
     assert.equal(dom.window.document.body.classList.contains('night-phase'), false);
     const channel = dom.window.document.querySelector('#chatChannel');
+    const publicOption = channel.querySelector('option[value="PUBLIC"]');
     assert.equal(channel.value, 'PUBLIC');
-    assert.equal(channel.querySelector('option[value="PUBLIC"]').disabled, false);
+    assert.equal(channel.disabled, false);
+    assert.equal(publicOption.hidden, false);
+    assert.equal(publicOption.disabled, false);
     assert.equal(channel.querySelector('option[value="MAFIA"]').hidden, true);
     assert.equal(channel.querySelector('option[value="MAFIA"]').disabled, true);
     assert.equal(channel.querySelector('option[value="DEAD"]').hidden, true);
     assert.equal(channel.querySelector('option[value="DEAD"]').disabled, true);
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, false);
   } finally {
     dom.window.close();
   }
 });
 
-test('chat returns a dead medium to the public channel when the game finishes', () => {
-  const dom = createDom(chatMarkup());
+test('chat limits an eliminated player to dead chat and returns everyone to public when the game finishes', () => {
+  const dom = createDom(chatMarkup({ nickname: 'bob', userId: 11 }));
   try {
     loadScript(dom, stompSource);
     loadScript(dom, chatSource);
@@ -532,16 +536,39 @@ test('chat returns a dead medium to the public channel when the game finishes', 
     socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
       JSON.stringify({
         roomId: 7,
-        phase: 'NIGHT',
-        phaseEndsAt: Date.now() + 35_000,
-        remainingSeconds: 35,
+        phase: 'DAY_DISCUSSION',
+        phaseEndsAt: Date.now() + 60_000,
+        remainingSeconds: 60,
         players: [
           { userId: 10, nickname: 'alice', alive: true },
           { userId: 11, nickname: 'bob', alive: false }
         ]
       })));
 
-    assert.equal(dom.window.document.querySelector('#chatChannel').value, 'DEAD');
+    const channel = dom.window.document.querySelector('#chatChannel');
+    const publicOption = channel.querySelector('option[value="PUBLIC"]');
+    const mafiaOption = channel.querySelector('option[value="MAFIA"]');
+    const deadOption = channel.querySelector('option[value="DEAD"]');
+    assert.equal(channel.value, 'DEAD');
+    assert.equal(channel.disabled, false);
+    assert.equal(publicOption.hidden, true);
+    assert.equal(publicOption.disabled, true);
+    assert.equal(mafiaOption.hidden, true);
+    assert.equal(mafiaOption.disabled, true);
+    assert.equal(deadOption.hidden, false);
+    assert.equal(deadOption.disabled, false);
+    assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, false);
+
+    const input = dom.window.document.querySelector('#chatForm input[name="content"]');
+    input.value = '사망자 전용 메시지';
+    dom.window.document.querySelector('#chatForm').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true })
+    );
+    const deadChatFrame = socket.sent.map(parseSentFrame)
+      .filter(frame => frame.headers.destination === '/app/rooms/7/dead-chat')
+      .at(-1);
+    assert.equal(JSON.parse(deadChatFrame.body).content, '사망자 전용 메시지');
+
     socket.receive(createFrame('MESSAGE', { destination: '/topic/rooms/7/game' },
       JSON.stringify({
         roomId: 7,
@@ -556,13 +583,24 @@ test('chat returns a dead medium to the public channel when the game finishes', 
         winningFaction: 'MAFIA'
       })));
 
-    const channel = dom.window.document.querySelector('#chatChannel');
     assert.equal(channel.value, 'PUBLIC');
+    assert.equal(channel.disabled, false);
+    assert.equal(publicOption.hidden, false);
+    assert.equal(publicOption.disabled, false);
     assert.equal(channel.querySelector('option[value="MAFIA"]').hidden, true);
     assert.equal(channel.querySelector('option[value="MAFIA"]').disabled, true);
     assert.equal(channel.querySelector('option[value="DEAD"]').hidden, true);
     assert.equal(channel.querySelector('option[value="DEAD"]').disabled, true);
     assert.equal(dom.window.document.querySelector('#chatForm input[name="content"]').disabled, false);
+
+    input.value = '게임 종료 후 전체 채널 메시지';
+    dom.window.document.querySelector('#chatForm').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true })
+    );
+    const finishedChatFrame = socket.sent.map(parseSentFrame)
+      .filter(frame => frame.headers.destination === '/app/rooms/7/chat')
+      .at(-1);
+    assert.equal(JSON.parse(finishedChatFrame.body).content, '게임 종료 후 전체 채널 메시지');
 
     socket.receive(createFrame(
       'MESSAGE',

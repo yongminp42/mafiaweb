@@ -6,8 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.stereotype.Controller;
 
@@ -66,12 +66,7 @@ public class ChatController {
             ChatMessageRequest request,
             SimpMessageHeaderAccessor headers,
             Principal principal) {
-        ChatMessage message = createMessage(roomId, request, headers, principal, ChatChannel.MAFIA);
-        // Deliver individually so a role from a previous game cannot keep receiving the channel.
-        if (roomGameService == null) {
-            throw new RoomWebSocketException("마피아 채팅을 사용할 수 없습니다.");
-        }
-        roomGameService.broadcastMafiaChat(message);
+        sendPrivateMessage(roomId, request, headers, principal, ChatChannel.MAFIA);
     }
 
     @MessageMapping("/rooms/{roomId}/dead-chat")
@@ -80,27 +75,34 @@ public class ChatController {
             ChatMessageRequest request,
             SimpMessageHeaderAccessor headers,
             Principal principal) {
-        ChatMessage message = createMessage(roomId, request, headers, principal, ChatChannel.DEAD);
-        if (roomGameService == null || principal == null) {
-            throw new RoomWebSocketException("사망자 채널을 사용할 수 없습니다.");
-        }
-        roomGameService.broadcastDeadChat(
-                message,
-                PrincipalIdentity.from(principal).userId());
+        sendPrivateMessage(roomId, request, headers, principal, ChatChannel.DEAD);
     }
 
-    private ChatMessage createMessage(
+    private void sendPrivateMessage(
             long roomId,
             ChatMessageRequest request,
             SimpMessageHeaderAccessor headers,
             Principal principal,
             ChatChannel channel) {
-        return chatService.createMessage(
+        ChatMessage message = chatService.createMessage(
                 roomId,
                 request,
                 principal,
                 headers == null ? null : headers.getSessionId(),
                 channel);
+        if (roomGameService == null || principal == null) {
+            throw new RoomWebSocketException(channel == ChatChannel.MAFIA
+                    ? "마피아 채팅을 사용할 수 없습니다."
+                    : "사망자 채널을 사용할 수 없습니다.");
+        }
+        if (channel == ChatChannel.MAFIA) {
+            // Deliver individually so a role from a previous game cannot keep receiving the channel.
+            roomGameService.broadcastMafiaChat(message);
+        } else {
+            roomGameService.broadcastDeadChat(
+                    message,
+                    PrincipalIdentity.from(principal).userId());
+        }
     }
 
     @MessageExceptionHandler(RoomWebSocketException.class)

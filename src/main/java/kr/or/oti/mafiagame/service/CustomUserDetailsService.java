@@ -25,7 +25,7 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userMapper.findByEmail(normalizedEmail)
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid credentials"));
         UserStats stats = userMapper.findStatsByUserId(user.getUserId());
-        int rating = stats == null ? UserStats.DEFAULT_RATING : stats.getRating();
-        return new CustomUserDetails(user, rating);
+        int experience = stats == null ? UserStats.DEFAULT_RATING : stats.getExperience();
+        return new CustomUserDetails(user, experience);
     }
 }

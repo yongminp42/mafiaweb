@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MafiaGame 성능 최적화, 무엇을 어떻게 바꿨나</title>
+  <style>
+    :root {
+      --navy: #15253a;
+      --navy-2: #213751;
+      --ink: #1c2c40;
+      --muted: #56677b;
+      --paper: #ffffff;
+      --ground: #f3f6f9;
+      --line: #dce4ec;
+      --before: #8491a2;
+      --after: #168d83;
+      --after-soft: #e5f5f1;
+      --coral: #f07a6c;
+      --caution: #ab513c;
+      --caution-soft: #fff2ec;
+      --shadow: 0 12px 32px rgba(27, 49, 73, .07);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--ink);
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+    a { color: #126e73; }
+    a:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+    .container { width: min(1080px, calc(100% - 40px)); margin-inline: auto; }
+    .hero {
+      background: radial-gradient(circle at 85% 10%, #345875 0, transparent 29%), linear-gradient(135deg, #15253a, #203954 78%);
+      color: #fff;
+      padding: 64px 0 54px;
+    }
+    .eyebrow { margin: 0 0 16px; color: #9ddbd4; font-size: .79rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 750px; font-size: clamp(2.25rem, 5vw, 3.65rem); line-height: 1.22; letter-spacing: -.05em; margin-bottom: 19px; }
+    .hero-deck { max-width: 760px; color: #d5e2ed; font-size: 1.09rem; margin-bottom: 28px; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 30px; }
+    .hero-meta span { border: 1px solid #58728b; border-radius: 999px; padding: 5px 12px; color: #dce8ef; font-size: .81rem; }
+    .hero-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .hero-stat { background: #ffffff10; border: 1px solid #ffffff27; border-radius: 14px; padding: 18px 19px; }
+    .hero-stat strong { display: block; font-size: clamp(1.6rem, 3vw, 2.25rem); line-height: 1.2; color: #a5e5da; letter-spacing: -.04em; }
+    .hero-stat span { display: block; color: #dce7ee; font-size: .84rem; margin-top: 5px; }
+    .page-nav { background: #fff; border-bottom: 1px solid var(--line); }
+    .page-nav .container { display: flex; flex-wrap: wrap; gap: 10px 22px; padding-block: 13px; }
+    .page-nav a { font-size: .86rem; font-weight: 700; color: var(--navy-2); text-decoration: none; }
+    .page-nav a:hover { text-decoration: underline; }
+    main { padding-block: 36px 56px; }
+    section { scroll-margin-top: 24px; margin-bottom: 48px; }
+    .section-kicker { color: #087d78; font-size: .78rem; font-weight: 800; letter-spacing: .12em; margin-bottom: 8px; }
+    h2 { font-size: clamp(1.6rem, 3vw, 2.15rem); line-height: 1.38; letter-spacing: -.04em; margin-bottom: 12px; }
+    h3 { font-size: 1.12rem; line-height: 1.45; letter-spacing: -.02em; margin-bottom: 9px; }
+    .section-intro { max-width: 850px; color: var(--muted); font-size: 1.02rem; }
+    .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 17px; box-shadow: var(--shadow); padding: 26px; }
+    .panel + .panel { margin-top: 16px; }
+    .split { display: flex; align-items: stretch; gap: 16px; }
+    .split > * { flex: 1 1 0; min-width: 0; }
+    .split > .panel { display: flex; flex-direction: column; }
+    .split > .panel + .panel { margin-top: 0; }
+    .split > .panel > h3:first-child { min-height: 2.9em; }
+    .split > .panel > .callout:last-child,
+    .split > .panel > .small-note:last-child { margin-top: auto !important; }
+    .triple { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
+    .small-card { background: #f8fafc; border: 1px solid var(--line); border-radius: 13px; padding: 18px; }
+    .small-card p:last-child, .panel p:last-child { margin-bottom: 0; }
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px; background: var(--after-soft); color: #126f69; font-size: .75rem; font-weight: 800; }
+    .tag.before { background: #edf1f5; color: #526174; }
+    .tag.caution { background: var(--caution-soft); color: var(--caution); }
+    .lead-number { font-size: 1.9rem; font-weight: 800; letter-spacing: -.04em; color: var(--navy); line-height: 1.2; }
+    .small-note { color: var(--muted); font-size: .85rem; }
+    .flow { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+    .flow-step { flex: 1 1 118px; min-width: 110px; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; background: #fbfcfe; font-size: .88rem; text-align: center; font-weight: 700; }
+    .flow-step.problem { background: #fff0ed; border-color: #f1c7bf; color: #8a3e34; }
+    .flow-step.good { background: #eaf7f4; border-color: #bae1d9; color: #116d66; }
+    .flow-arrow { align-self: center; color: #69849b; font-weight: 900; font-size: 1.2rem; }
+    .flow-label { color: var(--muted); font-size: .77rem; font-weight: 800; letter-spacing: .07em; margin: 0 0 9px; }
+    .flow-block + .flow-block { margin-top: 20px; }
+    .plain-list { padding-left: 1.4em; margin: 11px 0 0; }
+    .plain-list li + li { margin-top: 7px; }
+    .code-note { font-size: .85rem; color: var(--muted); margin-bottom: 8px; }
+    pre { margin: 0; padding: 16px 18px; overflow-x: auto; border-radius: 11px; background: #16283e; color: #e5f0f5; font-family: Consolas, "Courier New", monospace; font-size: .82rem; line-height: 1.62; white-space: pre; }
+    code { font-family: Consolas, "Courier New", monospace; font-size: .9em; }
+    p code, li code, td code { padding: 2px 5px; border-radius: 4px; background: #eaf0f4; word-break: break-all; }
+    .callout { border-left: 4px solid var(--after); background: var(--after-soft); padding: 13px 17px; border-radius: 0 10px 10px 0; font-size: .91rem; }
+    .callout.caution { border-color: var(--caution); background: var(--caution-soft); }
+    figure { margin: 0; }
+    .chart-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 15px; margin-bottom: 18px; }
+    .chart-head h3 { margin: 0; }
+    .chart-scale { color: var(--muted); font-size: .78rem; }
+    .chart-legend { display: flex; gap: 18px; margin-bottom: 15px; color: var(--muted); font-size: .82rem; }
+    .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+    .swatch.before { background: var(--before); }
+    .swatch.after { background: var(--after); }
+    .chart-group + .chart-group { margin-top: 19px; }
+    .chart-group-title { font-size: .85rem; font-weight: 800; margin-bottom: 7px; }
+    .bar-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) 93px; gap: 11px; align-items: center; margin: 6px 0; font-size: .83rem; }
+    .bar-row .series { color: var(--muted); }
+    .bar-track { height: 22px; background: #edf2f5; border-radius: 5px; overflow: hidden; position: relative; }
+    .bar { display: block; height: 100%; min-width: 2px; border-radius: 5px; }
+    .bar.before { background: var(--before); }
+    .bar.after { background: var(--after); }
+    .bar-value { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    figcaption { color: var(--muted); font-size: .8rem; margin-top: 15px; }
+    .impact { margin: 15px 0 0; font-weight: 800; color: #0d766e; }
+    .metric-pair { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; text-align: center; }
+    .metric-tile { border-radius: 13px; padding: 19px 10px; background: #edf1f5; }
+    .metric-tile.after { background: var(--after-soft); }
+    .metric-tile strong { display: block; font-size: clamp(1.55rem, 3vw, 2.3rem); line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+    .metric-tile.after strong { color: #0d766e; }
+    .metric-tile span { color: var(--muted); font-size: .81rem; }
+    .metric-arrow { font-size: 1.8rem; color: #718498; }
+    .payload { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+    .payload-box { border: 1px solid var(--line); background: #f8fafc; border-radius: 12px; padding: 20px; min-height: 153px; }
+    .payload-box.after { background: var(--after-soft); border-color: #a8d8cf; }
+    .payload-box .icon { display: block; font-size: 1.9rem; line-height: 1; margin-bottom: 14px; }
+    .payload-box strong { display: block; font-size: 1.22rem; letter-spacing: -.025em; }
+    .payload-box small { color: var(--muted); }
+    .data-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .data-table th { background: #f5f8fa; color: #3f5268; font-weight: 800; white-space: nowrap; }
+    .data-table tr:last-child td { border-bottom: 0; }
+    .data-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .table-wrap { overflow-x: auto; }
+    .result-bad { color: var(--caution); font-weight: 800; }
+    .result-good { color: #0d766e; font-weight: 800; }
+    .source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .source-list a { display: block; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; text-decoration: none; background: #fbfcfe; }
+    .source-list a:hover { border-color: #81bbb5; }
+    .source-list strong { display: block; color: var(--navy); font-family: Consolas, "Courier New", monospace; font-size: .82rem; word-break: break-word; }
+    .source-list span { color: var(--muted); font-size: .8rem; }
+    .embedded-chart > h3 { display: none; }
+    .embedded-chart svg { display: block; width: 100%; max-width: 960px; height: auto; margin-inline: auto; }
+    .embedded-chart svg > rect { display: none; }
+    .footer { padding: 27px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
+    .footer p { margin-bottom: 6px; }
+    @media (max-width: 780px) {
+      .hero { padding: 43px 0 35px; }
+      .split { flex-direction: column; }
+      .triple, .source-list { grid-template-columns: 1fr; }
+      .hero-stats { grid-template-columns: 1fr; }
+      .panel { padding: 19px; }
+      .payload { grid-template-columns: 1fr; }
+      .payload > .metric-arrow { transform: rotate(90deg); justify-self: center; line-height: 1; }
+    }
+    @media (max-width: 480px) {
+      .container { width: min(100% - 24px, 1080px); }
+      .bar-row { grid-template-columns: 48px minmax(0, 1fr) 77px; gap: 6px; font-size: .72rem; }
+      .flow { flex-direction: column; align-items: stretch; }
+      .flow-arrow { display: block; transform: rotate(90deg); line-height: 1; }
+      .flow-step { flex: auto; min-width: 0; }
+      .metric-pair { gap: 5px; }
+    }
+    @media (max-width: 780px) {
+      .embedded-chart { overflow-x: auto; }
+      .embedded-chart svg { width: 760px; max-width: none; margin-inline: 0; }
+    }
+    @media print {
+      html { scroll-behavior: auto; }
+      body { background: #fff; }
+      .hero { padding: 22px 0; }
+      .page-nav { display: none; }
+      .panel { box-shadow: none; }
+      section, figure, .panel, .small-card { break-inside: avoid; }
+      a { text-decoration: none; }
+      * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <p class="eyebrow">MafiaGame · 2026.09.28 · 성능 개선 해설</p>
+      <h1>같은 일을 덜 하고,<br>바뀐 것만 보낸다</h1>
+      <p class="hero-deck">이번 최적화의 핵심은 방 정보를 반복해서 DB에서 읽지 않고, 변하지 않은 로비 숫자와 전체 페이지를 다시 보내지 않는 것입니다. 실제로 바꾼 코드의 흐름과 측정된 효과를 함께 살펴봅니다.</p>
+      <div class="hero-meta">
+        <span>방 1,000개 · 참가 기록 4,000개</span>
+        <span>실제 MariaDB · Spring 서버 측정</span>
+        <span>그래프 값은 개선 전후 각 1회 측정</span>
+      </div>
+      <div class="hero-stats" aria-label="핵심 개선 지표">
+        <div class="hero-stat"><strong>−85.32%</strong><span>목록 SQL 200건 배치 평균 시간 · 동시성 1</span></div>
+        <div class="hero-stat"><strong>−69.42%</strong><span>4명 준비 변경 묶음 p50 시간</span></div>
+        <div class="hero-stat"><strong>−99.91%</strong><span>새 방 1건 반영 시 받은 HTML 크기</span></div>
+      </div>
+    </div>
+  </header>
+  <nav class="page-nav" aria-label="문서 목차">
+    <div class="container">
+      <a href="#overview">한눈에 보기</a><a href="#presence">실시간 상태</a><a href="#query">방 목록 SQL</a><a href="#messages">중복 메시지</a><a href="#card">새 방 카드</a><a href="#other">기타 코드 변경</a><a href="#limits">결과 해석</a><a href="#sources">소스 위치</a>
+    </div>
+  </nav>
+  <main class="container">
+    <section id="overview">
+      <p class="section-kicker">01 · 큰 그림</p>
+      <h2>병목은 “한 번의 큰 작업”보다 반복되는 작은 작업에 있었다</h2>
+      <p class="section-intro">준비 버튼과 방 목록은 자주 실행됩니다. 각각의 처리에서 DB 조회, 집계, 메시지, 페이지 전송이 불필요하게 반복되면 사용자 수가 늘수록 부담도 커집니다.</p>
+      <div class="triple">
+        <div class="small-card"><span class="tag before">개선 전</span><h3>상태를 보낼 때마다 DB 확인</h3><p>방 상태 스냅샷을 만들면서 DB를 읽고, 그동안 공용 쓰기 잠금이 유지됐습니다.</p><span class="tag">개선 후</span><p>이미 메모리에 있는 방 설정과 상태로 스냅샷을 만듭니다.</p></div>
+        <div class="small-card"><span class="tag before">개선 전</span><h3>목록마다 참가 인원 재집계</h3><p>SQL이 참가 테이블을 합치고 방별로 세었습니다.</p><span class="tag">개선 후</span><p>목록 SQL은 방 기본 정보만 읽고, 화면에 실시간 인원을 합칩니다.</p></div>
+        <div class="small-card"><span class="tag before">개선 전</span><h3>변화가 없어도 재전송</h3><p>준비 상태만 바뀌어도 로비 인원 메시지가 갔고, 새 방에는 전체 페이지를 다시 받았습니다.</p><span class="tag">개선 후</span><p>인원 변화가 있을 때만 메시지를 보내고, 새 방은 카드 하나만 받습니다.</p></div>
+      </div>
+    </section>
+    <section id="presence">
+      <p class="section-kicker">02 · 실시간 상태</p>
+      <h2>준비 버튼을 누를 때 DB 대기와 잠금 대기를 줄였다</h2>
+      <p class="section-intro">방의 현재 인원, 잠금 여부, 게임 상태처럼 자주 쓰는 값은 <code>RoomPresenceService</code>가 이미 관리합니다. 이번 변경은 상태 스냅샷에서 방 DB를 다시 읽는 과정을 없앴습니다.</p>
+      <div class="panel">
+        <div class="flow-block"><p class="flow-label">이전 흐름</p><div class="flow" aria-label="이전: 준비 변경, 공용 잠금, DB 방 조회, 상태 전파"><span class="flow-step">준비 상태 변경</span><span class="flow-arrow">→</span><span class="flow-step problem">공용 쓰기 잠금</span><span class="flow-arrow">→</span><span class="flow-step problem">스냅샷용 DB 조회</span><span class="flow-arrow">→</span><span class="flow-step">방 상태 전파</span></div></div>
+        <div class="flow-block"><p class="flow-label">현재 흐름</p><div class="flow" aria-label="현재: 준비 변경, 메모리 스냅샷, 방 상태 전파"><span class="flow-step">준비 상태 변경</span><span class="flow-arrow">→</span><span class="flow-step good">메모리 설정·상태 조회</span><span class="flow-arrow">→</span><span class="flow-step good">방 상태 전파</span></div></div>
+      </div>
+      <div class="split" style="margin-top:16px">
+        <div class="panel">
+          <h3>소스코드는 이렇게 달라졌다</h3>
+          <p class="code-note">핵심 흐름을 쉽게 표현한 의사코드입니다.</p>
+          <pre><code>이전 snapshot(roomId)
+  → requireRoom(roomId)
+  → roomService.getRoom(roomId)  // DB
+
+현재 snapshot(roomId)
+  → roomSettingsByRoom.get(roomId)
+  → roomStatusByRoom.get(roomId)  // 메모리</code></pre>
+          <p class="small-note" style="margin-top:12px">방 입장의 DB 조회와 빈 방 삭제의 DB 작업도 공용 쓰기 잠금 밖으로 옮겼습니다.</p>
+        </div>
+        <div class="panel">
+          <h3>잠금 밖에서 읽어도 안전한 이유</h3>
+          <p>방 입장은 먼저 DB 정보를 읽고, 잠금을 얻은 뒤 <code>roomDeletionGeneration</code>과 삭제 진행 상태를 다시 확인합니다. 그 사이 방 삭제가 시작됐다면 오래된 조회 결과를 그대로 쓰지 않고 다시 시도합니다.</p>
+          <div class="callout">즉, DB를 기다리는 동안 다른 사용자의 상태 변경을 막지 않으면서 삭제와 입장의 경쟁도 확인합니다.</div>
+        </div>
+      </div>
+      <figure class="panel" style="margin-top:16px" role="img" aria-label="4명 동시 준비 변경 묶음 지연: p50 개선 전 3.6131밀리초, 후 1.1050밀리초. p95 개선 전 6.0234밀리초, 후 2.0567밀리초. 두 그래프의 최대 눈금은 6.5밀리초.">
+        <div class="chart-head"><h3>4명 동시 준비 변경: 응답 지연</h3><span class="chart-scale">막대의 최대 눈금 = 6.5 ms · 같은 눈금 사용</span></div>
+        <div class="chart-legend"><span><i class="swatch before"></i>개선 전</span><span><i class="swatch after"></i>개선 후</span></div>
+        <div class="chart-group"><div class="chart-group-title">p50 · 절반은 이 시간 이내</div><div class="bar-row"><span class="series">개선 전</span><span class="bar-track"><i class="bar before" style="width:55.59%"></i></span><strong class="bar-value">3.6131 ms</strong></div><div class="bar-row"><span class="series">개선 후</span><span class="bar-track"><i class="bar after" style="width:17%"></i></span><strong class="bar-value">1.1050 ms</strong></div></div>
+        <div class="chart-group"><div class="chart-group-title">p95 · 95%는 이 시간 이내</div><div class="bar-row"><span class="series">개선 전</span><span class="bar-track"><i class="bar before" style="width:92.67%"></i></span><strong class="bar-value">6.0234 ms</strong></div><div class="bar-row"><span class="series">개선 후</span><span class="bar-track"><i class="bar after" style="width:31.64%"></i></span><strong class="bar-value">2.0567 ms</strong></div></div>
+        <p class="impact">p50 69.42% 감소 · p95 65.85% 감소 · 상태 변경 처리량 899.5 → 2,340.8건/초</p>
+        <figcaption>40회 반복 × 준비/해제 2묶음 × 4명 = 총 320건, 지연 표본 80개. 이 결과는 실시간 처리 경로의 변경을 함께 반영하며, 한 코드 변경만의 효과로 분리한 수치는 아닙니다.</figcaption>
+      </figure>
+      <figure class="panel embedded-chart" style="margin-top:16px"><h3>80개 묶음의 실제 처리 순서</h3><svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790" role="img" aria-labelledby="ready-chart-title ready-chart-desc">
+<title id="ready-chart-title">준비 상태 변경 80개 묶음의 처리 순서별 지연</title>
+<desc id="ready-chart-desc">위 그래프는 4명이 동시에 준비 상태를 바꾸는 각 묶음의 지연이고, 아래 그래프는 1번째부터 해당 묶음까지의 누적 평균입니다. 개선 전과 개선 후는 별도 실행입니다.</desc>
+<rect width="1200" height="790" fill="#f4f7fa"/>
+<rect x="22" y="18" width="1156" height="754" rx="18" fill="#ffffff" stroke="#dce4ec"/>
+<text x="58" y="64" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="26" font-weight="700" fill="#172a40">80개 준비 상태 변경 묶음은 어떻게 변했나</text>
+<text x="58" y="94" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="15" fill="#526579">40회 반복 × 준비/해제 2묶음 · 각 묶음에서 4명이 동시에 전송 · 단위 ms</text>
+<line x1="830" y1="58" x2="867" y2="58" stroke="#66778c" stroke-width="3"/><text x="876" y="64" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="15" fill="#34465b">개선 전</text>
+<line x1="990" y1="58" x2="1027" y2="58" stroke="#078c82" stroke-width="3"/><text x="1036" y="64" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="15" fill="#34465b">개선 후</text>
+<text x="112" y="142" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="18" font-weight="700" fill="#172a40">각 묶음의 실제 지연 · 80개 순서대로</text>
+<line x1="112" y1="389.0" x2="1110" y2="389.0" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="394.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">0</text>
+<line x1="112" y1="343.4" x2="1110" y2="343.4" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="348.4" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">2</text>
+<line x1="112" y1="297.8" x2="1110" y2="297.8" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="302.8" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">4</text>
+<line x1="112" y1="252.2" x2="1110" y2="252.2" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="257.2" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">6</text>
+<line x1="112" y1="206.6" x2="1110" y2="206.6" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="211.6" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">8</text>
+<line x1="112" y1="161.0" x2="1110" y2="161.0" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="166.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">10</text>
+<line x1="112.0" y1="161" x2="112.0" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="112.0" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">1</text>
+<line x1="225.7" y1="161" x2="225.7" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="225.7" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">10</text>
+<line x1="352.0" y1="161" x2="352.0" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="352.0" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">20</text>
+<line x1="478.4" y1="161" x2="478.4" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="478.4" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">30</text>
+<line x1="604.7" y1="161" x2="604.7" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="604.7" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">40</text>
+<line x1="731.0" y1="161" x2="731.0" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="731.0" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">50</text>
+<line x1="857.3" y1="161" x2="857.3" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="857.3" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">60</text>
+<line x1="983.7" y1="161" x2="983.7" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="983.7" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">70</text>
+<line x1="1110.0" y1="161" x2="1110.0" y2="389" stroke="#eff3f6" stroke-width="1"/>
+<text x="1110.0" y="413" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">80</text>
+<polyline fill="none" stroke="#66778c" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" points="112.0,166.0 124.6,214.1 137.3,234.0 149.9,251.7 162.5,271.5 175.2,264.4 187.8,238.2 200.4,272.8 213.1,288.3 225.7,284.5 238.3,292.5 251.0,287.6 263.6,289.5 276.2,296.4 288.9,294.7 301.5,287.8 314.1,289.4 326.8,278.7 339.4,302.0 352.0,288.2 364.7,312.1 377.3,309.3 389.9,297.2 402.6,284.4 415.2,291.9 427.8,289.2 440.5,288.3 453.1,298.6 465.7,294.5 478.4,297.8 491.0,313.5 503.6,311.8 516.3,319.0 528.9,317.6 541.5,315.5 554.2,318.3 566.8,312.1 579.4,318.6 592.1,320.5 604.7,313.5 617.3,307.2 629.9,321.8 642.6,319.0 655.2,311.7 667.8,309.4 680.5,322.5 693.1,314.0 705.7,322.0 718.4,296.1 731.0,307.9 743.6,297.7 756.3,305.4 768.9,300.5 781.5,307.5 794.2,313.5 806.8,288.5 819.4,296.3 832.1,268.6 844.7,267.7 857.3,283.2 870.0,281.1 882.6,274.7 895.2,319.2 907.9,315.2 920.5,325.5 933.1,326.2 945.8,306.6 958.4,291.2 971.0,332.2 983.7,325.3 996.3,329.2 1008.9,329.8 1021.6,326.8 1034.2,321.6 1046.8,315.2 1059.5,324.3 1072.1,325.2 1084.7,321.0 1097.4,328.7 1110.0,315.0"/>
+<polyline fill="none" stroke="#078c82" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" points="112.0,315.2 124.6,332.4 137.3,343.8 149.9,342.1 162.5,343.5 175.2,350.0 187.8,342.4 200.4,338.1 213.1,345.0 225.7,344.6 238.3,352.7 251.0,352.1 263.6,355.2 276.2,358.8 288.9,361.9 301.5,363.0 314.1,363.5 326.8,365.7 339.4,361.6 352.0,346.8 364.7,357.3 377.3,348.2 389.9,359.9 402.6,354.7 415.2,364.6 427.8,363.5 440.5,365.0 453.1,361.2 465.7,353.2 478.4,359.4 491.0,360.0 503.6,367.6 516.3,369.7 528.9,367.2 541.5,366.6 554.2,366.3 566.8,367.4 579.4,368.8 592.1,369.7 604.7,362.7 617.3,359.7 629.9,353.6 642.6,358.0 655.2,365.0 667.8,366.3 680.5,367.0 693.1,366.6 705.7,361.1 718.4,365.0 731.0,363.5 743.6,341.9 756.3,367.3 768.9,364.8 781.5,352.5 794.2,353.4 806.8,363.8 819.4,367.6 832.1,357.1 844.7,367.2 857.3,368.0 870.0,355.0 882.6,348.6 895.2,366.0 907.9,370.0 920.5,368.4 933.1,369.0 945.8,369.8 958.4,372.7 971.0,372.9 983.7,368.7 996.3,370.9 1008.9,368.3 1021.6,370.8 1034.2,369.5 1046.8,370.7 1059.5,372.0 1072.1,371.4 1084.7,369.8 1097.4,372.8 1110.0,371.1"/>
+<circle cx="112.0" cy="166.0" r="1.6" fill="#66778c"/>
+<circle cx="124.6" cy="214.1" r="1.6" fill="#66778c"/>
+<circle cx="137.3" cy="234.0" r="1.6" fill="#66778c"/>
+<circle cx="149.9" cy="251.7" r="1.6" fill="#66778c"/>
+<circle cx="162.5" cy="271.5" r="1.6" fill="#66778c"/>
+<circle cx="175.2" cy="264.4" r="1.6" fill="#66778c"/>
+<circle cx="187.8" cy="238.2" r="1.6" fill="#66778c"/>
+<circle cx="200.4" cy="272.8" r="1.6" fill="#66778c"/>
+<circle cx="213.1" cy="288.3" r="1.6" fill="#66778c"/>
+<circle cx="225.7" cy="284.5" r="1.6" fill="#66778c"/>
+<circle cx="238.3" cy="292.5" r="1.6" fill="#66778c"/>
+<circle cx="251.0" cy="287.6" r="1.6" fill="#66778c"/>
+<circle cx="263.6" cy="289.5" r="1.6" fill="#66778c"/>
+<circle cx="276.2" cy="296.4" r="1.6" fill="#66778c"/>
+<circle cx="288.9" cy="294.7" r="1.6" fill="#66778c"/>
+<circle cx="301.5" cy="287.8" r="1.6" fill="#66778c"/>
+<circle cx="314.1" cy="289.4" r="1.6" fill="#66778c"/>
+<circle cx="326.8" cy="278.7" r="1.6" fill="#66778c"/>
+<circle cx="339.4" cy="302.0" r="1.6" fill="#66778c"/>
+<circle cx="352.0" cy="288.2" r="1.6" fill="#66778c"/>
+<circle cx="364.7" cy="312.1" r="1.6" fill="#66778c"/>
+<circle cx="377.3" cy="309.3" r="1.6" fill="#66778c"/>
+<circle cx="389.9" cy="297.2" r="1.6" fill="#66778c"/>
+<circle cx="402.6" cy="284.4" r="1.6" fill="#66778c"/>
+<circle cx="415.2" cy="291.9" r="1.6" fill="#66778c"/>
+<circle cx="427.8" cy="289.2" r="1.6" fill="#66778c"/>
+<circle cx="440.5" cy="288.3" r="1.6" fill="#66778c"/>
+<circle cx="453.1" cy="298.6" r="1.6" fill="#66778c"/>
+<circle cx="465.7" cy="294.5" r="1.6" fill="#66778c"/>
+<circle cx="478.4" cy="297.8" r="1.6" fill="#66778c"/>
+<circle cx="491.0" cy="313.5" r="1.6" fill="#66778c"/>
+<circle cx="503.6" cy="311.8" r="1.6" fill="#66778c"/>
+<circle cx="516.3" cy="319.0" r="1.6" fill="#66778c"/>
+<circle cx="528.9" cy="317.6" r="1.6" fill="#66778c"/>
+<circle cx="541.5" cy="315.5" r="1.6" fill="#66778c"/>
+<circle cx="554.2" cy="318.3" r="1.6" fill="#66778c"/>
+<circle cx="566.8" cy="312.1" r="1.6" fill="#66778c"/>
+<circle cx="579.4" cy="318.6" r="1.6" fill="#66778c"/>
+<circle cx="592.1" cy="320.5" r="1.6" fill="#66778c"/>
+<circle cx="604.7" cy="313.5" r="1.6" fill="#66778c"/>
+<circle cx="617.3" cy="307.2" r="1.6" fill="#66778c"/>
+<circle cx="629.9" cy="321.8" r="1.6" fill="#66778c"/>
+<circle cx="642.6" cy="319.0" r="1.6" fill="#66778c"/>
+<circle cx="655.2" cy="311.7" r="1.6" fill="#66778c"/>
+<circle cx="667.8" cy="309.4" r="1.6" fill="#66778c"/>
+<circle cx="680.5" cy="322.5" r="1.6" fill="#66778c"/>
+<circle cx="693.1" cy="314.0" r="1.6" fill="#66778c"/>
+<circle cx="705.7" cy="322.0" r="1.6" fill="#66778c"/>
+<circle cx="718.4" cy="296.1" r="1.6" fill="#66778c"/>
+<circle cx="731.0" cy="307.9" r="1.6" fill="#66778c"/>
+<circle cx="743.6" cy="297.7" r="1.6" fill="#66778c"/>
+<circle cx="756.3" cy="305.4" r="1.6" fill="#66778c"/>
+<circle cx="768.9" cy="300.5" r="1.6" fill="#66778c"/>
+<circle cx="781.5" cy="307.5" r="1.6" fill="#66778c"/>
+<circle cx="794.2" cy="313.5" r="1.6" fill="#66778c"/>
+<circle cx="806.8" cy="288.5" r="1.6" fill="#66778c"/>
+<circle cx="819.4" cy="296.3" r="1.6" fill="#66778c"/>
+<circle cx="832.1" cy="268.6" r="1.6" fill="#66778c"/>
+<circle cx="844.7" cy="267.7" r="1.6" fill="#66778c"/>
+<circle cx="857.3" cy="283.2" r="1.6" fill="#66778c"/>
+<circle cx="870.0" cy="281.1" r="1.6" fill="#66778c"/>
+<circle cx="882.6" cy="274.7" r="1.6" fill="#66778c"/>
+<circle cx="895.2" cy="319.2" r="1.6" fill="#66778c"/>
+<circle cx="907.9" cy="315.2" r="1.6" fill="#66778c"/>
+<circle cx="920.5" cy="325.5" r="1.6" fill="#66778c"/>
+<circle cx="933.1" cy="326.2" r="1.6" fill="#66778c"/>
+<circle cx="945.8" cy="306.6" r="1.6" fill="#66778c"/>
+<circle cx="958.4" cy="291.2" r="1.6" fill="#66778c"/>
+<circle cx="971.0" cy="332.2" r="1.6" fill="#66778c"/>
+<circle cx="983.7" cy="325.3" r="1.6" fill="#66778c"/>
+<circle cx="996.3" cy="329.2" r="1.6" fill="#66778c"/>
+<circle cx="1008.9" cy="329.8" r="1.6" fill="#66778c"/>
+<circle cx="1021.6" cy="326.8" r="1.6" fill="#66778c"/>
+<circle cx="1034.2" cy="321.6" r="1.6" fill="#66778c"/>
+<circle cx="1046.8" cy="315.2" r="1.6" fill="#66778c"/>
+<circle cx="1059.5" cy="324.3" r="1.6" fill="#66778c"/>
+<circle cx="1072.1" cy="325.2" r="1.6" fill="#66778c"/>
+<circle cx="1084.7" cy="321.0" r="1.6" fill="#66778c"/>
+<circle cx="1097.4" cy="328.7" r="1.6" fill="#66778c"/>
+<circle cx="1110.0" cy="315.0" r="1.6" fill="#66778c"/>
+<circle cx="112.0" cy="315.2" r="1.6" fill="#078c82"/>
+<circle cx="124.6" cy="332.4" r="1.6" fill="#078c82"/>
+<circle cx="137.3" cy="343.8" r="1.6" fill="#078c82"/>
+<circle cx="149.9" cy="342.1" r="1.6" fill="#078c82"/>
+<circle cx="162.5" cy="343.5" r="1.6" fill="#078c82"/>
+<circle cx="175.2" cy="350.0" r="1.6" fill="#078c82"/>
+<circle cx="187.8" cy="342.4" r="1.6" fill="#078c82"/>
+<circle cx="200.4" cy="338.1" r="1.6" fill="#078c82"/>
+<circle cx="213.1" cy="345.0" r="1.6" fill="#078c82"/>
+<circle cx="225.7" cy="344.6" r="1.6" fill="#078c82"/>
+<circle cx="238.3" cy="352.7" r="1.6" fill="#078c82"/>
+<circle cx="251.0" cy="352.1" r="1.6" fill="#078c82"/>
+<circle cx="263.6" cy="355.2" r="1.6" fill="#078c82"/>
+<circle cx="276.2" cy="358.8" r="1.6" fill="#078c82"/>
+<circle cx="288.9" cy="361.9" r="1.6" fill="#078c82"/>
+<circle cx="301.5" cy="363.0" r="1.6" fill="#078c82"/>
+<circle cx="314.1" cy="363.5" r="1.6" fill="#078c82"/>
+<circle cx="326.8" cy="365.7" r="1.6" fill="#078c82"/>
+<circle cx="339.4" cy="361.6" r="1.6" fill="#078c82"/>
+<circle cx="352.0" cy="346.8" r="1.6" fill="#078c82"/>
+<circle cx="364.7" cy="357.3" r="1.6" fill="#078c82"/>
+<circle cx="377.3" cy="348.2" r="1.6" fill="#078c82"/>
+<circle cx="389.9" cy="359.9" r="1.6" fill="#078c82"/>
+<circle cx="402.6" cy="354.7" r="1.6" fill="#078c82"/>
+<circle cx="415.2" cy="364.6" r="1.6" fill="#078c82"/>
+<circle cx="427.8" cy="363.5" r="1.6" fill="#078c82"/>
+<circle cx="440.5" cy="365.0" r="1.6" fill="#078c82"/>
+<circle cx="453.1" cy="361.2" r="1.6" fill="#078c82"/>
+<circle cx="465.7" cy="353.2" r="1.6" fill="#078c82"/>
+<circle cx="478.4" cy="359.4" r="1.6" fill="#078c82"/>
+<circle cx="491.0" cy="360.0" r="1.6" fill="#078c82"/>
+<circle cx="503.6" cy="367.6" r="1.6" fill="#078c82"/>
+<circle cx="516.3" cy="369.7" r="1.6" fill="#078c82"/>
+<circle cx="528.9" cy="367.2" r="1.6" fill="#078c82"/>
+<circle cx="541.5" cy="366.6" r="1.6" fill="#078c82"/>
+<circle cx="554.2" cy="366.3" r="1.6" fill="#078c82"/>
+<circle cx="566.8" cy="367.4" r="1.6" fill="#078c82"/>
+<circle cx="579.4" cy="368.8" r="1.6" fill="#078c82"/>
+<circle cx="592.1" cy="369.7" r="1.6" fill="#078c82"/>
+<circle cx="604.7" cy="362.7" r="1.6" fill="#078c82"/>
+<circle cx="617.3" cy="359.7" r="1.6" fill="#078c82"/>
+<circle cx="629.9" cy="353.6" r="1.6" fill="#078c82"/>
+<circle cx="642.6" cy="358.0" r="1.6" fill="#078c82"/>
+<circle cx="655.2" cy="365.0" r="1.6" fill="#078c82"/>
+<circle cx="667.8" cy="366.3" r="1.6" fill="#078c82"/>
+<circle cx="680.5" cy="367.0" r="1.6" fill="#078c82"/>
+<circle cx="693.1" cy="366.6" r="1.6" fill="#078c82"/>
+<circle cx="705.7" cy="361.1" r="1.6" fill="#078c82"/>
+<circle cx="718.4" cy="365.0" r="1.6" fill="#078c82"/>
+<circle cx="731.0" cy="363.5" r="1.6" fill="#078c82"/>
+<circle cx="743.6" cy="341.9" r="1.6" fill="#078c82"/>
+<circle cx="756.3" cy="367.3" r="1.6" fill="#078c82"/>
+<circle cx="768.9" cy="364.8" r="1.6" fill="#078c82"/>
+<circle cx="781.5" cy="352.5" r="1.6" fill="#078c82"/>
+<circle cx="794.2" cy="353.4" r="1.6" fill="#078c82"/>
+<circle cx="806.8" cy="363.8" r="1.6" fill="#078c82"/>
+<circle cx="819.4" cy="367.6" r="1.6" fill="#078c82"/>
+<circle cx="832.1" cy="357.1" r="1.6" fill="#078c82"/>
+<circle cx="844.7" cy="367.2" r="1.6" fill="#078c82"/>
+<circle cx="857.3" cy="368.0" r="1.6" fill="#078c82"/>
+<circle cx="870.0" cy="355.0" r="1.6" fill="#078c82"/>
+<circle cx="882.6" cy="348.6" r="1.6" fill="#078c82"/>
+<circle cx="895.2" cy="366.0" r="1.6" fill="#078c82"/>
+<circle cx="907.9" cy="370.0" r="1.6" fill="#078c82"/>
+<circle cx="920.5" cy="368.4" r="1.6" fill="#078c82"/>
+<circle cx="933.1" cy="369.0" r="1.6" fill="#078c82"/>
+<circle cx="945.8" cy="369.8" r="1.6" fill="#078c82"/>
+<circle cx="958.4" cy="372.7" r="1.6" fill="#078c82"/>
+<circle cx="971.0" cy="372.9" r="1.6" fill="#078c82"/>
+<circle cx="983.7" cy="368.7" r="1.6" fill="#078c82"/>
+<circle cx="996.3" cy="370.9" r="1.6" fill="#078c82"/>
+<circle cx="1008.9" cy="368.3" r="1.6" fill="#078c82"/>
+<circle cx="1021.6" cy="370.8" r="1.6" fill="#078c82"/>
+<circle cx="1034.2" cy="369.5" r="1.6" fill="#078c82"/>
+<circle cx="1046.8" cy="370.7" r="1.6" fill="#078c82"/>
+<circle cx="1059.5" cy="372.0" r="1.6" fill="#078c82"/>
+<circle cx="1072.1" cy="371.4" r="1.6" fill="#078c82"/>
+<circle cx="1084.7" cy="369.8" r="1.6" fill="#078c82"/>
+<circle cx="1097.4" cy="372.8" r="1.6" fill="#078c82"/>
+<circle cx="1110.0" cy="371.1" r="1.6" fill="#078c82"/>
+<text x="112" y="472" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="18" font-weight="700" fill="#172a40">1번째부터 해당 묶음까지의 누적 평균</text>
+<line x1="112" y1="680.0" x2="1110" y2="680.0" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="685.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">0</text>
+<line x1="112" y1="642.2" x2="1110" y2="642.2" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="647.2" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">2</text>
+<line x1="112" y1="604.4" x2="1110" y2="604.4" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="609.4" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">4</text>
+<line x1="112" y1="566.6" x2="1110" y2="566.6" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="571.6" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">6</text>
+<line x1="112" y1="528.8" x2="1110" y2="528.8" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="533.8" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">8</text>
+<line x1="112" y1="491.0" x2="1110" y2="491.0" stroke="#dfe7ed" stroke-width="1"/>
+<text x="91" y="496.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">10</text>
+<line x1="112.0" y1="491" x2="112.0" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="112.0" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">1</text>
+<line x1="225.7" y1="491" x2="225.7" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="225.7" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">10</text>
+<line x1="352.0" y1="491" x2="352.0" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="352.0" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">20</text>
+<line x1="478.4" y1="491" x2="478.4" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="478.4" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">30</text>
+<line x1="604.7" y1="491" x2="604.7" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="604.7" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">40</text>
+<line x1="731.0" y1="491" x2="731.0" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="731.0" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">50</text>
+<line x1="857.3" y1="491" x2="857.3" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="857.3" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">60</text>
+<line x1="983.7" y1="491" x2="983.7" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="983.7" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">70</text>
+<line x1="1110.0" y1="491" x2="1110.0" y2="680" stroke="#eff3f6" stroke-width="1"/>
+<text x="1110.0" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">80</text>
+<polyline fill="none" stroke="#66778c" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" points="112.0,495.1 124.6,515.1 137.3,527.2 149.9,537.0 162.5,546.1 175.2,551.2 187.8,551.7 200.4,555.7 213.1,560.3 225.7,563.6 238.3,566.9 251.0,569.3 263.6,571.5 276.2,573.7 288.9,575.6 301.5,576.9 314.1,578.1 326.8,578.7 339.4,580.2 352.0,581.0 364.7,582.7 377.3,584.1 389.9,585.0 402.6,585.3 415.2,585.9 427.8,586.3 440.5,586.7 453.1,587.4 465.7,587.9 478.4,588.4 491.0,589.4 503.6,590.2 516.3,591.1 528.9,592.0 541.5,592.8 554.2,593.6 566.8,594.2 579.4,594.9 592.1,595.6 604.7,596.2 617.3,596.6 629.9,597.2 642.6,597.8 655.2,598.2 667.8,598.6 680.5,599.2 693.1,599.5 705.7,600.1 718.4,600.1 731.0,600.4 743.6,600.5 756.3,600.7 768.9,600.8 781.5,601.0 794.2,601.3 806.8,601.2 819.4,601.2 832.1,600.9 844.7,600.5 857.3,600.4 870.0,600.2 882.6,600.0 895.2,600.3 907.9,600.6 920.5,601.0 933.1,601.4 945.8,601.6 958.4,601.5 971.0,602.0 983.7,602.4 996.3,602.8 1008.9,603.1 1021.6,603.5 1034.2,603.8 1046.8,604.0 1059.5,604.3 1072.1,604.6 1084.7,604.8 1097.4,605.1 1110.0,605.3"/>
+<polyline fill="none" stroke="#078c82" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" points="112.0,618.8 124.6,625.9 137.3,631.5 149.9,633.9 162.5,635.6 175.2,637.6 187.8,638.1 200.4,638.1 213.1,638.7 225.7,639.1 238.3,640.1 251.0,640.9 263.6,641.7 276.2,642.7 288.9,643.7 301.5,644.6 314.1,645.4 326.8,646.3 339.4,646.9 352.0,646.8 364.7,647.1 377.3,647.1 389.9,647.4 402.6,647.6 415.2,648.1 427.8,648.5 440.5,648.9 453.1,649.2 465.7,649.3 478.4,649.5 491.0,649.7 503.6,650.1 516.3,650.5 528.9,650.8 541.5,651.1 554.2,651.4 566.8,651.7 579.4,652.0 592.1,652.3 604.7,652.5 617.3,652.5 629.9,652.5 642.6,652.5 655.2,652.7 667.8,652.9 680.5,653.1 693.1,653.3 705.7,653.3 718.4,653.5 731.0,653.6 743.6,653.3 756.3,653.5 768.9,653.6 781.5,653.6 794.2,653.5 806.8,653.6 819.4,653.8 832.1,653.8 844.7,653.9 857.3,654.0 870.0,654.0 882.6,653.9 895.2,654.0 907.9,654.1 920.5,654.3 933.1,654.4 945.8,654.6 958.4,654.7 971.0,654.9 983.7,655.0 996.3,655.2 1008.9,655.3 1021.6,655.4 1034.2,655.5 1046.8,655.6 1059.5,655.8 1072.1,655.9 1084.7,656.0 1097.4,656.1 1110.0,656.3"/>
+<circle cx="112.0" cy="495.1" r="1.6" fill="#66778c"/>
+<circle cx="124.6" cy="515.1" r="1.6" fill="#66778c"/>
+<circle cx="137.3" cy="527.2" r="1.6" fill="#66778c"/>
+<circle cx="149.9" cy="537.0" r="1.6" fill="#66778c"/>
+<circle cx="162.5" cy="546.1" r="1.6" fill="#66778c"/>
+<circle cx="175.2" cy="551.2" r="1.6" fill="#66778c"/>
+<circle cx="187.8" cy="551.7" r="1.6" fill="#66778c"/>
+<circle cx="200.4" cy="555.7" r="1.6" fill="#66778c"/>
+<circle cx="213.1" cy="560.3" r="1.6" fill="#66778c"/>
+<circle cx="225.7" cy="563.6" r="1.6" fill="#66778c"/>
+<circle cx="238.3" cy="566.9" r="1.6" fill="#66778c"/>
+<circle cx="251.0" cy="569.3" r="1.6" fill="#66778c"/>
+<circle cx="263.6" cy="571.5" r="1.6" fill="#66778c"/>
+<circle cx="276.2" cy="573.7" r="1.6" fill="#66778c"/>
+<circle cx="288.9" cy="575.6" r="1.6" fill="#66778c"/>
+<circle cx="301.5" cy="576.9" r="1.6" fill="#66778c"/>
+<circle cx="314.1" cy="578.1" r="1.6" fill="#66778c"/>
+<circle cx="326.8" cy="578.7" r="1.6" fill="#66778c"/>
+<circle cx="339.4" cy="580.2" r="1.6" fill="#66778c"/>
+<circle cx="352.0" cy="581.0" r="1.6" fill="#66778c"/>
+<circle cx="364.7" cy="582.7" r="1.6" fill="#66778c"/>
+<circle cx="377.3" cy="584.1" r="1.6" fill="#66778c"/>
+<circle cx="389.9" cy="585.0" r="1.6" fill="#66778c"/>
+<circle cx="402.6" cy="585.3" r="1.6" fill="#66778c"/>
+<circle cx="415.2" cy="585.9" r="1.6" fill="#66778c"/>
+<circle cx="427.8" cy="586.3" r="1.6" fill="#66778c"/>
+<circle cx="440.5" cy="586.7" r="1.6" fill="#66778c"/>
+<circle cx="453.1" cy="587.4" r="1.6" fill="#66778c"/>
+<circle cx="465.7" cy="587.9" r="1.6" fill="#66778c"/>
+<circle cx="478.4" cy="588.4" r="1.6" fill="#66778c"/>
+<circle cx="491.0" cy="589.4" r="1.6" fill="#66778c"/>
+<circle cx="503.6" cy="590.2" r="1.6" fill="#66778c"/>
+<circle cx="516.3" cy="591.1" r="1.6" fill="#66778c"/>
+<circle cx="528.9" cy="592.0" r="1.6" fill="#66778c"/>
+<circle cx="541.5" cy="592.8" r="1.6" fill="#66778c"/>
+<circle cx="554.2" cy="593.6" r="1.6" fill="#66778c"/>
+<circle cx="566.8" cy="594.2" r="1.6" fill="#66778c"/>
+<circle cx="579.4" cy="594.9" r="1.6" fill="#66778c"/>
+<circle cx="592.1" cy="595.6" r="1.6" fill="#66778c"/>
+<circle cx="604.7" cy="596.2" r="1.6" fill="#66778c"/>
+<circle cx="617.3" cy="596.6" r="1.6" fill="#66778c"/>
+<circle cx="629.9" cy="597.2" r="1.6" fill="#66778c"/>
+<circle cx="642.6" cy="597.8" r="1.6" fill="#66778c"/>
+<circle cx="655.2" cy="598.2" r="1.6" fill="#66778c"/>
+<circle cx="667.8" cy="598.6" r="1.6" fill="#66778c"/>
+<circle cx="680.5" cy="599.2" r="1.6" fill="#66778c"/>
+<circle cx="693.1" cy="599.5" r="1.6" fill="#66778c"/>
+<circle cx="705.7" cy="600.1" r="1.6" fill="#66778c"/>
+<circle cx="718.4" cy="600.1" r="1.6" fill="#66778c"/>
+<circle cx="731.0" cy="600.4" r="1.6" fill="#66778c"/>
+<circle cx="743.6" cy="600.5" r="1.6" fill="#66778c"/>
+<circle cx="756.3" cy="600.7" r="1.6" fill="#66778c"/>
+<circle cx="768.9" cy="600.8" r="1.6" fill="#66778c"/>
+<circle cx="781.5" cy="601.0" r="1.6" fill="#66778c"/>
+<circle cx="794.2" cy="601.3" r="1.6" fill="#66778c"/>
+<circle cx="806.8" cy="601.2" r="1.6" fill="#66778c"/>
+<circle cx="819.4" cy="601.2" r="1.6" fill="#66778c"/>
+<circle cx="832.1" cy="600.9" r="1.6" fill="#66778c"/>
+<circle cx="844.7" cy="600.5" r="1.6" fill="#66778c"/>
+<circle cx="857.3" cy="600.4" r="1.6" fill="#66778c"/>
+<circle cx="870.0" cy="600.2" r="1.6" fill="#66778c"/>
+<circle cx="882.6" cy="600.0" r="1.6" fill="#66778c"/>
+<circle cx="895.2" cy="600.3" r="1.6" fill="#66778c"/>
+<circle cx="907.9" cy="600.6" r="1.6" fill="#66778c"/>
+<circle cx="920.5" cy="601.0" r="1.6" fill="#66778c"/>
+<circle cx="933.1" cy="601.4" r="1.6" fill="#66778c"/>
+<circle cx="945.8" cy="601.6" r="1.6" fill="#66778c"/>
+<circle cx="958.4" cy="601.5" r="1.6" fill="#66778c"/>
+<circle cx="971.0" cy="602.0" r="1.6" fill="#66778c"/>
+<circle cx="983.7" cy="602.4" r="1.6" fill="#66778c"/>
+<circle cx="996.3" cy="602.8" r="1.6" fill="#66778c"/>
+<circle cx="1008.9" cy="603.1" r="1.6" fill="#66778c"/>
+<circle cx="1021.6" cy="603.5" r="1.6" fill="#66778c"/>
+<circle cx="1034.2" cy="603.8" r="1.6" fill="#66778c"/>
+<circle cx="1046.8" cy="604.0" r="1.6" fill="#66778c"/>
+<circle cx="1059.5" cy="604.3" r="1.6" fill="#66778c"/>
+<circle cx="1072.1" cy="604.6" r="1.6" fill="#66778c"/>
+<circle cx="1084.7" cy="604.8" r="1.6" fill="#66778c"/>
+<circle cx="1097.4" cy="605.1" r="1.6" fill="#66778c"/>
+<circle cx="1110.0" cy="605.3" r="1.6" fill="#66778c"/>
+<circle cx="112.0" cy="618.8" r="1.6" fill="#078c82"/>
+<circle cx="124.6" cy="625.9" r="1.6" fill="#078c82"/>
+<circle cx="137.3" cy="631.5" r="1.6" fill="#078c82"/>
+<circle cx="149.9" cy="633.9" r="1.6" fill="#078c82"/>
+<circle cx="162.5" cy="635.6" r="1.6" fill="#078c82"/>
+<circle cx="175.2" cy="637.6" r="1.6" fill="#078c82"/>
+<circle cx="187.8" cy="638.1" r="1.6" fill="#078c82"/>
+<circle cx="200.4" cy="638.1" r="1.6" fill="#078c82"/>
+<circle cx="213.1" cy="638.7" r="1.6" fill="#078c82"/>
+<circle cx="225.7" cy="639.1" r="1.6" fill="#078c82"/>
+<circle cx="238.3" cy="640.1" r="1.6" fill="#078c82"/>
+<circle cx="251.0" cy="640.9" r="1.6" fill="#078c82"/>
+<circle cx="263.6" cy="641.7" r="1.6" fill="#078c82"/>
+<circle cx="276.2" cy="642.7" r="1.6" fill="#078c82"/>
+<circle cx="288.9" cy="643.7" r="1.6" fill="#078c82"/>
+<circle cx="301.5" cy="644.6" r="1.6" fill="#078c82"/>
+<circle cx="314.1" cy="645.4" r="1.6" fill="#078c82"/>
+<circle cx="326.8" cy="646.3" r="1.6" fill="#078c82"/>
+<circle cx="339.4" cy="646.9" r="1.6" fill="#078c82"/>
+<circle cx="352.0" cy="646.8" r="1.6" fill="#078c82"/>
+<circle cx="364.7" cy="647.1" r="1.6" fill="#078c82"/>
+<circle cx="377.3" cy="647.1" r="1.6" fill="#078c82"/>
+<circle cx="389.9" cy="647.4" r="1.6" fill="#078c82"/>
+<circle cx="402.6" cy="647.6" r="1.6" fill="#078c82"/>
+<circle cx="415.2" cy="648.1" r="1.6" fill="#078c82"/>
+<circle cx="427.8" cy="648.5" r="1.6" fill="#078c82"/>
+<circle cx="440.5" cy="648.9" r="1.6" fill="#078c82"/>
+<circle cx="453.1" cy="649.2" r="1.6" fill="#078c82"/>
+<circle cx="465.7" cy="649.3" r="1.6" fill="#078c82"/>
+<circle cx="478.4" cy="649.5" r="1.6" fill="#078c82"/>
+<circle cx="491.0" cy="649.7" r="1.6" fill="#078c82"/>
+<circle cx="503.6" cy="650.1" r="1.6" fill="#078c82"/>
+<circle cx="516.3" cy="650.5" r="1.6" fill="#078c82"/>
+<circle cx="528.9" cy="650.8" r="1.6" fill="#078c82"/>
+<circle cx="541.5" cy="651.1" r="1.6" fill="#078c82"/>
+<circle cx="554.2" cy="651.4" r="1.6" fill="#078c82"/>
+<circle cx="566.8" cy="651.7" r="1.6" fill="#078c82"/>
+<circle cx="579.4" cy="652.0" r="1.6" fill="#078c82"/>
+<circle cx="592.1" cy="652.3" r="1.6" fill="#078c82"/>
+<circle cx="604.7" cy="652.5" r="1.6" fill="#078c82"/>
+<circle cx="617.3" cy="652.5" r="1.6" fill="#078c82"/>
+<circle cx="629.9" cy="652.5" r="1.6" fill="#078c82"/>
+<circle cx="642.6" cy="652.5" r="1.6" fill="#078c82"/>
+<circle cx="655.2" cy="652.7" r="1.6" fill="#078c82"/>
+<circle cx="667.8" cy="652.9" r="1.6" fill="#078c82"/>
+<circle cx="680.5" cy="653.1" r="1.6" fill="#078c82"/>
+<circle cx="693.1" cy="653.3" r="1.6" fill="#078c82"/>
+<circle cx="705.7" cy="653.3" r="1.6" fill="#078c82"/>
+<circle cx="718.4" cy="653.5" r="1.6" fill="#078c82"/>
+<circle cx="731.0" cy="653.6" r="1.6" fill="#078c82"/>
+<circle cx="743.6" cy="653.3" r="1.6" fill="#078c82"/>
+<circle cx="756.3" cy="653.5" r="1.6" fill="#078c82"/>
+<circle cx="768.9" cy="653.6" r="1.6" fill="#078c82"/>
+<circle cx="781.5" cy="653.6" r="1.6" fill="#078c82"/>
+<circle cx="794.2" cy="653.5" r="1.6" fill="#078c82"/>
+<circle cx="806.8" cy="653.6" r="1.6" fill="#078c82"/>
+<circle cx="819.4" cy="653.8" r="1.6" fill="#078c82"/>
+<circle cx="832.1" cy="653.8" r="1.6" fill="#078c82"/>
+<circle cx="844.7" cy="653.9" r="1.6" fill="#078c82"/>
+<circle cx="857.3" cy="654.0" r="1.6" fill="#078c82"/>
+<circle cx="870.0" cy="654.0" r="1.6" fill="#078c82"/>
+<circle cx="882.6" cy="653.9" r="1.6" fill="#078c82"/>
+<circle cx="895.2" cy="654.0" r="1.6" fill="#078c82"/>
+<circle cx="907.9" cy="654.1" r="1.6" fill="#078c82"/>
+<circle cx="920.5" cy="654.3" r="1.6" fill="#078c82"/>
+<circle cx="933.1" cy="654.4" r="1.6" fill="#078c82"/>
+<circle cx="945.8" cy="654.6" r="1.6" fill="#078c82"/>
+<circle cx="958.4" cy="654.7" r="1.6" fill="#078c82"/>
+<circle cx="971.0" cy="654.9" r="1.6" fill="#078c82"/>
+<circle cx="983.7" cy="655.0" r="1.6" fill="#078c82"/>
+<circle cx="996.3" cy="655.2" r="1.6" fill="#078c82"/>
+<circle cx="1008.9" cy="655.3" r="1.6" fill="#078c82"/>
+<circle cx="1021.6" cy="655.4" r="1.6" fill="#078c82"/>
+<circle cx="1034.2" cy="655.5" r="1.6" fill="#078c82"/>
+<circle cx="1046.8" cy="655.6" r="1.6" fill="#078c82"/>
+<circle cx="1059.5" cy="655.8" r="1.6" fill="#078c82"/>
+<circle cx="1072.1" cy="655.9" r="1.6" fill="#078c82"/>
+<circle cx="1084.7" cy="656.0" r="1.6" fill="#078c82"/>
+<circle cx="1097.4" cy="656.1" r="1.6" fill="#078c82"/>
+<circle cx="1110.0" cy="656.3" r="1.6" fill="#078c82"/>
+<text x="611" y="727" text-anchor="middle" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="14" fill="#526579">묶음 처리 순서 (1~80)</text>
+<text x="58" y="758" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="12" fill="#526579">자료: ws-before.json / ws-after.json · 전후는 각각 별도 실행이며 같은 순번을 동시에 측정한 것은 아닙니다.</text>
+</svg><figcaption>위쪽은 묶음마다 실제로 걸린 시간, 아래쪽은 1번째부터 해당 묶음까지의 누적 평균입니다. 두 선은 별도 실행의 결과이며 같은 순번을 동시에 측정한 것은 아닙니다.</figcaption></figure>
+    </section>
+    <section id="query">
+      <p class="section-kicker">03 · 방 목록 SQL</p>
+      <h2>이미 가진 참가 인원을 DB에서 또 세지 않는다</h2>
+      <p class="section-intro">기존 목록 쿼리는 <code>room_members</code>를 합친 뒤 방마다 <code>COUNT</code>와 <code>GROUP BY</code>를 수행했습니다. 현재 인원은 실시간 서비스가 알고 있으므로, 조회 결과 위에 그 값을 얹도록 했습니다.</p>
+      <div class="split">
+        <div class="panel"><span class="tag before">이전 SQL 개념</span><pre style="margin-top:12px"><code>game_room + room_members
+  → 방마다 GROUP BY
+  → COUNT(참가자)
+  → 목록 반환</code></pre><p class="small-note" style="margin-top:12px">방 수와 참가 기록이 많아질수록 집계 작업도 반복됩니다.</p></div>
+        <div class="panel"><span class="tag">현재 SQL 개념</span><pre style="margin-top:12px"><code>game_room + 방장 정보
+  → 기본 목록 반환
+  → 실시간 인원으로 덮어쓰기</code></pre><p class="small-note" style="margin-top:12px"><code>findAll</code>과 <code>findById</code>에서 참가 테이블 집계를 제거했습니다.</p></div>
+      </div>
+      <figure class="panel" style="margin-top:16px" role="img" aria-label="목록 SQL 200건 배치 평균 소요 시간. 동시성 1 개선 전 2.017초, 후 0.296초. 동시성 8 개선 전 0.453초, 후 0.174초. 모든 막대는 2.2초를 최대 눈금으로 사용.">
+        <div class="chart-head"><h3>목록 SQL 200건 배치 평균 소요 시간</h3><span class="chart-scale">막대의 최대 눈금 = 2.2초 · 낮을수록 좋음</span></div>
+        <div class="chart-legend"><span><i class="swatch before"></i>개선 전</span><span><i class="swatch after"></i>개선 후</span></div>
+        <div class="chart-group"><div class="chart-group-title">동시성 1</div><div class="bar-row"><span class="series">개선 전</span><span class="bar-track"><i class="bar before" style="width:91.68%"></i></span><strong class="bar-value">2.017초</strong></div><div class="bar-row"><span class="series">개선 후</span><span class="bar-track"><i class="bar after" style="width:13.45%"></i></span><strong class="bar-value">0.296초</strong></div></div>
+        <div class="chart-group"><div class="chart-group-title">동시성 8</div><div class="bar-row"><span class="series">개선 전</span><span class="bar-track"><i class="bar before" style="width:20.59%"></i></span><strong class="bar-value">0.453초</strong></div><div class="bar-row"><span class="series">개선 후</span><span class="bar-track"><i class="bar after" style="width:7.91%"></i></span><strong class="bar-value">0.174초</strong></div></div>
+        <p class="impact">동시성 1에서 85.32%, 동시성 8에서 61.59% 감소</p>
+        <figcaption>MariaDB <code>mysqlslap</code> 7회 반복, 회당 총 200쿼리. 그래프 값은 쿼리 한 건이 아니라 200건 배치 한 회차의 평균 소요 시간입니다. 각 동시성 안에서 전후를 비교해야 합니다.</figcaption>
+      </figure>
+    </section>
+    <section id="messages">
+      <p class="section-kicker">04 · 로비 메시지</p>
+      <h2>준비 상태가 바뀌어도 인원수가 같으면 다시 알리지 않는다</h2>
+      <p class="section-intro">방 안의 준비 상태 메시지는 계속 필요합니다. 그러나 준비 버튼만 누른 경우 참가 인원과 온라인 인원은 그대로입니다. <code>broadcast</code> 경로에서 이전에 보낸 인원과 현재 인원을 비교하도록 바꿨습니다.</p>
+      <div class="panel">
+        <div class="flow" aria-label="준비 상태 변경은 방 내부에 계속 전송하고, 인원 변화가 없는 로비 인원 메시지는 생략"><span class="flow-step">준비 상태 변경</span><span class="flow-arrow">→</span><span class="flow-step good">방 내부 상태 전송 유지</span><span class="flow-arrow">+</span><span class="flow-step good">인원 변화 없으면 로비 전송 생략</span></div>
+      </div>
+      <div class="split" style="margin-top:16px">
+        <div class="panel">
+          <h3>로비 구독자 1명에게 간 인원 메시지</h3>
+          <div class="metric-pair"><div class="metric-tile"><strong>640건</strong><span>개선 전</span></div><span class="metric-arrow" aria-hidden="true">→</span><div class="metric-tile after"><strong>0건</strong><span>개선 후</span></div></div>
+          <p class="small-note" style="margin-top:13px">320건의 준비 상태 변경 중 측정. 전송량도 121,456B → 0B입니다.</p>
+        </div>
+        <div class="panel">
+          <h3>소스의 판단 기준</h3>
+          <pre><code>참가 인원 또는 온라인 인원이
+마지막으로 알린 값과 다르면 전송
+
+둘 다 같으면 전송하지 않음</code></pre>
+          <p class="small-note" style="margin-top:12px">입장·퇴장처럼 실제 인원이 바뀌면 로비 갱신은 계속 갑니다. 이 수치는 인원이 변하지 않는 준비 상태 부하에서의 억제 효과입니다.</p>
+        </div>
+      </div>
+    </section>
+    <section id="card">
+      <p class="section-kicker">05 · 새 방 표시</p>
+      <h2>새 방이 생겼을 때 목록 전체 대신 카드 하나만 받는다</h2>
+      <p class="section-intro">이전 <code>room-list.js</code>는 새 방을 발견하면 잠시 뒤 <code>/rooms</code> 전체 페이지를 다시 열었습니다. 이제 <code>GET /rooms/{roomId}/card</code>에서 실제 Thymeleaf 카드 HTML 한 개를 받고 목록에 넣습니다.</p>
+      <div class="panel">
+        <div class="payload" aria-label="새 방 한 건 표시를 위한 HTML 응답 크기: 전체 페이지 1,027,013바이트에서 카드 하나 906바이트로 감소">
+          <div class="payload-box"><span class="icon" aria-hidden="true">▤</span><strong>전체 페이지 다시 받기</strong><small>개선 전 · 1,027,013B · 방 1,000개 목록</small></div>
+          <span class="metric-arrow" aria-hidden="true">→</span>
+          <div class="payload-box after"><span class="icon" aria-hidden="true">▣</span><strong>새 카드 한 장만 받기</strong><small>개선 후 · 906B · 방 1개</small></div>
+        </div>
+        <p class="impact">새 방 1건 이벤트의 HTML 전송 크기 99.91% 감소 · 약 1/1,134 수준</p>
+        <p class="small-note">상자는 개념도이며 면적 비율이 아닙니다. 수치는 실제 응답 본문 크기입니다. 전체 서비스 트래픽이 99.91% 감소했다는 뜻은 아닙니다.</p>
+      </div>
+      <div class="split" style="margin-top:16px">
+        <div class="panel"><h3>브라우저에서 바뀐 흐름</h3><ol class="plain-list"><li>로비 이벤트가 아직 목록에 없는 방을 알립니다.</li><li><code>loadRoomCard()</code>가 카드 경로를 요청합니다.</li><li>받은 카드를 기존 목록에 삽입합니다.</li><li>검색·필터·목록 번호를 다시 맞춥니다.</li></ol></div>
+        <div class="panel"><h3>새 경로의 응답 시간</h3><div class="table-wrap"><table class="data-table"><thead><tr><th>동시성</th><th class="num">p50</th><th class="num">p95</th></tr></thead><tbody><tr><td>1</td><td class="num">15.47ms</td><td class="num">17.31ms</td></tr><tr><td>8</td><td class="num">4.67ms</td><td class="num">7.58ms</td></tr></tbody></table></div><p class="small-note" style="margin-top:12px">전체 페이지 1,000장과 새 카드 1장을 렌더링하는 요청은 작업량 자체가 다릅니다. 이 숫자는 새 방 이벤트의 새 경로 성능입니다.</p></div>
+      </div>
+    </section>
+    <section id="other">
+      <p class="section-kicker">06 · 함께 바뀐 구조</p>
+      <h2>작업 대기열과 중복 검증도 정리했다</h2>
+      <div class="split">
+        <div class="panel"><h3>예약 작업을 분리</h3><p>기존에는 로비 인원수 전송과 빈 방 삭제, 방장 이전, 게임 이탈 처리가 작업자 1개의 대기열을 공유했습니다. 이제 유지보수 작업자는 2개이고, 로비 인원수 예약 전송은 전용 작업자 1개가 맡습니다.</p><div class="callout">서로 다른 작업이 같은 한 줄 대기열에서 기다릴 가능성을 줄인 구조 변경입니다. 겹치는 유지보수 부하의 개선 시간은 별도로 측정하지 않았습니다.</div></div>
+        <div class="panel"><h3>방 설정 검증을 한곳으로</h3><p><code>RoomService</code>의 방 생성과 설정 변경에 반복되던 최대 인원·비밀번호 정규화 및 길이 검증을 공통 함수로 모았습니다. 같은 규칙을 한곳에서 고칠 수 있어 분기 차이가 생길 위험을 줄입니다.</p><div class="callout">기존 입력 규칙과 오류 문구를 유지했습니다. 이 변경의 독립적인 속도 개선치는 측정하지 않았습니다.</div></div>
+      </div>
+    </section>
+    <section id="limits">
+      <p class="section-kicker">07 · 측정값을 읽는 법</p>
+      <h2>SQL이 빨라져도 전체 페이지가 항상 빨라진 것은 아니다</h2>
+      <p class="section-intro"><code>/rooms</code>는 여전히 방 1,000개 카드를 한 번에 HTML로 만듭니다. DB 집계를 줄였어도 렌더링과 전송 비용이 남아 있습니다. 실제 전체 페이지 측정은 지표에 따라 좋아지거나 나빠졌습니다.</p>
+      <figure class="panel" role="img" aria-label="전체 방 목록 페이지 p95 지연. 동시성 1 개선 전 141.38밀리초, 후 171.14밀리초. 동시성 8 개선 전 159.69밀리초, 후 167.37밀리초. 두 조건에서 개선 후 p95가 증가.">
+        <div class="chart-head"><h3>전체 목록 페이지 /rooms p95</h3><span class="chart-scale">막대의 최대 눈금 = 180 ms · 낮을수록 좋음</span></div>
+        <div class="chart-legend"><span><i class="swatch before"></i>개선 전</span><span><i class="swatch after"></i>개선 후</span></div>
+        <div class="chart-group"><div class="chart-group-title">동시성 1 · 개선 후 21.05% 증가</div><div class="bar-row"><span class="series">개선 전</span><span class="bar-track"><i class="bar before" style="width:78.54%"></i></span><strong class="bar-value">141.38 ms</strong></div><div class="bar-row"><span class="series">개선 후</span><span class="bar-track"><i class="bar after" style="width:95.08%"></i></span><strong class="bar-value">171.14 ms</strong></div></div>
+        <div class="chart-group"><div class="chart-group-title">동시성 8 · 개선 후 4.81% 증가</div><div class="bar-row"><span class="series">개선 전</span><span class="bar-track"><i class="bar before" style="width:88.72%"></i></span><strong class="bar-value">159.69 ms</strong></div><div class="bar-row"><span class="series">개선 후</span><span class="bar-track"><i class="bar after" style="width:92.98%"></i></span><strong class="bar-value">167.37 ms</strong></div></div>
+        <figcaption>HTTP 요청 10회 예열 뒤 30회 측정. 두 p95 조건은 개선 후 증가했습니다. 한 차례 측정이라 편차의 영향을 받을 수 있지만, 전체 페이지가 빨라졌다고 결론 내릴 근거는 없습니다.</figcaption>
+      </figure>
+      <figure class="panel embedded-chart" style="margin-top:16px"><h3>HTTP 요청 30건의 지연 분포</h3><svg xmlns="http://www.w3.org/2000/svg" width="1200" height="785" viewBox="0 0 1200 785" role="img" aria-labelledby="http-chart-title http-chart-desc">
+<title id="http-chart-title">방 목록 전체 페이지 30개 요청 지연 분포</title>
+<desc id="http-chart-desc">개선 전후의 HTTP 요청 30건을 지연이 작은 순서로 정렬해 동시성 1과 8을 별도 그래프로 그렸습니다. 요청 발생 순서가 아닙니다.</desc>
+<rect width="1200" height="785" fill="#f4f7fa"/>
+<rect x="22" y="18" width="1156" height="748" rx="18" fill="#fff" stroke="#dce4ec"/>
+<text x="58" y="62" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="26" font-weight="700" fill="#172a40">방 목록 30건 요청의 지연 분포</text>
+<text x="58" y="91" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="15" fill="#526579">응답 본문까지 읽은 시간 · 빠른 순서로 정렬 · 시간 흐름 그래프 아님</text>
+<line x1="834" y1="59" x2="870" y2="59" stroke="#66778c" stroke-width="3"/><text x="879" y="65" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="15" fill="#34465b">개선 전</text>
+<line x1="990" y1="59" x2="1026" y2="59" stroke="#078c82" stroke-width="3"/><text x="1035" y="65" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="15" fill="#34465b">개선 후</text>
+<text x="113" y="148" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="18" font-weight="700" fill="#172a40">동시성 1 · 29번째 점이 p95</text>
+<line x1="113" y1="392.0" x2="1110" y2="392.0" stroke="#dfe7ed"/>
+<text x="93" y="397.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">0</text>
+<line x1="113" y1="346.8" x2="1110" y2="346.8" stroke="#dfe7ed"/>
+<text x="93" y="351.8" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">40</text>
+<line x1="113" y1="301.6" x2="1110" y2="301.6" stroke="#dfe7ed"/>
+<text x="93" y="306.6" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">80</text>
+<line x1="113" y1="256.4" x2="1110" y2="256.4" stroke="#dfe7ed"/>
+<text x="93" y="261.4" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">120</text>
+<line x1="113" y1="211.2" x2="1110" y2="211.2" stroke="#dfe7ed"/>
+<text x="93" y="216.2" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">160</text>
+<line x1="113" y1="166.0" x2="1110" y2="166.0" stroke="#dfe7ed"/>
+<text x="93" y="171.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">200</text>
+<line x1="113.0" y1="166" x2="113.0" y2="392" stroke="#f0f3f6"/>
+<text x="113.0" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">1</text>
+<line x1="250.5" y1="166" x2="250.5" y2="392" stroke="#f0f3f6"/>
+<text x="250.5" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">5</text>
+<line x1="422.4" y1="166" x2="422.4" y2="392" stroke="#f0f3f6"/>
+<text x="422.4" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">10</text>
+<line x1="594.3" y1="166" x2="594.3" y2="392" stroke="#f0f3f6"/>
+<text x="594.3" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">15</text>
+<line x1="766.2" y1="166" x2="766.2" y2="392" stroke="#f0f3f6"/>
+<text x="766.2" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">20</text>
+<line x1="938.1" y1="166" x2="938.1" y2="392" stroke="#f0f3f6"/>
+<text x="938.1" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">25</text>
+<text x="1075.6" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">29</text>
+<line x1="1110.0" y1="166" x2="1110.0" y2="392" stroke="#f0f3f6"/>
+<text x="1110.0" y="416" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">30</text>
+<line x1="1075.6" y1="166" x2="1075.6" y2="392" stroke="#b97862" stroke-width="1.5" stroke-dasharray="5 4"/>
+<polyline fill="none" stroke="#66778c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="113.0,290.3 147.4,286.8 181.8,283.3 216.1,281.5 250.5,279.4 284.9,278.9 319.3,278.3 353.7,278.1 388.0,276.1 422.4,275.6 456.8,273.1 491.2,270.8 525.6,268.6 559.9,267.8 594.3,267.8 628.7,266.0 663.1,265.8 697.4,265.3 731.8,264.9 766.2,261.9 800.6,261.8 835.0,256.3 869.3,252.2 903.7,252.0 938.1,245.2 972.5,244.4 1006.9,239.5 1041.2,237.2 1075.6,232.2 1110.0,231.8"/>
+<polyline fill="none" stroke="#078c82" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="113.0,297.7 147.4,296.5 181.8,293.3 216.1,289.5 250.5,288.3 284.9,287.9 319.3,286.4 353.7,285.0 388.0,284.5 422.4,283.9 456.8,283.0 491.2,281.9 525.6,281.8 559.9,280.6 594.3,279.7 628.7,276.7 663.1,275.5 697.4,275.3 731.8,268.4 766.2,257.3 800.6,254.1 835.0,248.2 869.3,246.4 903.7,244.3 938.1,239.5 972.5,226.1 1006.9,218.9 1041.2,213.8 1075.6,198.6 1110.0,183.6"/>
+<circle cx="113.0" cy="290.3" r="2" fill="#66778c"/>
+<circle cx="147.4" cy="286.8" r="2" fill="#66778c"/>
+<circle cx="181.8" cy="283.3" r="2" fill="#66778c"/>
+<circle cx="216.1" cy="281.5" r="2" fill="#66778c"/>
+<circle cx="250.5" cy="279.4" r="2" fill="#66778c"/>
+<circle cx="284.9" cy="278.9" r="2" fill="#66778c"/>
+<circle cx="319.3" cy="278.3" r="2" fill="#66778c"/>
+<circle cx="353.7" cy="278.1" r="2" fill="#66778c"/>
+<circle cx="388.0" cy="276.1" r="2" fill="#66778c"/>
+<circle cx="422.4" cy="275.6" r="2" fill="#66778c"/>
+<circle cx="456.8" cy="273.1" r="2" fill="#66778c"/>
+<circle cx="491.2" cy="270.8" r="2" fill="#66778c"/>
+<circle cx="525.6" cy="268.6" r="2" fill="#66778c"/>
+<circle cx="559.9" cy="267.8" r="2" fill="#66778c"/>
+<circle cx="594.3" cy="267.8" r="2" fill="#66778c"/>
+<circle cx="628.7" cy="266.0" r="2" fill="#66778c"/>
+<circle cx="663.1" cy="265.8" r="2" fill="#66778c"/>
+<circle cx="697.4" cy="265.3" r="2" fill="#66778c"/>
+<circle cx="731.8" cy="264.9" r="2" fill="#66778c"/>
+<circle cx="766.2" cy="261.9" r="2" fill="#66778c"/>
+<circle cx="800.6" cy="261.8" r="2" fill="#66778c"/>
+<circle cx="835.0" cy="256.3" r="2" fill="#66778c"/>
+<circle cx="869.3" cy="252.2" r="2" fill="#66778c"/>
+<circle cx="903.7" cy="252.0" r="2" fill="#66778c"/>
+<circle cx="938.1" cy="245.2" r="2" fill="#66778c"/>
+<circle cx="972.5" cy="244.4" r="2" fill="#66778c"/>
+<circle cx="1006.9" cy="239.5" r="2" fill="#66778c"/>
+<circle cx="1041.2" cy="237.2" r="2" fill="#66778c"/>
+<circle cx="1075.6" cy="232.2" r="4" fill="#66778c"/>
+<circle cx="1110.0" cy="231.8" r="2" fill="#66778c"/>
+<circle cx="113.0" cy="297.7" r="2" fill="#078c82"/>
+<circle cx="147.4" cy="296.5" r="2" fill="#078c82"/>
+<circle cx="181.8" cy="293.3" r="2" fill="#078c82"/>
+<circle cx="216.1" cy="289.5" r="2" fill="#078c82"/>
+<circle cx="250.5" cy="288.3" r="2" fill="#078c82"/>
+<circle cx="284.9" cy="287.9" r="2" fill="#078c82"/>
+<circle cx="319.3" cy="286.4" r="2" fill="#078c82"/>
+<circle cx="353.7" cy="285.0" r="2" fill="#078c82"/>
+<circle cx="388.0" cy="284.5" r="2" fill="#078c82"/>
+<circle cx="422.4" cy="283.9" r="2" fill="#078c82"/>
+<circle cx="456.8" cy="283.0" r="2" fill="#078c82"/>
+<circle cx="491.2" cy="281.9" r="2" fill="#078c82"/>
+<circle cx="525.6" cy="281.8" r="2" fill="#078c82"/>
+<circle cx="559.9" cy="280.6" r="2" fill="#078c82"/>
+<circle cx="594.3" cy="279.7" r="2" fill="#078c82"/>
+<circle cx="628.7" cy="276.7" r="2" fill="#078c82"/>
+<circle cx="663.1" cy="275.5" r="2" fill="#078c82"/>
+<circle cx="697.4" cy="275.3" r="2" fill="#078c82"/>
+<circle cx="731.8" cy="268.4" r="2" fill="#078c82"/>
+<circle cx="766.2" cy="257.3" r="2" fill="#078c82"/>
+<circle cx="800.6" cy="254.1" r="2" fill="#078c82"/>
+<circle cx="835.0" cy="248.2" r="2" fill="#078c82"/>
+<circle cx="869.3" cy="246.4" r="2" fill="#078c82"/>
+<circle cx="903.7" cy="244.3" r="2" fill="#078c82"/>
+<circle cx="938.1" cy="239.5" r="2" fill="#078c82"/>
+<circle cx="972.5" cy="226.1" r="2" fill="#078c82"/>
+<circle cx="1006.9" cy="218.9" r="2" fill="#078c82"/>
+<circle cx="1041.2" cy="213.8" r="2" fill="#078c82"/>
+<circle cx="1075.6" cy="198.6" r="4" fill="#078c82"/>
+<circle cx="1110.0" cy="183.6" r="2" fill="#078c82"/>
+<text x="113" y="473" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="18" font-weight="700" fill="#172a40">동시성 8 · 29번째 점이 p95</text>
+<line x1="113" y1="680.0" x2="1110" y2="680.0" stroke="#dfe7ed"/>
+<text x="93" y="685.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">0</text>
+<line x1="113" y1="642.2" x2="1110" y2="642.2" stroke="#dfe7ed"/>
+<text x="93" y="647.2" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">40</text>
+<line x1="113" y1="604.4" x2="1110" y2="604.4" stroke="#dfe7ed"/>
+<text x="93" y="609.4" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">80</text>
+<line x1="113" y1="566.6" x2="1110" y2="566.6" stroke="#dfe7ed"/>
+<text x="93" y="571.6" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">120</text>
+<line x1="113" y1="528.8" x2="1110" y2="528.8" stroke="#dfe7ed"/>
+<text x="93" y="533.8" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">160</text>
+<line x1="113" y1="491.0" x2="1110" y2="491.0" stroke="#dfe7ed"/>
+<text x="93" y="496.0" text-anchor="end" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">200</text>
+<line x1="113.0" y1="491" x2="113.0" y2="680" stroke="#f0f3f6"/>
+<text x="113.0" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">1</text>
+<line x1="250.5" y1="491" x2="250.5" y2="680" stroke="#f0f3f6"/>
+<text x="250.5" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">5</text>
+<line x1="422.4" y1="491" x2="422.4" y2="680" stroke="#f0f3f6"/>
+<text x="422.4" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">10</text>
+<line x1="594.3" y1="491" x2="594.3" y2="680" stroke="#f0f3f6"/>
+<text x="594.3" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">15</text>
+<line x1="766.2" y1="491" x2="766.2" y2="680" stroke="#f0f3f6"/>
+<text x="766.2" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">20</text>
+<line x1="938.1" y1="491" x2="938.1" y2="680" stroke="#f0f3f6"/>
+<text x="938.1" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">25</text>
+<text x="1075.6" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">29</text>
+<line x1="1110.0" y1="491" x2="1110.0" y2="680" stroke="#f0f3f6"/>
+<text x="1110.0" y="704" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" fill="#62758b">30</text>
+<line x1="1075.6" y1="491" x2="1075.6" y2="680" stroke="#b97862" stroke-width="1.5" stroke-dasharray="5 4"/>
+<polyline fill="none" stroke="#66778c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="113.0,593.7 147.4,584.4 181.8,582.0 216.1,578.4 250.5,573.5 284.9,571.6 319.3,561.5 353.7,561.0 388.0,559.5 422.4,557.8 456.8,557.7 491.2,557.4 525.6,554.9 559.9,553.4 594.3,552.8 628.7,549.2 663.1,548.4 697.4,548.0 731.8,547.0 766.2,544.9 800.6,543.5 835.0,543.4 869.3,541.3 903.7,539.3 938.1,535.0 972.5,533.8 1006.9,532.7 1041.2,529.4 1075.6,529.1 1110.0,525.5"/>
+<polyline fill="none" stroke="#078c82" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="113.0,593.6 147.4,591.3 181.8,588.0 216.1,576.5 250.5,569.0 284.9,567.8 319.3,567.1 353.7,563.2 388.0,563.0 422.4,560.2 456.8,554.8 491.2,554.0 525.6,553.6 559.9,551.7 594.3,546.6 628.7,545.7 663.1,543.9 697.4,540.2 731.8,539.9 766.2,538.5 800.6,537.4 835.0,537.3 869.3,537.1 903.7,531.8 938.1,528.7 972.5,526.2 1006.9,525.8 1041.2,522.4 1075.6,521.8 1110.0,516.8"/>
+<circle cx="113.0" cy="593.7" r="2" fill="#66778c"/>
+<circle cx="147.4" cy="584.4" r="2" fill="#66778c"/>
+<circle cx="181.8" cy="582.0" r="2" fill="#66778c"/>
+<circle cx="216.1" cy="578.4" r="2" fill="#66778c"/>
+<circle cx="250.5" cy="573.5" r="2" fill="#66778c"/>
+<circle cx="284.9" cy="571.6" r="2" fill="#66778c"/>
+<circle cx="319.3" cy="561.5" r="2" fill="#66778c"/>
+<circle cx="353.7" cy="561.0" r="2" fill="#66778c"/>
+<circle cx="388.0" cy="559.5" r="2" fill="#66778c"/>
+<circle cx="422.4" cy="557.8" r="2" fill="#66778c"/>
+<circle cx="456.8" cy="557.7" r="2" fill="#66778c"/>
+<circle cx="491.2" cy="557.4" r="2" fill="#66778c"/>
+<circle cx="525.6" cy="554.9" r="2" fill="#66778c"/>
+<circle cx="559.9" cy="553.4" r="2" fill="#66778c"/>
+<circle cx="594.3" cy="552.8" r="2" fill="#66778c"/>
+<circle cx="628.7" cy="549.2" r="2" fill="#66778c"/>
+<circle cx="663.1" cy="548.4" r="2" fill="#66778c"/>
+<circle cx="697.4" cy="548.0" r="2" fill="#66778c"/>
+<circle cx="731.8" cy="547.0" r="2" fill="#66778c"/>
+<circle cx="766.2" cy="544.9" r="2" fill="#66778c"/>
+<circle cx="800.6" cy="543.5" r="2" fill="#66778c"/>
+<circle cx="835.0" cy="543.4" r="2" fill="#66778c"/>
+<circle cx="869.3" cy="541.3" r="2" fill="#66778c"/>
+<circle cx="903.7" cy="539.3" r="2" fill="#66778c"/>
+<circle cx="938.1" cy="535.0" r="2" fill="#66778c"/>
+<circle cx="972.5" cy="533.8" r="2" fill="#66778c"/>
+<circle cx="1006.9" cy="532.7" r="2" fill="#66778c"/>
+<circle cx="1041.2" cy="529.4" r="2" fill="#66778c"/>
+<circle cx="1075.6" cy="529.1" r="4" fill="#66778c"/>
+<circle cx="1110.0" cy="525.5" r="2" fill="#66778c"/>
+<circle cx="113.0" cy="593.6" r="2" fill="#078c82"/>
+<circle cx="147.4" cy="591.3" r="2" fill="#078c82"/>
+<circle cx="181.8" cy="588.0" r="2" fill="#078c82"/>
+<circle cx="216.1" cy="576.5" r="2" fill="#078c82"/>
+<circle cx="250.5" cy="569.0" r="2" fill="#078c82"/>
+<circle cx="284.9" cy="567.8" r="2" fill="#078c82"/>
+<circle cx="319.3" cy="567.1" r="2" fill="#078c82"/>
+<circle cx="353.7" cy="563.2" r="2" fill="#078c82"/>
+<circle cx="388.0" cy="563.0" r="2" fill="#078c82"/>
+<circle cx="422.4" cy="560.2" r="2" fill="#078c82"/>
+<circle cx="456.8" cy="554.8" r="2" fill="#078c82"/>
+<circle cx="491.2" cy="554.0" r="2" fill="#078c82"/>
+<circle cx="525.6" cy="553.6" r="2" fill="#078c82"/>
+<circle cx="559.9" cy="551.7" r="2" fill="#078c82"/>
+<circle cx="594.3" cy="546.6" r="2" fill="#078c82"/>
+<circle cx="628.7" cy="545.7" r="2" fill="#078c82"/>
+<circle cx="663.1" cy="543.9" r="2" fill="#078c82"/>
+<circle cx="697.4" cy="540.2" r="2" fill="#078c82"/>
+<circle cx="731.8" cy="539.9" r="2" fill="#078c82"/>
+<circle cx="766.2" cy="538.5" r="2" fill="#078c82"/>
+<circle cx="800.6" cy="537.4" r="2" fill="#078c82"/>
+<circle cx="835.0" cy="537.3" r="2" fill="#078c82"/>
+<circle cx="869.3" cy="537.1" r="2" fill="#078c82"/>
+<circle cx="903.7" cy="531.8" r="2" fill="#078c82"/>
+<circle cx="938.1" cy="528.7" r="2" fill="#078c82"/>
+<circle cx="972.5" cy="526.2" r="2" fill="#078c82"/>
+<circle cx="1006.9" cy="525.8" r="2" fill="#078c82"/>
+<circle cx="1041.2" cy="522.4" r="2" fill="#078c82"/>
+<circle cx="1075.6" cy="521.8" r="4" fill="#078c82"/>
+<circle cx="1110.0" cy="516.8" r="2" fill="#078c82"/>
+<text x="611" y="726" text-anchor="middle" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="14" fill="#526579">지연 순위 (1=가장 빠른 요청, 30=가장 느린 요청)</text>
+<text x="58" y="756" font-family="Malgun Gothic,Segoe UI,sans-serif" font-size="12" fill="#526579">자료: http-before-c1/c8.json, http-after-c1/c8.json · 원자료는 정렬돼 있어 실행 순서를 복원할 수 없습니다.</text>
+</svg><figcaption>가로축은 빠른 요청부터 나열한 순위입니다. 원자료가 정렬되어 있어 실제 요청 발생 순서는 복원할 수 없습니다.</figcaption></figure>
+      <div class="panel" style="margin-top:16px">
+        <h3>전체 페이지 결과 요약</h3>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>지표</th><th>동시성</th><th class="num">개선 전</th><th class="num">개선 후</th><th>해석</th></tr></thead><tbody>
+          <tr><td>p50</td><td>1</td><td class="num">109.95ms</td><td class="num">99.39ms</td><td class="result-good">9.61% 감소</td></tr>
+          <tr><td>p95</td><td>1</td><td class="num">141.38ms</td><td class="num">171.14ms</td><td class="result-bad">21.05% 증가</td></tr>
+          <tr><td>p50</td><td>8</td><td class="num">134.62ms</td><td class="num">141.17ms</td><td class="result-bad">4.87% 증가</td></tr>
+          <tr><td>p95</td><td>8</td><td class="num">159.69ms</td><td class="num">167.37ms</td><td class="result-bad">4.81% 증가</td></tr>
+        </tbody></table></div>
+        <p class="small-note" style="margin-top:12px">전체 본문 크기: 1,027,013B → 1,025,151B(0.18% 감소). 페이지네이션은 검색·정렬·실시간 목록 UX 재설계가 필요해 이번 변경에 포함하지 않았습니다.</p>
+      </div>
+      <div class="callout caution" style="margin-top:16px">측정 조건마다 전후 실행은 한 차례입니다. SQL·STOMP·새 카드 결과는 해당 테스트 조건에서 확인된 변화이고, 모든 실제 사용자 환경의 지연이나 장기 운영 효과를 보장하지는 않습니다.</div>
+    </section>
+    <section id="sources">
+      <p class="section-kicker">08 · 코드와 측정 근거</p>
+      <h2>어느 파일을 보면 되는가</h2>
+      <p class="section-intro">아래 경로는 이 HTML 파일에서 저장소 소스로 이어지는 상대 경로입니다. 파일을 저장소 안의 현재 위치에서 열면 사용할 수 있습니다.</p>
+      <div class="source-list">
+        <a href="../src/main/java/kr/or/oti/mafiagame/service/RoomPresenceService.java"><strong>RoomPresenceService.java</strong><span>snapshot(), join(), 빈 방 삭제, 브로드캐스트, 예약 실행기</span></a>
+        <a href="../src/main/resources/mappers/RoomMapper.xml"><strong>RoomMapper.xml</strong><span>findAll, findById의 참가 인원 집계 제거</span></a>
+        <a href="../src/main/java/kr/or/oti/mafiagame/controller/RoomController.java"><strong>RoomController.java</strong><span>GET /rooms/{roomId}/card</span></a>
+        <a href="../src/main/resources/static/js/room-list.js"><strong>room-list.js</strong><span>새 카드 요청·삽입·검색 및 번호 갱신</span></a>
+        <a href="../src/main/java/kr/or/oti/mafiagame/service/RoomService.java"><strong>RoomService.java</strong><span>최대 인원·비밀번호 공통 검증</span></a>
+        <a href="../output/test_output/2026-09-28/performance-comparison/performance-report-ko.md"><strong>performance-report-ko.md</strong><span>측정 환경·방법·세부 수치·검증 결과 원본 보고서</span></a>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <h3>측정 조건과 검증 범위</h3>
+        <p>2026-09-28, 별도 MariaDB 스키마에 방 1,000개와 참가 기록 4,000개를 넣고 비교했습니다. SQL은 200쿼리 배치를 7회, HTTP는 10회 예열 + 30회 측정, STOMP는 40회 반복 × 준비/해제 2묶음 × 4명으로 측정했습니다.</p>
+        <p>변경 당시 Java 컴파일과 리소스 처리, JavaScript 테스트 41건이 통과했습니다. 실제 Spring/Thymeleaf 페이지의 방 1,000개 렌더링과 카드 응답도 확인했습니다. 수치별 원자료는 이 파일과 같은 폴더에 보관되어 있습니다.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="footer"><div class="container"><p><strong>MafiaGame 성능 개선 해설</strong> · 2026-09-28</p><p>모든 그래프는 이 문서 안에 포함되어 있으며 외부 라이브러리나 네트워크 연결이 필요하지 않습니다. 상세 측정 기록은 <a href="../output/test_output/2026-09-28/performance-comparison/performance-report-ko.md">한국어 성능 비교 보고서</a>에서 확인할 수 있습니다.</p></div></footer>
+</body>
+</html>

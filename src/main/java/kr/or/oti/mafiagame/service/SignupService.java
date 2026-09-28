@@ -25,7 +25,7 @@ public class SignupService {
     }
 
     @Transactional
-    public void signup(String nickname, String email, String password, String passwordConfirm, boolean agreed) {
+    public void signup(String nickname, String email, String password, String passwordConfirm) {
         String normalizedNickname = nickname == null ? "" : nickname.trim();
         String normalizedEmail = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
 
@@ -41,9 +41,6 @@ public class SignupService {
         }
         if (!password.equals(passwordConfirm)) {
             throw new SignupException("비밀번호가 서로 다릅니다.");
-        }
-        if (!agreed) {
-            throw new SignupException("이용약관과 개인정보 처리방침에 동의해 주세요.");
         }
         if (userMapper.existsByEmail(normalizedEmail)) {
             throw new SignupException("이미 사용 중인 이메일입니다.");

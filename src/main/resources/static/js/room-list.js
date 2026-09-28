@@ -101,6 +101,74 @@
     [...document.querySelectorAll('.room-card')]
       .map(card => [Number(card.dataset.roomId), card])
   );
+  const roomList = document.querySelector('#roomList');
+  const roomSearch = document.querySelector('#roomSearch');
+  const roomFilter = document.querySelector('#roomFilter');
+  const emptyRoomState = document.querySelector('#emptyState');
+  const roomCount = document.querySelector('#roomCount');
+  const pendingRoomCards = new Set();
+
+  function refreshRoomList() {
+    const query = roomSearch?.value.trim().toLowerCase() || '';
+    let visibleCount = 0;
+    cards.forEach(card => {
+      const show = (!roomFilter || roomFilter.value === 'all' || card.dataset.status === roomFilter.value)
+        && (card.dataset.title || '').toLowerCase().includes(query);
+      card.hidden = !show;
+      if (show) visibleCount += 1;
+    });
+    if (emptyRoomState) {
+      emptyRoomState.hidden = visibleCount !== 0;
+    }
+    if (roomCount) {
+      roomCount.textContent = String(cards.size);
+    }
+    [...(roomList?.querySelectorAll('.room-card') || [])].forEach((card, index) => {
+      const number = card.querySelector('.room-number');
+      if (number) number.textContent = String(index + 1).padStart(2, '0');
+    });
+  }
+
+  roomSearch?.addEventListener('input', refreshRoomList);
+  roomFilter?.addEventListener('change', refreshRoomList);
+  refreshRoomList();
+
+  async function loadRoomCard(roomId) {
+    if (!roomList || cards.has(roomId) || pendingRoomCards.has(roomId)
+        || navigatingAway || !shouldReconnect) {
+      return;
+    }
+    pendingRoomCards.add(roomId);
+    try {
+      const response = await fetch(`/rooms/${encodeURIComponent(roomId)}/card`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { Accept: 'text/html' }
+      });
+      if (!response.ok) return;
+      const markup = await response.text();
+      const documentFragment = new DOMParser().parseFromString(markup, 'text/html');
+      const card = documentFragment.querySelector('.room-card');
+      const currentCount = liveCounts.get(roomId) || 0;
+      if (!card || currentCount <= 0 || cards.has(roomId) || navigatingAway || !shouldReconnect) {
+        return;
+      }
+      const countElement = card.querySelector('[data-room-player-count]');
+      if (countElement) countElement.textContent = String(currentCount);
+      const firstPlayingCard = card.dataset.status === 'WAITING'
+        ? [...cards.values()].find(existingCard => existingCard.dataset.status === 'PLAYING')
+        : null;
+      roomList.insertBefore(card, firstPlayingCard || null);
+      cards.set(roomId, card);
+      refreshRoomList();
+    } catch (error) {
+      console.error('새 게임방 정보를 불러오지 못했습니다.', error);
+    } finally {
+      pendingRoomCards.delete(roomId);
+    }
+  }
+
+  document.addEventListener('room:removed', refreshRoomList);
 
   const socketUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
   const lobbyDestination = '/topic/rooms/presence';
@@ -109,7 +177,6 @@
   const liveCounts = new Map();
   let socket;
   let onlinePlayerTotal = 0;
-  let refreshTimer;
   let navigatingAway = false;
   let shouldReconnect = true;
   let disconnectSent = false;
@@ -132,28 +199,12 @@
     updateOnlinePlayerCount();
   }
 
-  function scheduleRoomListRefresh() {
-    if (refreshTimer !== undefined || navigatingAway || !shouldReconnect) {
-      return;
-    }
-    refreshTimer = window.setTimeout(() => {
-      refreshTimer = undefined;
-      if (shouldReconnect && !navigatingAway) {
-        window.location.reload();
-      }
-    }, 150);
-  }
-
   // 로비에서 다른 화면으로 이동하기 시작하면 예약된 목록 갱신이
   // 현재 이동과 경쟁하지 않도록 즉시 중단한다.
   function stopLobbyUpdates() {
     navigatingAway = true;
     shouldReconnect = false;
     reconnectController.cancel();
-    if (refreshTimer !== undefined) {
-      window.clearTimeout(refreshTimer);
-      refreshTimer = undefined;
-    }
     stopHeartbeat();
     stopHeartbeat = () => {};
     if (!disconnectSent && socket && socket.readyState === WebSocket.OPEN) {
@@ -213,6 +264,7 @@
           detail: { roomId }
         }));
       }
+      refreshRoomList();
       if (refreshTotal) {
         updateOnlinePlayerCount();
       }
@@ -223,7 +275,7 @@
 
     const countElement = card?.querySelector('[data-room-player-count]');
     if (!countElement) {
-      scheduleRoomListRefresh();
+      loadRoomCard(roomId);
       if (refreshTotal) {
         updateOnlinePlayerCount();
       }
@@ -231,6 +283,7 @@
     }
 
     countElement.textContent = String(Math.max(0, count));
+    refreshRoomList();
     if (refreshTotal) {
       updateOnlinePlayerCount();
     }
@@ -330,6 +383,15 @@
       stopLobbyUpdates();
     }
   }, true);
+  const toast = document.querySelector('#toast');
+  document.addEventListener('click', event => {
+    if (!toast || !event.target?.closest?.('.join')) {
+      return;
+    }
+    toast.textContent = '게임 입장을 준비하고 있어요.';
+    toast.classList.add('show');
+    window.setTimeout(() => toast.classList.remove('show'), 2200);
+  });
   document.addEventListener('submit', () => stopLobbyUpdates(), true);
   window.addEventListener('beforeunload', stopLobbyUpdates);
 

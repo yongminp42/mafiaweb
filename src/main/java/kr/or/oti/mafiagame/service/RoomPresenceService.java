@@ -4,6 +4,7 @@ import java.security.Principal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -17,6 +18,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 import jakarta.annotation.PreDestroy;
 
@@ -60,8 +63,10 @@ public class RoomPresenceService {
     private final ReentrantReadWriteLock presenceLock = new ReentrantReadWriteLock();
     private final Lock readLock = presenceLock.readLock();
     private final Lock writeLock = presenceLock.writeLock();
+    private final ReentrantLock lobbyBroadcastLock = new ReentrantLock();
     private final Duration emptyRoomCleanupDelay;
     private final ScheduledExecutorService cleanupExecutor;
+    private final ScheduledExecutorService lobbyCountExecutor;
     private final Map<Long, Map<String, ParticipantPresence>> participantsByRoom = new HashMap<>();
     private final Map<String, Long> roomBySession = new HashMap<>();
     private final Map<String, String> participantKeyBySession = new HashMap<>();
@@ -70,13 +75,18 @@ public class RoomPresenceService {
     private final Map<String, Set<String>> onlineSessionsByParticipant = new HashMap<>();
     private final Map<Long, Long> hostUserByRoom = new HashMap<>();
     private final Map<Long, String> roomStatusByRoom = new HashMap<>();
+    private final Map<Long, RoomSettingsSnapshot> roomSettingsByRoom = new HashMap<>();
     private final Map<Long, ScheduledFuture<?>> cleanupTasksByRoom = new HashMap<>();
     private final Map<String, ScheduledFuture<?>> gameDepartureTasks = new HashMap<>();
     private final Map<Long, ScheduledFuture<?>> hostTransferTasksByRoom = new HashMap<>();
     private final Set<Long> emptyRoomsPendingCleanup = new LinkedHashSet<>();
+    private final Set<Long> roomsBeingDeleted = new HashSet<>();
     private final Map<String, Long> lastLobbyCountRequestNanosBySession = new HashMap<>();
+    private final Map<Long, Integer> lastBroadcastLobbyRoomCounts = new HashMap<>();
     private Long lastLobbyCountBroadcastNanos;
     private ScheduledFuture<?> pendingLobbyCountBroadcast;
+    private int lastBroadcastOnlinePlayerCount = -1;
+    private long roomDeletionGeneration;
 
     public RoomPresenceService(
             SimpMessagingTemplate messagingTemplate,
@@ -126,12 +136,22 @@ public class RoomPresenceService {
         this.hostTransferGracePeriod = hostTransferGracePeriod.isNegative()
                 ? Duration.ZERO
                 : hostTransferGracePeriod;
-        ThreadFactory threadFactory = runnable -> {
-            Thread thread = new Thread(runnable, "room-presence-cleanup");
+        AtomicInteger maintenanceThreadNumber = new AtomicInteger();
+        ThreadFactory maintenanceThreadFactory = runnable -> {
+            Thread thread = new Thread(
+                    runnable,
+                    "room-presence-maintenance-" + maintenanceThreadNumber.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };
-        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+        this.cleanupExecutor = Executors.newScheduledThreadPool(2, maintenanceThreadFactory);
+
+        ThreadFactory lobbyThreadFactory = runnable -> {
+            Thread thread = new Thread(runnable, "room-presence-lobby-count");
+            thread.setDaemon(true);
+            return thread;
+        };
+        this.lobbyCountExecutor = Executors.newSingleThreadScheduledExecutor(lobbyThreadFactory);
     }
 
     public RoomPresenceState join(long roomId, String sessionId, Principal principal) {
@@ -145,93 +165,118 @@ public class RoomPresenceService {
 
         PrincipalIdentity identity = PrincipalIdentity.from(principal);
         String participantKey = participantKey(identity);
-        RoomPresenceState currentState;
-        Map<Long, RoomPresenceState> previousStates;
+        RoomPresenceState currentState = null;
+        Map<Long, RoomPresenceState> previousStates = Map.of();
         List<DepartedPlayer> departedPlayers = new ArrayList<>();
 
-        writeLock.lock();
-        try {
-            // 참가 검증은 상태 변경보다 먼저 수행한다. 실패한 입장 요청이 온라인 인원이나
-            // 기존 방 참가 상태를 오염시키지 않도록 모든 검증을 같은 쓰기 잠금 안에서 처리한다.
-            RoomSummary room = requireRoom(roomId);
-            boolean isRoomHost = room.getHostUserId() == identity.userId();
-            if (room.isLocked() && !roomAccessGranted && !isRoomHost) {
-                throw new RoomWebSocketException("게임방 비밀번호를 먼저 확인해 주세요.");
-            }
-            Map<String, ParticipantPresence> targetParticipants = participantsByRoom.get(roomId);
-            boolean alreadyJoined = targetParticipants != null && targetParticipants.containsKey(participantKey);
-            boolean returningDeadPlayer = "PLAYING".equals(room.getStatus())
-                    && !alreadyJoined
-                    && roomGameService != null
-                    && roomGameService.isDepartedPlayer(roomId, identity.userId());
-            if ("PLAYING".equals(room.getStatus()) && !alreadyJoined && !returningDeadPlayer) {
-                throw new RoomWebSocketException("진행 중인 게임에는 새로 참가할 수 없습니다.");
-            }
-            if (!alreadyJoined && targetParticipants != null
-                    && targetParticipants.size() >= room.getMaxPlayers()) {
-                throw new RoomWebSocketException("게임방 정원이 가득 찼습니다.");
+        while (true) {
+            long observedDeletionGeneration;
+            readLock.lock();
+            try {
+                observedDeletionGeneration = roomDeletionGeneration;
+            } finally {
+                readLock.unlock();
             }
 
-            roomStatusByRoom.put(roomId, room.getStatus());
-            registerOnlineSession(sessionId, principal);
-            cancelRoomCleanup(roomId);
-
-            // 한 사용자가 다른 방으로 이동하거나 같은 세션을 다른 사용자로 재사용한 경우,
-            // 이전 방의 세션을 먼저 제거해 한 사용자당 하나의 참가자만 유지한다.
-            previousStates = new LinkedHashMap<>();
-            Set<String> sessionsToLeave = new LinkedHashSet<>();
-            Set<String> participantSessions = sessionsByParticipant.get(participantKey);
-            if (participantSessions != null) {
-                for (String existingSessionId : participantSessions) {
-                    Long existingRoomId = roomBySession.get(existingSessionId);
-                    if (existingRoomId != null && !Long.valueOf(roomId).equals(existingRoomId)) {
-                        sessionsToLeave.add(existingSessionId);
-                    }
-                }
-            }
-            String currentParticipantKey = participantKeyBySession.get(sessionId);
-            if (currentParticipantKey != null && !participantKey.equals(currentParticipantKey)) {
-                sessionsToLeave.add(sessionId);
-            }
-
-            for (String sessionToLeave : sessionsToLeave) {
-                Long previousRoomId = roomBySession.get(sessionToLeave);
-                if (previousRoomId == null) {
+            // DB 조회는 참가 상태 잠금 밖에서 수행한다. 삭제 작업이 이 조회와 잠금 획득
+            // 사이에 완료되면 세대 번호가 바뀌므로 다시 읽고, 삭제 중인 방은 입장시키지 않는다.
+            RoomSummary room = roomService.getRoom(roomId);
+            writeLock.lock();
+            try {
+                if (observedDeletionGeneration != roomDeletionGeneration) {
                     continue;
                 }
-                SessionRemoval removal = removeSession(previousRoomId, sessionToLeave);
-                if (removal.state() != null) {
-                    previousStates.put(previousRoomId, removal.state());
+                if (roomsBeingDeleted.contains(roomId) || room == null) {
+                    throw new RoomWebSocketException("존재하지 않는 게임방입니다.");
                 }
-                if (removal.departedUserId() != null) {
-                    departedPlayers.add(new DepartedPlayer(previousRoomId, removal.departedUserId()));
+
+                RoomSettingsSnapshot roomSettings = roomSettingsByRoom.computeIfAbsent(
+                        roomId,
+                        ignored -> new RoomSettingsSnapshot(room.getMaxPlayers(), room.isLocked()));
+                long hostUserId = hostUserByRoom.computeIfAbsent(roomId, ignored -> room.getHostUserId());
+                String roomStatus = roomStatusByRoom.computeIfAbsent(roomId, ignored -> room.getStatus());
+
+                // 참가 검증은 상태 변경보다 먼저 수행한다. 실패한 입장 요청이 온라인 인원이나
+                // 기존 방 참가 상태를 오염시키지 않도록 검증과 등록은 같은 쓰기 잠금 안에서 처리한다.
+                boolean isRoomHost = hostUserId == identity.userId();
+                if (roomSettings.locked() && !roomAccessGranted && !isRoomHost) {
+                    throw new RoomWebSocketException("게임방 비밀번호를 먼저 확인해 주세요.");
                 }
+                Map<String, ParticipantPresence> targetParticipants = participantsByRoom.get(roomId);
+                boolean alreadyJoined = targetParticipants != null && targetParticipants.containsKey(participantKey);
+                boolean returningDeadPlayer = "PLAYING".equals(roomStatus)
+                        && !alreadyJoined
+                        && roomGameService != null
+                        && roomGameService.isDepartedPlayer(roomId, identity.userId());
+                if ("PLAYING".equals(roomStatus) && !alreadyJoined && !returningDeadPlayer) {
+                    throw new RoomWebSocketException("진행 중인 게임에는 새로 참가할 수 없습니다.");
+                }
+                if (!alreadyJoined && targetParticipants != null
+                        && targetParticipants.size() >= roomSettings.capacity()) {
+                    throw new RoomWebSocketException("게임방 정원이 가득 찼습니다.");
+                }
+
+                roomStatusByRoom.put(roomId, roomStatus);
+                registerOnlineSession(sessionId, principal);
+                cancelRoomCleanup(roomId);
+
+                // 한 사용자가 다른 방으로 이동하거나 같은 세션을 다른 사용자로 재사용한 경우,
+                // 이전 방의 세션을 먼저 제거해 한 사용자당 하나의 참가자만 유지한다.
+                previousStates = new LinkedHashMap<>();
+                Set<String> sessionsToLeave = new LinkedHashSet<>();
+                Set<String> participantSessions = sessionsByParticipant.get(participantKey);
+                if (participantSessions != null) {
+                    for (String existingSessionId : participantSessions) {
+                        Long existingRoomId = roomBySession.get(existingSessionId);
+                        if (existingRoomId != null && !Long.valueOf(roomId).equals(existingRoomId)) {
+                            sessionsToLeave.add(existingSessionId);
+                        }
+                    }
+                }
+                String currentParticipantKey = participantKeyBySession.get(sessionId);
+                if (currentParticipantKey != null && !participantKey.equals(currentParticipantKey)) {
+                    sessionsToLeave.add(sessionId);
+                }
+
+                for (String sessionToLeave : sessionsToLeave) {
+                    Long previousRoomId = roomBySession.get(sessionToLeave);
+                    if (previousRoomId == null) {
+                        continue;
+                    }
+                    SessionRemoval removal = removeSession(previousRoomId, sessionToLeave);
+                    if (removal.state() != null) {
+                        previousStates.put(previousRoomId, removal.state());
+                    }
+                    if (removal.departedUserId() != null) {
+                        departedPlayers.add(new DepartedPlayer(previousRoomId, removal.departedUserId()));
+                    }
+                }
+
+                Map<String, ParticipantPresence> participants = participantsByRoom
+                        .computeIfAbsent(roomId, ignored -> new LinkedHashMap<>());
+                if (Objects.equals(hostUserByRoom.get(roomId), identity.userId())) {
+                    cancelHostTransfer(roomId);
+                }
+
+                ParticipantPresence participant = participants.computeIfAbsent(
+                        participantKey,
+                        ignored -> new ParticipantPresence(identity));
+                participant.nickname = identity.nickname();
+                participant.principalName = principal.getName();
+                participant.sessions.add(sessionId);
+                roomBySession.put(sessionId, roomId);
+                participantKeyBySession.put(sessionId, participantKey);
+                sessionsByParticipant.computeIfAbsent(participantKey, ignored -> new LinkedHashSet<>())
+                        .add(sessionId);
+
+                // 새 세션이 정상적으로 등록됐으므로 F5/재접속 대기 중이던 탈주 예약을 취소한다.
+                cancelGameDeparture(roomId, identity.userId());
+
+                currentState = snapshot(roomId);
+                break;
+            } finally {
+                writeLock.unlock();
             }
-
-            Map<String, ParticipantPresence> participants = participantsByRoom
-                    .computeIfAbsent(roomId, ignored -> new LinkedHashMap<>());
-            hostUserByRoom.putIfAbsent(roomId, room.getHostUserId());
-            if (Objects.equals(hostUserByRoom.get(roomId), identity.userId())) {
-                cancelHostTransfer(roomId);
-            }
-
-            ParticipantPresence participant = participants.computeIfAbsent(
-                    participantKey,
-                    ignored -> new ParticipantPresence(identity));
-            participant.nickname = identity.nickname();
-            participant.principalName = principal.getName();
-            participant.sessions.add(sessionId);
-            roomBySession.put(sessionId, roomId);
-            participantKeyBySession.put(sessionId, participantKey);
-            sessionsByParticipant.computeIfAbsent(participantKey, ignored -> new LinkedHashSet<>())
-                    .add(sessionId);
-
-            // 새 세션이 정상적으로 등록됐으므로 F5/재접속 대기 중이던 탈주 예약을 취소한다.
-            cancelGameDeparture(roomId, identity.userId());
-
-            currentState = snapshot(roomId);
-        } finally {
-            writeLock.unlock();
         }
 
         // 브로커 전송은 잠금을 해제한 뒤 수행한다. 네트워크 전송이 느려도 참가자 상태
@@ -337,6 +382,7 @@ public class RoomPresenceService {
                     passwordEnabled,
                     password,
                     currentPlayers);
+            roomSettingsByRoom.put(roomId, new RoomSettingsSnapshot(maxPlayers, passwordEnabled));
             if (participants != null) {
                 currentState = snapshot(roomId);
             }
@@ -397,7 +443,7 @@ public class RoomPresenceService {
 
         long elapsed = now - lastLobbyCountBroadcastNanos;
         long delay = Math.max(1L, LOBBY_COUNT_BROADCAST_INTERVAL_NANOS - elapsed);
-        pendingLobbyCountBroadcast = cleanupExecutor.schedule(
+        pendingLobbyCountBroadcast = lobbyCountExecutor.schedule(
                 this::broadcastPendingLobbyCounts,
                 delay,
                 TimeUnit.NANOSECONDS);
@@ -428,24 +474,37 @@ public class RoomPresenceService {
     private void broadcastLobbyCountsSnapshot() {
         List<RoomPresenceCount> counts;
         int onlinePlayerCount;
-        readLock.lock();
+        lobbyBroadcastLock.lock();
         try {
-            Map<Long, Integer> currentCounts = new HashMap<>();
-            participantsByRoom.forEach((roomId, participants) ->
-                    currentCounts.put(roomId, participants.size()));
-            emptyRoomsPendingCleanup.forEach(roomId -> currentCounts.putIfAbsent(roomId, 0));
-            counts = currentCounts.entrySet().stream()
-                    .map(entry -> new RoomPresenceCount(entry.getKey(), entry.getValue()))
-                    .toList();
-            onlinePlayerCount = onlineSessionsByParticipant.size();
-        } finally {
-            readLock.unlock();
-        }
+            readLock.lock();
+            try {
+                Map<Long, Integer> currentCounts = new HashMap<>();
+                participantsByRoom.forEach((roomId, participants) ->
+                        currentCounts.put(roomId, participants.size()));
+                emptyRoomsPendingCleanup.forEach(roomId -> currentCounts.putIfAbsent(roomId, 0));
+                counts = currentCounts.entrySet().stream()
+                        .map(entry -> new RoomPresenceCount(entry.getKey(), entry.getValue()))
+                        .toList();
+                onlinePlayerCount = onlineSessionsByParticipant.size();
+            } finally {
+                readLock.unlock();
+            }
 
-        messagingTemplate.convertAndSend(
-                LOBBY_PRESENCE_DESTINATION,
-                Objects.requireNonNull(counts, "Room presence counts must not be null."));
-        broadcastOnlinePlayerCount(onlinePlayerCount);
+            // Snapshot과 증분 메시지는 같은 전송 잠금에서 최신 상태를 읽고 보낸다.
+            // 대기 중에는 presence read lock을 잡지 않아 쓰기 작업을 막지 않는다.
+            for (RoomPresenceCount count : counts) {
+                lastBroadcastLobbyRoomCounts.put(count.roomId(), count.currentPlayers());
+            }
+            lastBroadcastOnlinePlayerCount = onlinePlayerCount;
+            messagingTemplate.convertAndSend(
+                    LOBBY_PRESENCE_DESTINATION,
+                    Objects.requireNonNull(counts, "Room presence counts must not be null."));
+            messagingTemplate.convertAndSend(
+                    LOBBY_PRESENCE_DESTINATION,
+                    new OnlinePlayerCount(onlinePlayerCount));
+        } finally {
+            lobbyBroadcastLock.unlock();
+        }
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -540,8 +599,7 @@ public class RoomPresenceService {
                 throw new RoomWebSocketException("방장만 게임을 시작할 수 있습니다.");
             }
 
-            RoomSummary room = requireRoom(roomId);
-            if (!"WAITING".equals(room.getStatus())) {
+            if (!"WAITING".equals(roomStatusByRoom.getOrDefault(roomId, "WAITING"))) {
                 throw new RoomWebSocketException("이미 시작된 게임입니다.");
             }
             if (participants.size() < RoomGameRules.MIN_PLAYERS) {
@@ -696,14 +754,6 @@ public class RoomPresenceService {
         }
     }
 
-    private RoomSummary requireRoom(long roomId) {
-        RoomSummary room = roomService.getRoom(roomId);
-        if (room == null) {
-            throw new RoomWebSocketException("존재하지 않는 게임방입니다.");
-        }
-        return room;
-    }
-
     private SessionRemoval removeSession(long roomId, String sessionId) {
         if (!Long.valueOf(roomId).equals(roomBySession.get(sessionId))) {
             return new SessionRemoval(null, null);
@@ -786,15 +836,13 @@ public class RoomPresenceService {
         for (ParticipantPresence participant : currentParticipants.values()) {
             participants.add(createParticipant(roomId, participant));
         }
-        RoomSummary room = roomService.getRoom(roomId);
-        int capacity = room == null ? 0 : room.getMaxPlayers();
-        boolean locked = room != null && room.isLocked();
+        RoomSettingsSnapshot roomSettings = roomSettingsByRoom.get(roomId);
         return new RoomPresenceState(
                 roomId,
                 List.copyOf(participants),
-                roomStatusByRoom.getOrDefault(roomId, room == null ? "WAITING" : room.getStatus()),
-                capacity,
-                locked);
+                roomStatusByRoom.getOrDefault(roomId, "WAITING"),
+                roomSettings == null ? 0 : roomSettings.capacity(),
+                roomSettings != null && roomSettings.locked());
     }
 
     private boolean registerOnlineSession(String sessionId, Principal principal) {
@@ -857,12 +905,6 @@ public class RoomPresenceService {
     }
 
     private void scheduleRoomCleanup(long roomId) {
-        if (emptyRoomCleanupDelay.isZero()) {
-            roomService.deleteRoom(roomId);
-            emptyRoomsPendingCleanup.remove(roomId);
-            return;
-        }
-
         // 빈 방 삭제는 예약 작업으로 미룬다. 그 사이 재입장하면 cancelRoomCleanup이 예약을 취소한다.
         ScheduledFuture<?> previousTask = cleanupTasksByRoom.remove(roomId);
         if (previousTask != null) {
@@ -870,7 +912,7 @@ public class RoomPresenceService {
         }
         cleanupTasksByRoom.put(roomId, cleanupExecutor.schedule(
                 () -> cleanupRoomIfStillEmpty(roomId),
-                emptyRoomCleanupDelay.toMillis(),
+                Math.max(0L, emptyRoomCleanupDelay.toMillis()),
                 TimeUnit.MILLISECONDS));
     }
 
@@ -957,26 +999,56 @@ public class RoomPresenceService {
                 cleanupTasksByRoom.remove(roomId);
                 return;
             }
+            if (!roomsBeingDeleted.add(roomId)) {
+                return;
+            }
+            roomDeletionGeneration++;
+        } finally {
+            writeLock.unlock();
+        }
 
-            try {
-                roomService.deleteRoom(roomId);
+        RuntimeException deletionFailure = null;
+        try {
+            roomService.deleteRoom(roomId);
+        } catch (RuntimeException exception) {
+            deletionFailure = exception;
+        }
+
+        boolean forgetLobbyCount = false;
+        writeLock.lock();
+        try {
+            roomsBeingDeleted.remove(roomId);
+            if (deletionFailure == null) {
                 emptyRoomsPendingCleanup.remove(roomId);
                 cleanupTasksByRoom.remove(roomId);
-            } catch (RuntimeException exception) {
+                roomSettingsByRoom.remove(roomId);
+                hostUserByRoom.remove(roomId);
+                roomStatusByRoom.remove(roomId);
+                forgetLobbyCount = true;
+            } else if (!participantsByRoom.containsKey(roomId)) {
                 cleanupTasksByRoom.put(roomId, cleanupExecutor.schedule(
                         () -> cleanupRoomIfStillEmpty(roomId),
                         Math.max(1L, emptyRoomCleanupDelay.toMillis()),
                         TimeUnit.MILLISECONDS));
-                log.warn("방 정리 작업에 실패했습니다. 재시도합니다. roomId={}", roomId, exception);
+            } else {
+                emptyRoomsPendingCleanup.remove(roomId);
+                cleanupTasksByRoom.remove(roomId);
             }
         } finally {
             writeLock.unlock();
+        }
+        if (forgetLobbyCount) {
+            forgetLobbyRoomCount(roomId);
+        }
+        if (deletionFailure != null) {
+            log.warn("방 정리 작업에 실패했습니다. 재시도합니다. roomId={}", roomId, deletionFailure);
         }
     }
 
     @PreDestroy
     void shutdownCleanupExecutor() {
         cleanupExecutor.shutdownNow();
+        lobbyCountExecutor.shutdownNow();
     }
 
     private void broadcast(RoomPresenceState state) {
@@ -984,10 +1056,56 @@ public class RoomPresenceService {
         messagingTemplate.convertAndSend(
                 formatDestination(PRESENCE_DESTINATION, state.roomId()),
                 state);
-        messagingTemplate.convertAndSend(
-                LOBBY_PRESENCE_DESTINATION,
-                new RoomPresenceCount(state.roomId(), state.participants().size()));
-        broadcastOnlinePlayerCount();
+
+        lobbyBroadcastLock.lock();
+        try {
+            int currentPlayers;
+            int onlinePlayers;
+            readLock.lock();
+            try {
+                // state는 쓰기 잠금 해제 후 전달되므로 대기 중 더 최신 상태가 만들어졌을 수 있다.
+                Map<String, ParticipantPresence> participants = participantsByRoom.get(state.roomId());
+                currentPlayers = participants == null ? 0 : participants.size();
+                onlinePlayers = onlineSessionsByParticipant.size();
+            } finally {
+                readLock.unlock();
+            }
+
+            if (shouldBroadcastLobbyRoomCount(state.roomId(), currentPlayers)) {
+                messagingTemplate.convertAndSend(
+                        LOBBY_PRESENCE_DESTINATION,
+                        new RoomPresenceCount(state.roomId(), currentPlayers));
+            }
+            if (shouldBroadcastOnlinePlayerCount(onlinePlayers)) {
+                messagingTemplate.convertAndSend(
+                        LOBBY_PRESENCE_DESTINATION,
+                        new OnlinePlayerCount(onlinePlayers));
+            }
+        } finally {
+            lobbyBroadcastLock.unlock();
+        }
+    }
+
+    private boolean shouldBroadcastLobbyRoomCount(long roomId, int currentPlayers) {
+        Integer previousCount = lastBroadcastLobbyRoomCounts.put(roomId, currentPlayers);
+        return previousCount == null || previousCount.intValue() != currentPlayers;
+    }
+
+    private void forgetLobbyRoomCount(long roomId) {
+        lobbyBroadcastLock.lock();
+        try {
+            lastBroadcastLobbyRoomCounts.remove(roomId);
+        } finally {
+            lobbyBroadcastLock.unlock();
+        }
+    }
+
+    private boolean shouldBroadcastOnlinePlayerCount(int onlinePlayerCount) {
+        if (lastBroadcastOnlinePlayerCount == onlinePlayerCount) {
+            return false;
+        }
+        lastBroadcastOnlinePlayerCount = onlinePlayerCount;
+        return true;
     }
 
     private static @NonNull String formatDestination(String template, long roomId) {
@@ -1000,19 +1118,22 @@ public class RoomPresenceService {
 
     private void broadcastOnlinePlayerCount() {
         int onlinePlayerCount;
-        readLock.lock();
+        lobbyBroadcastLock.lock();
         try {
-            onlinePlayerCount = onlineSessionsByParticipant.size();
+            readLock.lock();
+            try {
+                onlinePlayerCount = onlineSessionsByParticipant.size();
+            } finally {
+                readLock.unlock();
+            }
+            if (shouldBroadcastOnlinePlayerCount(onlinePlayerCount)) {
+                messagingTemplate.convertAndSend(
+                        LOBBY_PRESENCE_DESTINATION,
+                        new OnlinePlayerCount(onlinePlayerCount));
+            }
         } finally {
-            readLock.unlock();
+            lobbyBroadcastLock.unlock();
         }
-        broadcastOnlinePlayerCount(onlinePlayerCount);
-    }
-
-    private void broadcastOnlinePlayerCount(int onlinePlayerCount) {
-        messagingTemplate.convertAndSend(
-                LOBBY_PRESENCE_DESTINATION,
-                new OnlinePlayerCount(onlinePlayerCount));
     }
 
     private void notifyDeparture(long roomId, long userId) {
@@ -1152,6 +1273,11 @@ public class RoomPresenceService {
     private record DepartedPlayer(
             long roomId,
             long userId) {
+    }
+
+    private record RoomSettingsSnapshot(
+            int capacity,
+            boolean locked) {
     }
 
     private static final class ParticipantPresence {

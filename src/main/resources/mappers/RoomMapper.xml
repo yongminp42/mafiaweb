@@ -10,7 +10,7 @@
             gr.host_user_id AS host_user_id,
             gr.title AS title,
             host.user_name AS host_name,
-            COUNT(rm.user_id) AS current_players,
+            0 AS current_players,
             gr.max_players AS max_players,
             gr.status AS status,
             CASE
@@ -19,16 +19,6 @@
             END AS locked
         FROM game_room gr
         JOIN `user` host ON host.user_id = gr.host_user_id
-        LEFT JOIN room_members rm ON rm.room_id = gr.room_id
-        GROUP BY
-            gr.room_id,
-            gr.host_user_id,
-            gr.title,
-            host.user_name,
-            gr.max_players,
-            gr.status,
-            gr.room_password,
-            gr.created_time
         ORDER BY
             CASE WHEN gr.status = 'WAITING' THEN 0 ELSE 1 END,
             gr.created_time DESC
@@ -40,7 +30,7 @@
             gr.host_user_id AS host_user_id,
             gr.title AS title,
             host.user_name AS host_name,
-            COUNT(rm.user_id) AS current_players,
+            0 AS current_players,
             gr.max_players AS max_players,
             gr.status AS status,
             CASE
@@ -49,16 +39,7 @@
             END AS locked
         FROM game_room gr
         JOIN `user` host ON host.user_id = gr.host_user_id
-        LEFT JOIN room_members rm ON rm.room_id = gr.room_id
         WHERE gr.room_id = #{roomId}
-        GROUP BY
-            gr.room_id,
-            gr.host_user_id,
-            gr.title,
-            host.user_name,
-            gr.max_players,
-            gr.status,
-            gr.room_password
     </select>
 
     <select id="findMemberNames" resultType="string">

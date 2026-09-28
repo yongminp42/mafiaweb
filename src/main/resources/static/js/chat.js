@@ -602,15 +602,16 @@
       : null;
     const isNewWaitingParticipant = gameState?.phase === 'FINISHED' && !currentGamePlayer;
     const isFinished = gameState?.phase === 'FINISHED';
+    const isEliminated = !isFinished && currentGamePlayer?.alive === false;
     const alive = !gameState || currentGamePlayer?.alive === true || isNewWaitingParticipant;
     const isNight = gameState?.phase === 'NIGHT';
     const isRoleAssignment = gameState?.phase === 'ROLE_ASSIGNMENT';
     const isFinalDefense = gameState?.phase === 'FINAL_DEFENSE';
     const isDefendant = Number(gameState?.nominatedUserId) === userId;
-    const canUseDeadChat = !isFinished
+    const canUseDeadChat = !isFinished && !isRoleAssignment
       && Boolean(gameState) && (!alive || currentRole === 'MEDIUM');
-    const canUsePublic = isFinished || (!isNight && !isRoleAssignment
-      && (!isFinalDefense || isDefendant));
+    const canUsePublic = !isEliminated && (isFinished || (!isNight && !isRoleAssignment
+      && (!isFinalDefense || isDefendant)));
     const canUseMafia = !isFinished && (currentRole === 'MAFIA'
       || (currentRole === 'SPY' && mafiaChatUnlocked))
       && alive && !isRoleAssignment;
@@ -623,6 +624,7 @@
     const mafiaOption = chatChannel?.querySelector('option[value="MAFIA"]');
     const deadOption = chatChannel?.querySelector('option[value="DEAD"]');
     if (publicOption) {
+      publicOption.hidden = isEliminated;
       publicOption.disabled = !canUsePublic;
       publicOption.textContent = '전체 채널';
     }
@@ -637,6 +639,8 @@
     if (chatChannel) {
       if (isFinished) {
         chatChannel.value = 'PUBLIC';
+      } else if (isEliminated) {
+        chatChannel.value = 'DEAD';
       } else if (!canUsePublic && !canUseDeadChat && canUseMafia) {
         chatChannel.value = 'MAFIA';
       } else if (!canUsePublic && !canUseMafia && canUseDeadChat) {
@@ -654,7 +658,7 @@
       chatChannel.disabled = !isOnline
         || !joinedRoom
         || !presenceReady
-        || (!canUsePublic && !canUseMafia);
+        || (!canUsePublic && !canUseMafia && !canUseDeadChat);
     }
     if (submitButton) {
       submitButton.disabled = !canChat;
@@ -697,7 +701,8 @@
       return;
     }
 
-    if (state.phase !== lastGamePhase) {
+    const phaseChanged = state.phase !== lastGamePhase;
+    if (phaseChanged) {
       gameActionSubmitted = false;
       if (state.phase === 'ROLE_ASSIGNMENT') {
         roleConfirmed = false;
@@ -709,6 +714,9 @@
     // 역할 정보는 개인 큐로, 페이즈·타이머·생존자 목록은 공개 토픽으로 받는다.
     // 공개 상태가 갱신될 때마다 행동 버튼과 타이머도 함께 다시 계산한다.
     gameState = state;
+    if (phaseChanged && state.phase === 'FINISHED') {
+      window.refreshPlayerLevel?.();
+    }
     updateNightBackground(state.phase);
     updateParticipantDeathStates();
     gamePanel.hidden = false;

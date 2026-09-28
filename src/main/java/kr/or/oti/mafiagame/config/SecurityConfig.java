@@ -20,7 +20,7 @@ public class SecurityConfig {
         return http
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
-                                "/", "/rooms", "/login", "/signup",
+                                "/", "/rooms", "/rooms/*/card", "/login", "/signup",
                                 "/css/**", "/js/**", "/webjars/**", "/error")
                         .permitAll()
                         .requestMatchers("/ws/**").permitAll()

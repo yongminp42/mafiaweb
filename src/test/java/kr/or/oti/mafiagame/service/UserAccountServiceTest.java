@@ -46,6 +46,10 @@ class UserAccountServiceTest {
         assertThat(profile.wins()).isEqualTo(6);
         assertThat(profile.losses()).isEqualTo(4);
         assertThat(profile.winRate()).isEqualTo(60);
+        assertThat(profile.experience()).isEqualTo(UserStats.DEFAULT_RATING);
+        assertThat(profile.getLevel()).isEqualTo(1);
+        assertThat(profile.getLevelProgress()).isZero();
+        assertThat(profile.getExperienceToNextLevel()).isEqualTo(1000);
         assertThat(profile.joinedAt()).isEqualTo("2026년 9월 가입");
     }
 
@@ -76,14 +80,14 @@ class UserAccountServiceTest {
     }
 
     @Test
-    void ratingAdvancesOneLevelForEachAdditionalThousandPoints() {
-        assertThat(UserStats.levelForRating(-1)).isEqualTo(1);
-        assertThat(UserStats.levelForRating(999)).isEqualTo(1);
-        assertThat(UserStats.levelForRating(1000)).isEqualTo(1);
-        assertThat(UserStats.levelForRating(1999)).isEqualTo(1);
-        assertThat(UserStats.levelForRating(2000)).isEqualTo(2);
-        assertThat(UserStats.levelForRating(2999)).isEqualTo(2);
-        assertThat(UserStats.levelForRating(3000)).isEqualTo(3);
+    void experienceAdvancesOneLevelForEachAdditionalThousandPoints() {
+        assertThat(UserStats.levelForExperience(-1)).isEqualTo(1);
+        assertThat(UserStats.levelForExperience(999)).isEqualTo(1);
+        assertThat(UserStats.levelForExperience(1000)).isEqualTo(1);
+        assertThat(UserStats.levelForExperience(1999)).isEqualTo(1);
+        assertThat(UserStats.levelForExperience(2000)).isEqualTo(2);
+        assertThat(UserStats.levelForExperience(2999)).isEqualTo(2);
+        assertThat(UserStats.levelForExperience(3000)).isEqualTo(3);
     }
 
     @Test

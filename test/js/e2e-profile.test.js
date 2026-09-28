@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('E2E scopes and the DuckDNS-only QA profile are isolated', async () => {
+test('E2E scopes and the three QA profiles are isolated', async () => {
   const previousProfile = process.env.E2E_PROFILE;
   const runbook = await readFile(
     new URL('../../docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md', import.meta.url),
@@ -15,6 +15,7 @@ test('E2E scopes and the DuckDNS-only QA profile are isolated', async () => {
   const coreSpec = await readFile(new URL('../e2e/mafia-mvp.spec.js', import.meta.url), 'utf8');
   const roomLayoutSpec = await readFile(new URL('../e2e/room-layout.spec.js', import.meta.url), 'utf8');
   const chatScrollSpec = await readFile(new URL('../e2e/chat-scroll.spec.js', import.meta.url), 'utf8');
+  const roomListTests = await readFile(new URL('./room-list.test.js', import.meta.url), 'utf8');
   const powershellDefaults = runbook.match(/\$profileDefaults = @\{([\s\S]*?)\n\}/)?.[1];
   const jsRunbookSection = runbook.match(
     /## 2\. JavaScript Tests([\s\S]*?)## 3\. Playwright E2E Tests/
@@ -25,10 +26,6 @@ test('E2E scopes and the DuckDNS-only QA profile are isolated', async () => {
   const e2eRunbookSection = runbook.match(
     /## 3\. Playwright E2E Tests([\s\S]*?)## 4\. MVP Validation Scope/
   )?.[1];
-  const duckDnsRunbookSection = runbook.match(
-    /## DuckDNS-only profile([\s\S]*?)## Project Information/
-  )?.[1];
-  const duckDnsTestFile = 'test/js/duckdns.test.js';
   const javascriptTestFiles = [
     'test/js/stomp-client.test.js',
     'test/js/room-list.test.js',
@@ -40,7 +37,6 @@ test('E2E scopes and the DuckDNS-only QA profile are isolated', async () => {
   assert.ok(jsRunbookSection, 'QA script must include the JavaScript test section.');
   assert.ok(preflightSection, 'QA script must define the shared environment preflight.');
   assert.ok(e2eRunbookSection, 'QA script must define the shared game E2E lifecycle.');
-  assert.ok(duckDnsRunbookSection, 'QA script must define a separate DuckDNS-only profile.');
   assert.match(preflightSection, /child_process/);
   assert.match(preflightSection, /fork\(process\.argv\[1\]/);
   assert.match(preflightSection, /execArgv: \[\]/);
@@ -58,29 +54,57 @@ test('E2E scopes and the DuckDNS-only QA profile are isolated', async () => {
   assert.match(e2eRunbookSection, /both `\$e2eEnabled` and\s+`\$playwrightWorkerAvailable`/);
   assert.match(e2eRunbookSection, /overall E2E result `BLOCKED`/);
   assert.match(e2eRunbookSection, /do not create a QA server or\s+attempt Playwright discovery/);
-  assert.match(runbook, /if \(\$e2eProfile -eq 'duckdns'\) \{\s+\$e2eEnabled = \$false/);
   assert.match(packageJson.scripts['test:js'], /--test-isolation=none/);
-  assert.doesNotMatch(packageJson.scripts['test:js'], /duckdns\.test\.js/);
-  assert.equal(
-    packageJson.scripts['qa:duckdns'],
-    'node --test --test-isolation=none ' + duckDnsTestFile
-  );
   assert.match(jsRunbookSection, /node --test --test-isolation=none/);
-  assert.doesNotMatch(jsRunbookSection, /duckdns\.test\.js|qa:duckdns/);
-  assert.match(runbook, /'4' = 'duckdns'/);
-  assert.match(duckDnsRunbookSection, /npm\.cmd run qa:duckdns/);
-  const duckDnsExecutionBlock = duckDnsRunbookSection.match(/```powershell([\s\S]*?)```/)?.[1];
-  assert.ok(duckDnsExecutionBlock, 'DuckDNS profile must have an executable PowerShell block.');
-  assert.doesNotMatch(duckDnsExecutionBlock, /gradlew|Test-NetConnection|bootRun|test:e2e|deleteTestAccounts/);
+  assert.match(jsRunbookSection, /optimized lobby room-card flow/i);
+  assert.match(jsRunbookSection, /used by all three QA profiles/);
   for (const file of javascriptTestFiles) {
     assert.ok(packageJson.scripts['test:js'].includes(file), `${file} must run from package.json.`);
     assert.ok(jsRunbookSection.includes(file), `${file} must run from the QA script.`);
   }
-  assert.ok(duckDnsRunbookSection.includes(duckDnsTestFile));
-
+  for (const optimizationTest of [
+    'room list applies the active search and status filter to a newly inserted card',
+    'room list discards a fetched card when its live count reaches zero first'
+  ]) {
+    assert.ok(roomListTests.includes(optimizationTest), `Missing optimization regression: ${optimizationTest}`);
+  }
+  for (const optimizationTest of [
+    'RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries',
+    'RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock',
+    'RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes',
+    'RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock',
+    'RoomPresenceServiceTest.lobbyCountBroadcastsOnlyWhenParticipantCountChanges',
+    'RoomPresenceServiceTest.lobbySnapshotStillSynchronizesCurrentCountsAfterIncrementalBroadcasts',
+    'RoomPresenceServiceTest.staleRoomCountBroadcastDoesNotOverwriteTheLatestPresenceCount',
+    'RoomPresenceServiceTest.lobbySnapshotIsDeliveredBeforeAnyNewerIncrementalRoomCount',
+    'RoomPresenceServiceTest.stalledLobbySnapshotDoesNotBlockPresenceWrites',
+    'RoomPresenceServiceTest.lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked',
+    'MapperIntegrationTest.roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom',
+    'RoomControllerTest.roomCardReturnsOneFragmentWithTheLatestLiveCount',
+    'RoomControllerTest.roomCardReturnsNotFoundWhenTheRoomWasDeletedBeforeItWasFetched'
+  ]) {
+    assert.ok(runbook.includes(optimizationTest), `QA runbook must map: ${optimizationTest}`);
+  }
   assert.match(coreSpec, /for \(const playerCount of PLAYER_COUNTS\)/);
   assert.match(coreSpec, /if \(shouldReplayPlayerCount\(playerCount\)\)/);
   assert.match(coreSpec, /if \(RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS\.includes\(6\)\)/);
+  assert.match(coreSpec, /experience: 1000 \+ \(won \? 500 : 100\)/);
+  assert.match(coreSpec, /stats\.experience\)\.toBe\(previousStats\.experience/);
+  assert.ok(
+    roomLayoutSpec.includes("await expect(profileStats).toHaveCount(4);"),
+    'Room-layout E2E must account for the XP card in the profile.'
+  );
+  assert.ok(
+    roomLayoutSpec.includes("await expect(profileStats.nth(3).locator('.d-flex > strong')).toHaveText('1000 XP');"),
+    'Room-layout E2E must check the initial profile experience.'
+  );
+  assert.ok(
+    roomLayoutSpec.includes("await expect(host.locator('#invite')).toHaveCount(0);"),
+    'Room-layout E2E must reflect the removed friend-invite control.'
+  );
+  assert.match(runbook, /56\. A win adds 500 XP and a loss adds 100 XP/);
+  assert.doesNotMatch(runbook, /rating-derived|friend-invite, help, and host-only room settings buttons appear in order/);
+  assert.doesNotMatch(runbook, /does not execute game MVP items 1[–-]54/);
   assert.match(chatScrollSpec, /test\.skip\(!PROFILE_CONFIG\.runChatScroll/);
   assert.match(chatScrollSpec, /index <= PROFILE_CONFIG\.chatMessageCount/);
   assert.match(roomLayoutSpec, /process\.env\.E2E_CAPACITY \|\| PROFILE_CONFIG\.uiCapacity/);
@@ -181,4 +205,74 @@ test('game QA profiles share orphan-safe server startup and cleanup', async () =
   assert.match(lifecycle, /\$launcherTreeTerminationConfirmed = \$true/);
   assert.match(lifecycle, /Stop-Process -Id \$qaApplicationProcessId/);
   assert.match(lifecycle, /QA server cleanup PASS/);
+});
+
+test('Full QA startup prevents PowerShell policy and capture-gate silent skips', async () => {
+  const runbook = await readFile(
+    new URL('../../docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md', import.meta.url),
+    'utf8'
+  );
+  const launcherStart = runbook.indexOf('#### PowerShell startup gate');
+  const recorderStart = runbook.indexOf('### Full QA progress recording (required)');
+  const environmentStart = runbook.indexOf('\n## 0. Environment Preflight');
+  const javaStart = runbook.indexOf('## 1. Java Tests');
+  const permissionGuideStart = runbook.indexOf('#### Permission boundary handling');
+  assert.notEqual(launcherStart, -1, 'QA runbook must explain the PowerShell 5.1 launch gate.');
+  assert.notEqual(permissionGuideStart, -1, 'QA runbook must explain sandbox permission recovery.');
+  assert.ok(recorderStart < environmentStart, 'Full recording must start before environment preflight.');
+  assert.ok(environmentStart < javaStart, 'Environment gates must precede Java tests.');
+
+  const permissionGuide = runbook.slice(permissionGuideStart, launcherStart);
+  assert.match(permissionGuide, /Node `child_process\.fork` returns `EPERM`/);
+  assert.match(permissionGuide, /sandbox_permissions: "require_escalated"/);
+  assert.match(permissionGuide, /Win32 error 5 \/ `Access is denied`/);
+  assert.match(permissionGuide, /before the MariaDB probe or any test command/);
+  assert.match(permissionGuide, /Do not change machine-level\s+desktop-capture permissions/);
+
+  const startupGate = runbook.slice(launcherStart, environmentStart);
+  const captureMarkerIndex = runbook.indexOf('[QA_PROGRESS] Recording started before preflight:');
+  const databaseProbeIndex = runbook.indexOf('Test-NetConnection `');
+  const javaCommandIndex = runbook.indexOf('.\\gradlew.bat test --no-daemon --rerun-tasks -x jsTest');
+  const javaScriptCommandIndex = runbook.indexOf('node --test --test-isolation=none');
+  const playwrightBranchIndex = runbook.indexOf('## 3. Playwright E2E Tests');
+  assert.match(startupGate, /'-ExecutionPolicy', 'RemoteSigned'/);
+  assert.match(startupGate, /'-NoProfile', '-NoExit', '-ExecutionPolicy', 'RemoteSigned'/,
+    'The dedicated QA console must remain open so startup errors stay visible.');
+  assert.match(startupGate, /-WindowStyle Maximized/);
+  assert.match(startupGate, /MainWindowHandle -eq 0/);
+  assert.match(startupGate, /Do not use `Set-ExecutionPolicy`/);
+  assert.match(startupGate, /Do not call `Get-ExecutionPolicy` as a startup gate/);
+  assert.match(startupGate, /`'-ExecutionPolicy',[\s\S]*'RemoteSigned'[\s\S]*before `'-File'`/);
+  assert.match(startupGate, /Do not depend on `\$Host\.UI\.RawUI\.WindowState`/);
+  assert.match(startupGate, /save that\s+file as UTF-8 with BOM/);
+  assert.match(startupGate, /MainWindowTitle/);
+  assert.match(startupGate, /Test-Path -LiteralPath \$progressVideoPath/);
+  assert.match(startupGate, /Length -gt 0/);
+  assert.match(startupGate, /\$ffmpegBin = \$env:FFMPEG_BIN/);
+  assert.match(startupGate, /Join-Path \$ffmpegBin 'ffprobe\.exe'/);
+  assert.match(startupGate, /PATH or FFMPEG_BIN/);
+  assert.match(startupGate, /save the preflight-blocked\s+report and stop before DB checks or test commands/);
+  const captureToolGateStart = runbook.indexOf('if (-not $ffmpegCommand -or -not $ffprobeCommand)');
+  const recorderStartInfo = runbook.indexOf('$ffmpegStartInfo = [System.Diagnostics.ProcessStartInfo]::new()');
+  assert.ok(captureToolGateStart !== -1 && captureToolGateStart < recorderStartInfo,
+    'Full QA must resolve both recorder tools before attempting to start capture.');
+  const blockedReportStart = startupGate.indexOf('function Save-QAProgressPreflightBlockedReport');
+  assert.ok(blockedReportStart !== -1 && blockedReportStart < captureToolGateStart,
+    'Full QA must define its preflight-blocked report before checking recorder tools.');
+  const blockedReport = startupGate.slice(blockedReportStart, captureToolGateStart);
+  const captureToolGate = runbook.slice(captureToolGateStart, recorderStartInfo);
+  assert.match(captureToolGate, /\$qaFinalVerdict = 'BLOCKED'/);
+  assert.match(captureToolGate, /Save-QAProgressPreflightBlockedReport -Reason/);
+  assert.match(blockedReport, /Java 테스트: NOT RUN/);
+  assert.match(blockedReport, /JavaScript 테스트: NOT RUN/);
+  assert.match(blockedReport, /Playwright\/서버\/계정 정리: NOT RUN/);
+  assert.match(captureToolGate, /throw 'Full QA progress recording is BLOCKED/);
+  assert.ok(captureMarkerIndex !== -1 && captureMarkerIndex < databaseProbeIndex,
+    'Full desktop recording must be confirmed before the MariaDB probe.');
+  assert.ok(databaseProbeIndex < javaCommandIndex && databaseProbeIndex < javaScriptCommandIndex,
+    'Database preflight must precede both Java and JavaScript suites.');
+  assert.ok(captureMarkerIndex < javaCommandIndex && captureMarkerIndex < javaScriptCommandIndex,
+    'Full recording must be active before Java and JavaScript commands.');
+  assert.ok(javaScriptCommandIndex < playwrightBranchIndex,
+    'JavaScript tests must finish before the Playwright/server lifecycle.');
 });

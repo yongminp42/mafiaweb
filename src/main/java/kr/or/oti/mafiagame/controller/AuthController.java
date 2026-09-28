@@ -33,16 +33,14 @@ public class AuthController {
             @RequestParam(name = "email", required = false) String email,
             @RequestParam(name = "password", required = false) String password,
             @RequestParam(name = "passwordConfirm", required = false) String passwordConfirm,
-            @RequestParam(name = "agreement", defaultValue = "false") boolean agreed,
             Model model) {
         try {
-            signupService.signup(nickname, email, password, passwordConfirm, agreed);
+            signupService.signup(nickname, email, password, passwordConfirm);
             return "redirect:/login?signup";
         } catch (SignupException exception) {
             model.addAttribute("signupError", exception.getMessage());
             model.addAttribute("nickname", nickname);
             model.addAttribute("email", email);
-            model.addAttribute("agreed", agreed);
             return "auth/signup";
         }
     }

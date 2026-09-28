@@ -79,8 +79,13 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await host.locator('.user-menu-toggle').click();
     await host.locator('.user-menu-dropdown a[href^="/users/"]').click();
     await expect(host).toHaveURL(/\/users\/\d+$/);
-    await expect(host.locator('.app-profile-hero + section article strong'))
-      .toHaveText(['0', '0', '0']);
+    const profileStats = host.locator('.app-profile-hero + section article');
+    await expect(profileStats).toHaveCount(4);
+    await expect(profileStats.nth(0).locator('strong')).toHaveText('0');
+    await expect(profileStats.nth(1).locator('strong')).toHaveText('0');
+    await expect(profileStats.nth(2).locator('strong')).toHaveText('0');
+    await expect(profileStats.nth(3).locator('h2')).toContainText('Lv. 1');
+    await expect(profileStats.nth(3).locator('.d-flex > strong')).toHaveText('1000 XP');
 
     await host.goto('/rooms/new');
     await host.locator('#title').fill(`Playwright MVP UI room-layout ${runId}`);
@@ -105,12 +110,10 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(host.locator('.room-settings')).toHaveCount(0);
     await expect(host.locator('#gameRolePanel')).toBeHidden();
 
-    await expect(host.locator('#invite')).toBeVisible();
+    await expect(host.locator('#invite')).toHaveCount(0);
     await expect(host.locator('#gameHelpButton')).toBeVisible();
     await expect(host.locator('#roomSettingsButton')).toBeVisible();
     await expect(pages[1].locator('#roomSettingsButton')).toHaveCount(0);
-    expect(await host.locator('#invite').evaluate(element => element.nextElementSibling?.id))
-      .toBe('gameHelpButton');
     expect(await host.locator('#gameHelpButton').evaluate(element => element.nextElementSibling?.id))
       .toBe('roomSettingsButton');
 

@@ -290,11 +290,18 @@ async function readOwnProfileStats(roomPage) {
     await profilePage.locator('.user-menu-toggle').click();
     await profilePage.locator('.user-menu-dropdown a[href^="/users/"]').click();
     await expect(profilePage).toHaveURL(/\/users\/\d+$/);
-    const values = await profilePage
-      .locator('.app-profile-hero + section article strong')
-      .allTextContents();
-    expect(values).toHaveLength(3);
-    return values.map(value => Number(value.trim()));
+    const stats = profilePage.locator('.app-profile-hero + section article');
+    await expect(stats).toHaveCount(4);
+    const [totalGames, wins, losses] = await Promise.all([0, 1, 2].map(async index =>
+      Number((await stats.nth(index).locator('strong').textContent()).trim())
+    ));
+    const experienceText = (await stats.nth(3).locator('.d-flex > strong').textContent()).trim();
+    const experience = Number(experienceText.replace(/\s*XP$/, ''));
+    const levelText = (await stats.nth(3).locator('h2').textContent()).trim();
+    const levelMatch = levelText.match(/^Lv\.\s*(\d+)$/);
+    expect(Number.isFinite(experience)).toBeTruthy();
+    expect(levelMatch).not.toBeNull();
+    return { totalGames, wins, losses, experience, level: Number(levelMatch[1]) };
   } finally {
     await profilePage.close();
   }
@@ -1438,19 +1445,31 @@ for (const playerCount of PLAYER_COUNTS) {
         );
         await captureScenarioScreenshot(pages[0], artifactDirectory, 'finished');
 
-        await Promise.all(pages.map(async (page, index) => {
+        const firstCompletionStats = await Promise.all(pages.map(async (page, index) => {
           const stats = await readOwnProfileStats(page);
           const won = (finishedState.winningFaction === 'MAFIA')
             === mafiaTeamUserIds.includes(userIds[index]);
-          expect(stats).toEqual([1, won ? 1 : 0, won ? 0 : 1]);
+          expect(stats).toEqual({
+            totalGames: 1,
+            wins: won ? 1 : 0,
+            losses: won ? 0 : 1,
+            experience: 1000 + (won ? 500 : 100),
+            level: 1
+          });
+          return stats;
         }));
 
         if (shouldReplayPlayerCount(playerCount)) {
           await startReplayGame(pages, traces);
-          await Promise.all(pages.map(async page => {
+          await Promise.all(pages.map(async (page, index) => {
+            const previousStats = firstCompletionStats[index];
             const stats = await readOwnProfileStats(page);
-            expect(stats[0]).toBe(2);
-            expect(stats[1] + stats[2]).toBe(2);
+            expect(stats.totalGames).toBe(previousStats.totalGames + 1);
+            expect(stats.wins + stats.losses).toBe(stats.totalGames);
+            expect(stats.experience).toBe(previousStats.experience
+              + (stats.wins - previousStats.wins) * 500
+              + (stats.losses - previousStats.losses) * 100);
+            expect(stats.level).toBe(Math.max(1, Math.floor(stats.experience / 1000)));
           }));
         }
       } finally {
