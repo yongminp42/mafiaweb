@@ -36,6 +36,7 @@ class SignupServiceTest {
     @Test
     void normalizesAndPersistsValidSignup() {
         when(userMapper.existsByEmail("user@example.com")).thenReturn(false);
+        when(userMapper.existsByNickname("player")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("encoded");
         when(userMapper.insert(any(User.class))).thenAnswer(invocation -> {
             invocation.<User>getArgument(0).setUserId(15L);
@@ -54,7 +55,7 @@ class SignupServiceTest {
     }
 
     @Test
-    void rejectsInvalidInputsAndDuplicateEmail() {
+    void rejectsInvalidInputsDuplicateEmailAndDuplicateNickname() {
         assertThatThrownBy(() -> signupService.signup("x", "user@example.com", "password123", "password123"))
                 .isInstanceOf(SignupException.class);
         assertThatThrownBy(() -> signupService.signup("player", "invalid", "password123", "password123"))
@@ -66,23 +67,47 @@ class SignupServiceTest {
 
         when(userMapper.existsByEmail("user@example.com")).thenReturn(true);
         assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "password123", "password123"))
-                .isInstanceOf(SignupException.class);
+                .isInstanceOf(SignupException.class)
+                .hasMessage("이미 사용 중인 이메일입니다.");
+
+        when(userMapper.existsByEmail("another@example.com")).thenReturn(false);
+        when(userMapper.existsByNickname("taken-player")).thenReturn(true);
+        assertThatThrownBy(() -> signupService.signup(
+                "taken-player", "another@example.com", "password123", "password123"))
+                .isInstanceOf(SignupException.class)
+                .hasMessage("이미 사용 중인 닉네임입니다.");
     }
 
     @Test
-    void convertsDatabaseDuplicateFailureToDomainException() {
+    void classifiesNicknameUniquenessRaceAsDuplicateNickname() {
         when(userMapper.existsByEmail("user@example.com")).thenReturn(false);
+        when(userMapper.existsByNickname("player")).thenReturn(false, true);
         when(passwordEncoder.encode("password123")).thenReturn("encoded");
         when(userMapper.insert(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
 
         assertThatThrownBy(() -> signupService.signup(
                 "player", "user@example.com", "password123", "password123"))
-                .isInstanceOf(SignupException.class);
+                .isInstanceOf(SignupException.class)
+                .hasMessage("이미 사용 중인 닉네임입니다.");
+    }
+
+    @Test
+    void classifiesEmailUniquenessRaceAsDuplicateEmail() {
+        when(userMapper.existsByEmail("user@example.com")).thenReturn(false, true);
+        when(userMapper.existsByNickname("player")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded");
+        when(userMapper.insert(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
+
+        assertThatThrownBy(() -> signupService.signup(
+                "player", "user@example.com", "password123", "password123"))
+                .isInstanceOf(SignupException.class)
+                .hasMessage("이미 사용 중인 이메일입니다.");
     }
 
     @Test
     void rejectsUnexpectedInsertResult() {
         when(userMapper.existsByEmail("user@example.com")).thenReturn(false);
+        when(userMapper.existsByNickname("player")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("encoded");
         when(userMapper.insert(any(User.class))).thenReturn(0);
 

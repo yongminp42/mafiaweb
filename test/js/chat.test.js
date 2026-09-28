@@ -53,7 +53,14 @@ function chatMarkup({ nickname = 'alice', userId = 10, isHost = false } = {}) {
           <strong id="gameResultAliveLabel">-</strong>
           <small id="gameResultNotice"></small>
         </div>
-        <div id="gameRolePanel" hidden><span>내 역할</span><strong id="gameRoleLabel"></strong><button id="confirmGameRole" hidden>역할 확인 완료</button></div>
+        <div id="gameRolePanel" hidden>
+          <span>내 역할</span><strong id="gameRoleLabel"></strong>
+          <div id="mafiaTeammatesPanel" hidden>
+            <ul id="mafiaTeammatesList" hidden></ul>
+            <p id="noMafiaTeammatesNotice" hidden>이번 게임에서 본인 외 다른 마피아는 없습니다.</p>
+          </div>
+          <button id="confirmGameRole" hidden>역할 확인 완료</button>
+        </div>
         <p id="finalDefenseNotice" hidden></p>
         <div id="gameActions" hidden>
           <div id="nominationAction" hidden>
@@ -648,11 +655,35 @@ test('chat renders a role received through the private role queue', () => {
     socket.receive(createFrame(
       'MESSAGE',
       { destination: '/queue/game-role-user123', subscription: 'game-role' },
-      JSON.stringify({ roomId: 7, role: 'MAFIA', roleLabel: '마피아' })
+      JSON.stringify({ roomId: 7, role: 'MAFIA', roleLabel: '마피아', mafiaTeammates: ['bob'] })
     ));
 
     assert.equal(rolePanel.hidden, false);
     assert.equal(dom.window.document.querySelector('#gameRoleLabel').textContent, '마피아');
+    assert.equal(dom.window.document.querySelector('#mafiaTeammatesPanel').hidden, false);
+    assert.equal(dom.window.document.querySelector('#mafiaTeammatesList').hidden, false);
+    assert.deepEqual(
+      [...dom.window.document.querySelectorAll('#mafiaTeammatesList li')]
+        .map(item => item.textContent),
+      ['bob']
+    );
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/queue/game-role-user123', subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'SPY', roleLabel: '스파이', mafiaTeammates: ['mafia'] })
+    ));
+    assert.equal(dom.window.document.querySelector('#mafiaTeammatesPanel').hidden, true);
+    assert.equal(dom.window.document.querySelectorAll('#mafiaTeammatesList li').length, 0);
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/queue/game-role-user123', subscription: 'game-role' },
+      JSON.stringify({ roomId: 7, role: 'MAFIA', roleLabel: '마피아', mafiaTeammates: [] })
+    ));
+    assert.equal(dom.window.document.querySelector('#mafiaTeammatesPanel').hidden, false);
+    assert.equal(dom.window.document.querySelector('#mafiaTeammatesList').hidden, true);
+    assert.equal(dom.window.document.querySelector('#noMafiaTeammatesNotice').hidden, false);
   } finally {
     dom.window.close();
   }

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,9 +20,9 @@ import kr.or.oti.mafiagame.dto.GameRole;
  * <p>The rule engine depends on small package-private views instead of the WebSocket service,
  * which keeps delivery, scheduling and rule changes independently testable.
  */
-final class RoomGameRules {
-    static final int MIN_PLAYERS = 4;
-    static final int MAX_PLAYERS = 8;
+public final class RoomGameRules {
+    public static final int MIN_PLAYERS = 4;
+    public static final int MAX_PLAYERS = 8;
 
     private RoomGameRules() {
     }
@@ -94,6 +95,14 @@ final class RoomGameRules {
             roles.add(GameRole.CITIZEN);
         }
         return roles;
+    }
+
+    public static Map<GameRole, Integer> roleCountsForPlayerCount(int playerCount) {
+        Map<GameRole, Integer> roleCounts = new LinkedHashMap<>();
+        for (GameRole role : createRoles(playerCount)) {
+            roleCounts.merge(role, 1, Integer::sum);
+        }
+        return Collections.unmodifiableMap(roleCounts);
     }
 
     static GameFaction determineWinner(Collection<? extends GameRulePlayer> players) {

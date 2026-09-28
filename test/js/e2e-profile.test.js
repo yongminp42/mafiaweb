@@ -14,6 +14,27 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
   ));
   const coreSpec = await readFile(new URL('../e2e/mafia-mvp.spec.js', import.meta.url), 'utf8');
   const roomLayoutSpec = await readFile(new URL('../e2e/room-layout.spec.js', import.meta.url), 'utf8');
+  const signupServiceTests = await readFile(
+    new URL('../../src/test/java/kr/or/oti/mafiagame/service/SignupServiceTest.java', import.meta.url),
+    'utf8'
+  );
+  const mapperIntegrationTests = await readFile(
+    new URL('../../src/test/java/kr/or/oti/mafiagame/dao/MapperIntegrationTest.java', import.meta.url),
+    'utf8'
+  );
+  const roomGameServiceTests = await readFile(
+    new URL('../../src/test/java/kr/or/oti/mafiagame/service/RoomGameServiceTest.java', import.meta.url),
+    'utf8'
+  );
+  const roomGameRulesTests = await readFile(
+    new URL('../../src/test/java/kr/or/oti/mafiagame/service/RoomGameRulesTest.java', import.meta.url),
+    'utf8'
+  );
+  const roomControllerTests = await readFile(
+    new URL('../../src/test/java/kr/or/oti/mafiagame/controller/RoomControllerTest.java', import.meta.url),
+    'utf8'
+  );
+  const chatClientTests = await readFile(new URL('./chat.test.js', import.meta.url), 'utf8');
   const chatScrollSpec = await readFile(new URL('../e2e/chat-scroll.spec.js', import.meta.url), 'utf8');
   const roomListTests = await readFile(new URL('./room-list.test.js', import.meta.url), 'utf8');
   const powershellDefaults = runbook.match(/\$profileDefaults = @\{([\s\S]*?)\n\}/)?.[1];
@@ -37,6 +58,25 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
   assert.ok(jsRunbookSection, 'QA script must include the JavaScript test section.');
   assert.ok(preflightSection, 'QA script must define the shared environment preflight.');
   assert.ok(e2eRunbookSection, 'QA script must define the shared game E2E lifecycle.');
+  assert.match(preflightSection, /SPRING_DATASOURCE_URL/);
+  assert.match(preflightSection, /SELECT 1/);
+  assert.match(preflightSection, /--skip-ssl/);
+  assert.match(preflightSection, /MYSQL_PWD/);
+  const profileDefaultsStart = runbook.indexOf('$profileDefaults = @{');
+  const profileConfirmationIndex = runbook.indexOf("Read-Host 'Start this QA scenario now?");
+  assert.notEqual(profileDefaultsStart, -1, 'QA script must define defaults for each profile.');
+  assert.notEqual(profileConfirmationIndex, -1, 'QA script must confirm profile execution.');
+  const profileConfiguration = runbook.slice(profileDefaultsStart, profileConfirmationIndex);
+  assert.match(profileConfiguration, /PLAYER_COUNTS repeats/);
+  assert.match(profileConfiguration, /outside the \$e2eProfile profile/);
+  assert.match(profileConfiguration, /A complete Full QA run requires PLAYER_COUNTS/);
+  assert.match(profileConfiguration, /E2E_CAPACITY must be an integer from 4 through 8/);
+  assert.ok(profileDefaultsStart < profileConfirmationIndex,
+    'Profile values must be validated before the user confirms the run.');
+  assert.ok(profileConfirmationIndex < runbook.indexOf('## 0. Environment Preflight'),
+    'Profile confirmation and validation must precede DB and test preflight.');
+  assert.match(runbook, /same read-only probe in an authorized execution context/);
+  assert.match(runbook, /netstat\.exe -ano/);
   assert.match(preflightSection, /child_process/);
   assert.match(preflightSection, /fork\(process\.argv\[1\]/);
   assert.match(preflightSection, /execArgv: \[\]/);
@@ -64,12 +104,14 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
   }
   for (const optimizationTest of [
     'room list applies the active search and status filter to a newly inserted card',
-    'room list discards a fetched card when its live count reaches zero first'
+    'room list discards a fetched card when its live count reaches zero first',
+    'room list updates existing counts without rescanning cards and refreshes once for batched removals'
   ]) {
     assert.ok(roomListTests.includes(optimizationTest), `Missing optimization regression: ${optimizationTest}`);
   }
   for (const optimizationTest of [
     'RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries',
+    'RoomPresenceServiceTest.currentCountReturnsDistinctLiveParticipantsForTheRequestedRoom',
     'RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock',
     'RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes',
     'RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock',
@@ -102,16 +144,41 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
     roomLayoutSpec.includes("await expect(host.locator('#invite')).toHaveCount(0);"),
     'Room-layout E2E must reflect the removed friend-invite control.'
   );
+  assert.match(roomLayoutSpec, /nickname-check@example\.com/);
+  assert.match(roomLayoutSpec, /이미 사용 중인 닉네임입니다\./);
+  assert.match(roomLayoutSpec, /expect\(nickname\.length\)\.toBeLessThanOrEqual\(30\)/);
+  assert.match(roomLayoutSpec, /expectRoleComposition\(host, capacity\)/);
+  assert.match(roomLayoutSpec, /expectRoleComposition\(host, updatedCapacity\)/);
+  assert.match(coreSpec, /#mafiaTeammatesPanel/);
+  assert.match(coreSpec, /#noMafiaTeammatesNotice/);
+  assert.match(coreSpec, /dayState\.players\.every\(player => player\.role == null\)/);
+  assert.match(chatClientTests, /chat renders a role received through the private role queue/);
+  for (const requiredTest of [
+    'rejectsInvalidInputsDuplicateEmailAndDuplicateNickname',
+    'classifiesNicknameUniquenessRaceAsDuplicateNickname',
+    'classifiesEmailUniquenessRaceAsDuplicateEmail'
+  ]) {
+    assert.ok(signupServiceTests.includes(requiredTest), `Signup tests must include ${requiredTest}.`);
+  }
+  assert.ok(mapperIntegrationTests.includes('nicknameLookupAndUniqueConstraintRejectDuplicateNicknames'));
+  assert.ok(roomGameServiceTests.includes('privatelyShowsEachMafiaTheOtherMafiaAndKeepsPublicRolesHidden'));
+  assert.ok(roomGameServiceTests.includes('containsExactlyInAnyOrderElementsOf(expectedRoles)'));
+  assert.ok(roomGameRulesTests.includes('exposesTheExactRoleCompositionForEverySupportedRoomCapacity'));
+  assert.ok(roomControllerTests.includes('gameRoleCompositions'));
   assert.match(runbook, /56\. A win adds 500 XP and a loss adds 100 XP/);
+  assert.match(runbook, /shuffles player IDs before assigning the fixed composition/);
+  assert.match(runbook, /57\. Signup rejects a nickname already in use/);
+  assert.match(runbook, /58\. The room-help modal lists the exact role counts/);
+  assert.match(runbook, /59\. Each Mafia receives the other Mafia nicknames only through their private role assignment/);
   assert.doesNotMatch(runbook, /rating-derived|friend-invite, help, and host-only room settings buttons appear in order/);
   assert.doesNotMatch(runbook, /does not execute game MVP items 1[–-]54/);
   assert.match(chatScrollSpec, /test\.skip\(!PROFILE_CONFIG\.runChatScroll/);
   assert.match(chatScrollSpec, /index <= PROFILE_CONFIG\.chatMessageCount/);
-  assert.match(roomLayoutSpec, /process\.env\.E2E_CAPACITY \|\| PROFILE_CONFIG\.uiCapacity/);
+  assert.match(roomLayoutSpec, /parseConfiguredUiCapacity\(\)/);
   for (const scopeRow of [
-    '| Smoke | 4 players; no replay; no resilience | room-layout/profile at 5 players',
-    '| Regression | 4/6/8 players; replay only 4 | chat-scroll at 30 messages and room-layout/profile at 5 players',
-    '| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases | chat-scroll at 210 messages and room-layout/profile at 8 players'
+    '| Smoke | 4 players; no replay; no resilience; confirms the solo-Mafia notice | room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level',
+    '| Regression | 4/6/8 players; replay only 4; 8-player case confirms private Mafia teammate names | chat-scroll at 30 messages and room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level',
+    '| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases; private teammate checks at 7/8 | chat-scroll at 210 messages and room-layout/profile at 8 players; duplicate-nickname rejection; maximum-capacity role-help counts; 300px game panel and user stats/level'
   ]) {
     assert.ok(runbook.includes(scopeRow), `QA profile scope must include: ${scopeRow}`);
   }
@@ -121,19 +188,19 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       name: 'smoke', counts: [4], replay: [], capacity: 5,
       short: true, chatScroll: false, messages: 30,
       screenshots: false, video: false, extended: false,
-      trace: 'retain-on-failure'
+      trace: 'retain-on-failure', coreTimeoutMs: 5 * 60 * 1000
     },
     {
       name: 'regression', counts: [4, 6, 8], replay: [4], capacity: 5,
       short: true, chatScroll: true, messages: 30,
       screenshots: true, video: false, extended: false,
-      trace: 'retain-on-failure'
+      trace: 'retain-on-failure', coreTimeoutMs: 12 * 60 * 1000
     },
     {
       name: 'full', counts: [4, 5, 6, 7, 8], replay: [4, 5, 6, 7, 8], capacity: 8,
       short: false, chatScroll: true, messages: 210,
       screenshots: true, video: true, extended: true,
-      trace: 'on'
+      trace: 'on', coreTimeoutMs: 20 * 60 * 1000
     }
   ];
 
@@ -152,6 +219,7 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       assert.deepEqual(profile.parseConfiguredPlayerCounts(), expected.counts);
       assert.deepEqual(profile.PROFILE_CONFIG.replayPlayerCounts, expected.replay);
       assert.equal(profile.PROFILE_CONFIG.uiCapacity, expected.capacity);
+      assert.equal(profile.PROFILE_CONFIG.coreTimeoutMs, expected.coreTimeoutMs);
       assert.equal(profile.PROFILE_CONFIG.phaseProfile, expected.short ? 'short' : 'production');
       assert.equal(profile.FULL_TIMING_ASSERTIONS, !expected.short);
       assert.equal(profile.PROFILE_CONFIG.runChatScroll, expected.chatScroll);
@@ -166,7 +234,13 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       );
       assert.deepEqual(profile.parseConfiguredPlayerCounts(String(expected.counts[0])),
         [expected.counts[0]]);
+      assert.equal(profile.parseConfiguredUiCapacity(String(expected.capacity)), expected.capacity);
+      assert.equal(profile.parseConfiguredUiCapacity(''), expected.capacity);
+      assert.throws(() => profile.parseConfiguredUiCapacity('3'), /integer from 4 through 8/);
+      assert.throws(() => profile.parseConfiguredUiCapacity('8.5'), /integer from 4 through 8/);
+      assert.throws(() => profile.parseConfiguredUiCapacity('invalid'), /integer from 4 through 8/);
       assert.throws(() => profile.parseConfiguredPlayerCounts('9'), /integers from 4 through 8/);
+      assert.throws(() => profile.parseConfiguredPlayerCounts(`${expected.counts[0]},${expected.counts[0]}`), /duplicate player counts/);
       const outsideCount = [4, 5, 6, 7, 8].find(count => !expected.counts.includes(count));
       if (outsideCount) {
         assert.throws(() => profile.parseConfiguredPlayerCounts(String(outsideCount)),
@@ -205,6 +279,33 @@ test('game QA profiles share orphan-safe server startup and cleanup', async () =
   assert.match(lifecycle, /\$launcherTreeTerminationConfirmed = \$true/);
   assert.match(lifecycle, /Stop-Process -Id \$qaApplicationProcessId/);
   assert.match(lifecycle, /QA server cleanup PASS/);
+  assert.match(lifecycle, /temporarily use `Continue`, capture the/);
+  assert.match(lifecycle, /Judge[\s\S]*?by its exit code and Playwright result summary/);
+  const coreStart = lifecycle.indexOf("$env:PLAYWRIGHT_OUTPUT_STAGE = 'core'");
+  const uiStart = lifecycle.indexOf("$env:PLAYWRIGHT_OUTPUT_STAGE = 'ui'", coreStart + 1);
+  const cleanupStart = lifecycle.indexOf('# Stop the QA-owned cmd/Gradle process tree too;');
+  const cleanupWaitStart = lifecycle.indexOf('$cleanupDeadline = (Get-Date).AddSeconds(10)', cleanupStart);
+  assert.ok(coreStart !== -1 && uiStart > coreStart, 'Core and UI invocations must be present separately.');
+  assert.ok(cleanupStart !== -1 && cleanupWaitStart > cleanupStart, 'The launcher cleanup and final wait must be present.');
+
+  const coreInvocation = lifecycle.slice(coreStart, uiStart);
+  const uiInvocation = lifecycle.slice(uiStart, cleanupStart);
+  const launcherCleanup = lifecycle.slice(cleanupStart, cleanupWaitStart);
+  for (const [name, invocation, command] of [
+    ['Core', coreInvocation, /npm\.cmd run test:e2e/],
+    ['UI', uiInvocation, /npm\.cmd run test:e2e:ui/],
+    ['launcher cleanup', launcherCleanup, /\$launcherTreeOutput = @\(& taskkill\.exe/]
+  ]) {
+    assert.match(invocation, /\$savedNativeErrorActionPreference = \$ErrorActionPreference/,
+      `${name} must save the caller's native error policy.`);
+    assert.match(invocation, /\$ErrorActionPreference = 'Continue'/,
+      `${name} must allow native stderr without aborting cleanup.`);
+    assert.match(invocation, command, `${name} native command must be present.`);
+    assert.match(invocation, /\$LASTEXITCODE/,
+      `${name} must capture the native exit code.`);
+    assert.match(invocation, /finally\s*\{[\s\S]*?\$ErrorActionPreference = \$savedNativeErrorActionPreference/,
+      `${name} must restore the caller's native error policy.`);
+  }
 });
 
 test('Full QA startup prevents PowerShell policy and capture-gate silent skips', async () => {
@@ -231,7 +332,8 @@ test('Full QA startup prevents PowerShell policy and capture-gate silent skips',
 
   const startupGate = runbook.slice(launcherStart, environmentStart);
   const captureMarkerIndex = runbook.indexOf('[QA_PROGRESS] Recording started before preflight:');
-  const databaseProbeIndex = runbook.indexOf('Test-NetConnection `');
+  const databaseProbeIndex = runbook.indexOf("'SELECT 1;'");
+  assert.notEqual(databaseProbeIndex, -1, 'The DB preflight must run an authenticated SELECT 1.');
   const javaCommandIndex = runbook.indexOf('.\\gradlew.bat test --no-daemon --rerun-tasks -x jsTest');
   const javaScriptCommandIndex = runbook.indexOf('node --test --test-isolation=none');
   const playwrightBranchIndex = runbook.indexOf('## 3. Playwright E2E Tests');

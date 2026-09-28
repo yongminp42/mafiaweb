@@ -100,6 +100,18 @@ class RoomPresenceServiceTest {
     }
 
     @Test
+    void currentCountReturnsDistinctLiveParticipantsForTheRequestedRoom() {
+        Principal firstUser = principal(10L, "host");
+        presenceService.join(1L, "room-1-tab-a", firstUser);
+        presenceService.join(1L, "room-1-tab-b", firstUser);
+        presenceService.join(2L, "room-2-tab", principal(20L, "guest"));
+
+        assertThat(presenceService.currentCount(1L)).isEqualTo(1);
+        assertThat(presenceService.currentCount(2L)).isEqualTo(1);
+        assertThat(presenceService.currentCount(99L)).isZero();
+    }
+
+    @Test
     void closingOneTabKeepsParticipantUntilLastSessionLeaves() throws InterruptedException {
         Principal user = principal(10L, "host");
         presenceService.join(1L, "session-1", user);

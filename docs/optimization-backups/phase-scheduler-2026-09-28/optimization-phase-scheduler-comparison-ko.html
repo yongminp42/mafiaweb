@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>페이즈 스케줄러 최적화 성능 비교 보고서</title>
+  <style>
+    :root {
+      --navy: #15253a;
+      --navy-2: #213751;
+      --ink: #1c2c40;
+      --muted: #56677b;
+      --paper: #fff;
+      --ground: #f3f6f9;
+      --line: #dce4ec;
+      --before: #8491a2;
+      --after: #168d83;
+      --after-soft: #e5f5f1;
+      --coral: #f07a6c;
+      --caution: #ab513c;
+      --caution-soft: #fff2ec;
+      --shadow: 0 12px 32px rgba(27, 49, 73, .07);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--ink);
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+    a { color: #126e73; }
+    a:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+    .container { width: min(1080px, calc(100% - 40px)); margin-inline: auto; }
+    .hero {
+      background: radial-gradient(circle at 85% 10%, #345875 0, transparent 29%), linear-gradient(135deg, #15253a, #203954 78%);
+      color: #fff;
+      padding: 58px 0 48px;
+    }
+    .eyebrow { margin: 0 0 14px; color: #9ddbd4; font-size: .78rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 820px; font-size: clamp(2.15rem, 5vw, 3.35rem); line-height: 1.2; letter-spacing: -.05em; margin-bottom: 16px; }
+    h2 { font-size: clamp(1.55rem, 3vw, 2.05rem); line-height: 1.38; letter-spacing: -.04em; margin-bottom: 12px; }
+    h3 { font-size: 1.08rem; line-height: 1.45; letter-spacing: -.02em; margin-bottom: 9px; }
+    .hero-deck { max-width: 820px; color: #d5e2ed; font-size: 1.05rem; margin-bottom: 22px; }
+    .rollback-state { margin: 0 0 22px; padding: 12px 15px; border: 1px solid #dfb27a; border-radius: 10px; background: #6f4c2866; color: #fff3dc; font-size: .9rem; }
+    .rollback-state strong { color: #ffe0ae; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; }
+    .hero-meta span { border: 1px solid #58728b; border-radius: 999px; padding: 4px 11px; color: #dce8ef; font-size: .8rem; }
+    .hero-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+    .hero-stat { height: 100%; background: #ffffff10; border: 1px solid #ffffff27; border-radius: 14px; padding: 17px 18px; }
+    .hero-stat strong { display: block; color: #a5e5da; font-size: clamp(1.3rem, 2.6vw, 1.9rem); line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+    .hero-stat span { display: block; color: #dce7ee; font-size: .82rem; margin-top: 6px; }
+    .page-nav { background: #fff; border-bottom: 1px solid var(--line); }
+    .page-nav .container { display: flex; flex-wrap: wrap; gap: 9px 20px; padding-block: 12px; }
+    .page-nav a { color: var(--navy-2); font-size: .84rem; font-weight: 700; text-decoration: none; }
+    .page-nav a:hover { text-decoration: underline; }
+    main { padding-block: 34px 56px; }
+    section { scroll-margin-top: 24px; margin-bottom: 44px; }
+    .section-kicker { color: #087d78; font-size: .77rem; font-weight: 800; letter-spacing: .12em; margin-bottom: 7px; }
+    .section-intro { max-width: 870px; color: var(--muted); font-size: 1rem; }
+    .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 24px; }
+    .panel + .panel { margin-top: 14px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; align-items: stretch; }
+    .metric-card { display: flex; flex-direction: column; height: 100%; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 19px; box-shadow: var(--shadow); }
+    .metric-card h3 { min-height: 2.9em; }
+    .metric-card .comparison { margin-top: auto; padding-top: 14px; font-size: .85rem; color: var(--muted); }
+    .metric-card .comparison strong { color: var(--navy); font-size: 1.04rem; font-variant-numeric: tabular-nums; }
+    .metric-card .impact { display: block; margin-top: 8px; color: #0d766e; font-size: 1.35rem; font-weight: 900; letter-spacing: -.03em; }
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; background: var(--after-soft); color: #126f69; font-size: .73rem; font-weight: 800; }
+    .tag.before { background: #edf1f5; color: #526174; }
+    .tag.caution { background: var(--caution-soft); color: var(--caution); }
+    .callout { border-left: 4px solid var(--after); background: var(--after-soft); padding: 13px 16px; border-radius: 0 10px 10px 0; font-size: .91rem; }
+    .callout.caution { border-color: var(--caution); background: var(--caution-soft); }
+    .callout p:last-child { margin-bottom: 0; }
+    .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+    .flow-card { display: flex; flex-direction: column; height: 100%; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+    .flow-card h3 { min-height: 2.8em; }
+    .flow-card.before { border-top: 4px solid var(--before); }
+    .flow-card.after { border-top: 4px solid var(--after); }
+    .flow-line { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; margin: 8px 0; }
+    .flow-box { background: #f4f7fa; border: 1px solid var(--line); border-radius: 9px; min-height: 48px; padding: 9px; text-align: center; font-size: .82rem; font-weight: 800; }
+    .flow-box.highlight { background: var(--after-soft); border-color: #b7dfd7; color: #126f69; }
+    .flow-box.old { background: #edf1f5; color: #526174; }
+    .flow-arrow { color: #69849b; font-size: 1.1rem; font-weight: 900; }
+    .workload { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0 14px; }
+    .workload span { border-radius: 7px; padding: 7px 3px; background: #edf1f5; text-align: center; font-family: Consolas, "Courier New", monospace; font-size: .74rem; }
+    .workload span:nth-child(-n+4) { background: var(--after-soft); color: #126f69; }
+    pre { margin: 0; padding: 15px 17px; overflow-x: auto; border-radius: 10px; background: #16283e; color: #e5f0f5; font-family: Consolas, "Courier New", monospace; font-size: .81rem; line-height: 1.6; white-space: pre; }
+    code { font-family: Consolas, "Courier New", monospace; font-size: .9em; }
+    p code, li code, td code { padding: 2px 5px; border-radius: 4px; background: #eaf0f4; word-break: break-all; }
+    .chart-panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 22px; }
+    .chart-panel + .chart-panel { margin-top: 14px; }
+    .chart-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 12px; }
+    .chart-head h3 { margin: 0; }
+    .chart-scale { color: var(--muted); font-size: .77rem; }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 9px 18px; margin: 0 0 10px; color: var(--muted); font-size: .81rem; }
+    .legend-mark { display: inline-block; width: 16px; height: 3px; margin: 0 6px 3px 0; border-radius: 3px; background: var(--before); }
+    .legend-mark.after { background: var(--after); }
+    figure { margin: 0; }
+    figure svg { display: block; width: 100%; height: auto; }
+    figcaption { color: var(--muted); font-size: .79rem; margin-top: 10px; }
+    .svg-grid { stroke: #e5ebf0; stroke-width: 1; }
+    .svg-axis { stroke: #8b9aab; stroke-width: 1.2; }
+    .svg-label { fill: #5d6c7d; font: 13px "Malgun Gothic", sans-serif; }
+    .svg-small { fill: #69788a; font: 11px "Malgun Gothic", sans-serif; }
+    .line-before { fill: none; stroke: var(--before); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+    .line-after { fill: none; stroke: var(--after); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+    .point-before { fill: var(--before); stroke: #fff; stroke-width: 2; }
+    .point-after { fill: var(--after); stroke: #fff; stroke-width: 2; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .data-table th, .data-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .data-table th { background: #f5f8fa; color: #3f5268; font-weight: 800; white-space: nowrap; }
+    .data-table tr:last-child td { border-bottom: 0; }
+    .data-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .table-wrap { overflow-x: auto; }
+    .result-good { color: #0d766e; font-weight: 800; }
+    .result-neutral { color: #526174; font-weight: 800; }
+    .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+    .split > .panel { height: 100%; }
+    .plain-list { padding-left: 1.3em; margin: 10px 0 0; }
+    .plain-list li + li { margin-top: 7px; }
+    .source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .source-list a { display: block; min-height: 68px; border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; text-decoration: none; background: #fbfcfe; }
+    .source-list a:hover { border-color: #81bbb5; }
+    .source-list strong { display: block; color: var(--navy); font-family: Consolas, "Courier New", monospace; font-size: .78rem; word-break: break-word; }
+    .source-list span { color: var(--muted); font-size: .77rem; }
+    .footer { padding: 25px 0 38px; border-top: 1px solid var(--line); color: var(--muted); font-size: .81rem; }
+    .footer p { margin-bottom: 6px; }
+    @media (max-width: 780px) {
+      .hero { padding: 42px 0 34px; }
+      .hero-stats, .metric-grid, .flow-grid, .split { grid-template-columns: 1fr; }
+      .source-list { grid-template-columns: 1fr; }
+      .panel, .chart-panel { padding: 18px; }
+      .metric-card h3, .flow-card h3 { min-height: 0; }
+    }
+    @media (max-width: 480px) {
+      .container { width: min(100% - 24px, 1080px); }
+      .flow-line { grid-template-columns: 1fr; }
+      .flow-arrow { transform: rotate(90deg); justify-self: center; line-height: 1; }
+      .data-table { font-size: .77rem; }
+      .data-table th, .data-table td { padding: 8px 7px; }
+      .svg-label { font-size: 11px; }
+    }
+    @media print {
+      body { background: #fff; }
+      .page-nav { display: none; }
+      .panel, .metric-card, .chart-panel { box-shadow: none; break-inside: avoid; }
+      section { break-inside: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <p class="eyebrow">MAFIAGAME · PERFORMANCE REPORT · 2026-09-28</p>
+      <h1>페이즈 스케줄러 최적화<br>전후 성능 비교</h1>
+      <p class="hero-deck">모든 게임방의 페이즈 종료 콜백을 작업자 한 명이 차례대로 처리하던 구조를 네 명이 처리하도록 바꿨습니다. 같은 시각에 여러 방의 콜백이 만료되는 부하를 재현해, 방 수가 늘어날 때 대기시간이 어떻게 달라지는지 측정했습니다.</p>
+      <p class="rollback-state"><strong>현재 소스 상태:</strong> 이 보고서의 4개 작업자 구현은 비교 실험 당시의 임시 변경이며, 요청에 따라 롤백되어 현재 기본 작업자는 1개입니다. 아래 수치는 당시 실험의 기록으로 보존한 결과이며 현재 실행 코드의 성능을 나타내지 않습니다. <a href="README.md">백업 및 재적용 안내</a>를 확인하세요.</p>
+      <div class="hero-meta">
+        <span>기준: 작업자 1개</span>
+        <span>변경 후: 작업자 4개</span>
+        <span>동시 방 1·2·4·8·16개</span>
+        <span>각 조건 7회 반복</span>
+      </div>
+      <div class="hero-stats" aria-label="핵심 성능 결과">
+        <article class="hero-stat">
+          <strong>941.283 → 202.353ms</strong>
+          <span>동시 16개 방의 콜백 대기 p95 · 78.50% 감소</span>
+        </article>
+        <article class="hero-stat">
+          <strong>202.836 → 15.311ms</strong>
+          <span>동시 4개 방의 콜백 대기 p95 · 92.45% 감소</span>
+        </article>
+        <article class="hero-stat">
+          <strong>62.1ms → 62.4ms</strong>
+          <span>동시 16개 방의 콜백 처리 p50 · 처리시간은 거의 동일</span>
+        </article>
+      </div>
+    </div>
+  </header>
+
+  <nav class="page-nav" aria-label="보고서 목차">
+    <div class="container">
+      <a href="#summary">요약</a>
+      <a href="#change">코드 변경 원리</a>
+      <a href="#method">측정 방법</a>
+      <a href="#results">전후 결과</a>
+      <a href="#safety">동일 방 안전성</a>
+      <a href="#limits">해석과 한계</a>
+      <a href="#sources">원자료와 검증</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <section id="summary">
+      <p class="section-kicker">01 · 결과 요약</p>
+      <h2>방이 겹쳐 만료될 때, 대기열 지연이 줄었다</h2>
+      <p class="section-intro">콜백 자체의 일을 줄인 실험이 아니라, 서로 다른 방이 같은 작업자 한 명을 기다리는 시간을 비교했습니다. 작업자 네 명을 쓰면 한 번에 최대 네 방의 콜백을 시작할 수 있어, 여러 방이 동시에 만료되는 조건에서 p95 대기시간이 낮아졌습니다.</p>
+      <div class="metric-grid">
+        <article class="metric-card">
+          <span class="tag">4개 방 동시 만료</span>
+          <h3>p95 대기시간</h3>
+          <span class="impact">92.45% 감소</span>
+          <p class="comparison"><strong>202.836ms</strong>에서 <strong>15.311ms</strong>로 감소했습니다.</p>
+        </article>
+        <article class="metric-card">
+          <span class="tag">8개 방 동시 만료</span>
+          <h3>p95 대기시간</h3>
+          <span class="impact">82.75% 감소</span>
+          <p class="comparison"><strong>451.776ms</strong>에서 <strong>77.915ms</strong>로 감소했습니다.</p>
+        </article>
+        <article class="metric-card">
+          <span class="tag">16개 방 동시 만료</span>
+          <h3>최대 대기시간</h3>
+          <span class="impact">78.72% 감소</span>
+          <p class="comparison"><strong>953.347ms</strong>에서 <strong>202.838ms</strong>로 감소했습니다.</p>
+        </article>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <div class="callout">
+          <p><strong>쉽게 말하면:</strong> 전에는 한 방의 페이즈 전환 작업이 끝나야 다음 방의 작업이 시작됐습니다. 변경 후에는 작업자 네 명이 서로 다른 방의 콜백을 함께 처리합니다. 한 방의 게임 상태를 동시에 두 번 바꾸지 않도록 방별 잠금과 예약 작업 식별도 유지했습니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="change">
+      <p class="section-kicker">02 · 무엇을 바꿨나</p>
+      <h2>공용 대기열은 유지하고, 실행 작업자를 네 개로 늘렸다</h2>
+      <p class="section-intro">각 게임방에는 페이즈가 끝날 시간을 예약합니다. 문제는 방마다 예약이 있더라도 실제 콜백 실행자가 하나뿐이면, 만료 시각이 겹친 콜백이 그 한 명 앞에서 다시 줄을 선다는 점이었습니다.</p>
+      <div class="flow-grid">
+        <article class="flow-card before">
+          <span class="tag before">이전 · 작업자 1개</span>
+          <h3>서로 다른 방도 한 줄로 처리</h3>
+          <div class="flow-line">
+            <div class="flow-box">같은 시각에<br>만료된 콜백</div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-box old">공용 실행자<br>1개</div>
+          </div>
+          <div class="workload" aria-label="방 A에서 D까지 순차 실행">
+            <span>방 A</span><span>방 B</span><span>방 C</span><span>방 D</span>
+          </div>
+          <p class="small-note">각 콜백이 끝난 뒤 다음 콜백을 시작합니다. 앞선 작업이 오래 걸리면 뒤의 방도 기다립니다.</p>
+        </article>
+        <article class="flow-card after">
+          <span class="tag">변경 후 · 작업자 4개</span>
+          <h3>서로 다른 방을 최대 네 개씩 처리</h3>
+          <div class="flow-line">
+            <div class="flow-box">같은 시각에<br>만료된 콜백</div>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <div class="flow-box highlight">공용 실행자<br>최대 4개</div>
+          </div>
+          <div class="workload" aria-label="서로 다른 방의 콜백 네 개가 동시에 실행">
+            <span>방 A</span><span>방 B</span><span>방 C</span><span>방 D</span>
+          </div>
+          <p class="small-note">다섯 번째 이후 작업은 빈 작업자가 생길 때 시작합니다. 네 개보다 많은 동시 만료가 모두 즉시 실행되는 것은 아닙니다.</p>
+        </article>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h3>소스코드의 핵심 변경</h3>
+        <p>기본 생성자가 작업자 수 네 개를 선택하도록 하고, 같은 스케줄러 구현을 작업자 수 1개로 실행하는 생성자도 두었습니다. 이 생성자는 전후 실험과 단위 검증에서 동일한 코드 경로를 비교하는 데 사용했습니다.</p>
+        <pre><code>// 이전 기본값
+Executors.newScheduledThreadPool(1, threadFactory);
+
+// 변경 후 기본값
+private static final int DEFAULT_WORKER_COUNT = 4;
+
+GamePhaseScheduler() {
+    this(DEFAULT_WORKER_COUNT);
+}
+
+GamePhaseScheduler(int workerCount) {
+    // 스레드 이름은 room-game-phase-1, room-game-phase-2 ...
+    this.executor = Executors.newScheduledThreadPool(workerCount, threadFactory);
+}</code></pre>
+        <p style="margin:12px 0 0">작업자 수만 늘리면 같은 방의 타이머 교체 경합에서 이미 시작된 콜백이 새 예약을 지울 수 있습니다. 이를 막기 위해 예약마다 식별자를 붙였습니다. 예약이 현재 방의 최신 식별자인지 실행 전에 확인하고, 콜백이 방 잠금을 얻은 뒤에도 자기 식별자가 여전히 유효한지 확인합니다.</p>
+        <pre style="margin-top:10px"><code>// 방별 예약 작업의 식별자를 콜백에 전달
+phaseScheduler.schedule(roomId, delay, taskId -&gt; advancePhase(game, taskId));
+
+// 방 잠금 안에서 현재 예약과 일치할 때만 페이즈 변경
+if (!phaseScheduler.complete(game.roomId, scheduledTaskId)) {
+    return; // 취소·교체된 오래된 콜백
+}</code></pre>
+      <p class="small-note" style="margin:11px 0 0">실험 당시 전체 구현은 <a href="GamePhaseScheduler-four-worker-snapshot.java.txt">GamePhaseScheduler 스냅샷</a>과 <a href="RoomGameService-scheduler-only.patch">RoomGameService 변경 패치</a>에서 확인할 수 있습니다.</p>
+      </div>
+    </section>
+
+    <section id="method">
+      <p class="section-kicker">03 · 측정 방법</p>
+      <h2>동일한 콜백 부하를 1개와 4개 작업자에 각각 적용</h2>
+      <div class="panel">
+        <div class="table-wrap">
+          <table class="data-table">
+            <tbody>
+              <tr><th>측정 대상</th><td>실제 <code>GamePhaseScheduler</code>의 예약·실행 경로. 이전 조건은 작업자 1개, 변경 후 조건은 기본 작업자 4개.</td></tr>
+              <tr><th>동시 방 수</th><td>1, 2, 4, 8, 16개. 각 방의 콜백을 같은 250ms 지연으로 예약했습니다.</td></tr>
+              <tr><th>콜백 본문</th><td>각 콜백이 시작한 뒤 고정 50ms 대기. 실제 측정 처리시간 p50은 Windows 실행환경에서 약 62ms였습니다.</td></tr>
+              <tr><th>반복과 표본</th><td>각 작업자 수·방 수 조합을 7회 반복했습니다. 총 <strong>434개 콜백 표본</strong>입니다. 두 작업자 조건의 실행 순서는 반복마다 교차했습니다.</td></tr>
+              <tr><th>대기 지연</th><td>실제 콜백 시작 시각에서 예약된 만료 시각을 뺀 시간입니다. 예약 호출 시간과 운영체제의 타이머 깨우기 오차가 일부 포함됩니다.</td></tr>
+              <tr><th>처리시간</th><td>콜백 진입부터 고정 대기 종료까지입니다. 콜백 처리 로직 자체가 빨라지는지 확인하기 위한 보조 지표입니다.</td></tr>
+              <tr><th>환경</th><td>Windows 11, Java 21.0.12, 사용 가능한 프로세서 24개. 측정일 2026-09-28.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="callout caution" style="margin-top:14px">
+        <p><strong>측정의 범위:</strong> 게임방과 실제 DB·WebSocket을 연결한 운영 부하 측정은 아닙니다. 실제 스케줄러에 일정한 처리시간의 콜백을 넣어 작업자 대기열 효과를 분리했습니다. 따라서 아래 수치는 이 재현 조건에서 확인한 값이며, 실제 게임 페이즈 지연이 같은 비율로 줄어든다고 보장하지 않습니다.</p>
+      </div>
+    </section>
+
+    <section id="results">
+      <p class="section-kicker">04 · 여러 방에서의 변화</p>
+      <h2>동시 만료 방 수가 늘수록 단일 작업자의 대기열이 누적됐다</h2>
+      <p class="section-intro">p95는 측정 표본의 95%가 이 값 이하였다는 뜻입니다. 여러 번 실행한 콜백별 표본을 합쳐 방 수 조건마다 계산했습니다. 최댓값은 해당 표본에서 관찰된 가장 긴 대기입니다.</p>
+
+      <div class="chart-panel">
+        <div class="chart-head">
+          <h3>동시 만료 방 수별 콜백 대기 p95</h3>
+          <span class="chart-scale">세로축: 예약 만료 이후 대기시간(ms)</span>
+        </div>
+        <div class="chart-legend"><span><i class="legend-mark"></i>작업자 1개 · 이전</span><span><i class="legend-mark after"></i>작업자 4개 · 변경 후</span></div>
+        <figure>
+          <svg viewBox="0 0 900 410" role="img" aria-labelledby="p95-title p95-desc">
+            <title id="p95-title">동시 방 수에 따른 콜백 대기시간 p95 비교</title>
+            <desc id="p95-desc">방이 1, 2, 4, 8, 16개 만료될 때 작업자 1개의 p95는 16, 78, 203, 452, 941밀리초로 증가합니다. 작업자 4개에서는 15, 16, 15, 78, 202밀리초입니다.</desc>
+            <line class="svg-grid" x1="90" y1="340" x2="830" y2="340"/><line class="svg-grid" x1="90" y1="285" x2="830" y2="285"/><line class="svg-grid" x1="90" y1="230" x2="830" y2="230"/><line class="svg-grid" x1="90" y1="175" x2="830" y2="175"/><line class="svg-grid" x1="90" y1="120" x2="830" y2="120"/><line class="svg-grid" x1="90" y1="65" x2="830" y2="65"/>
+            <line class="svg-axis" x1="90" y1="65" x2="90" y2="340"/><line class="svg-axis" x1="90" y1="340" x2="830" y2="340"/>
+            <text class="svg-label" x="56" y="344">0</text><text class="svg-label" x="47" y="289">200</text><text class="svg-label" x="47" y="234">400</text><text class="svg-label" x="47" y="179">600</text><text class="svg-label" x="47" y="124">800</text><text class="svg-label" x="39" y="69">1,000</text>
+            <text class="svg-label" x="110" y="367" text-anchor="middle">1개</text><text class="svg-label" x="290" y="367" text-anchor="middle">2개</text><text class="svg-label" x="470" y="367" text-anchor="middle">4개</text><text class="svg-label" x="650" y="367" text-anchor="middle">8개</text><text class="svg-label" x="830" y="367" text-anchor="middle">16개</text>
+            <text class="svg-small" x="460" y="395" text-anchor="middle">동시에 만료된 게임방 수</text>
+            <polyline class="line-before" points="110,335.5 290,318.7 470,284.2 650,215.8 830,81.1"/>
+            <polyline class="line-after" points="110,335.9 290,335.6 470,335.8 650,318.6 830,284.4"/>
+            <circle class="point-before" cx="110" cy="335.5" r="5"/><circle class="point-before" cx="290" cy="318.7" r="5"/><circle class="point-before" cx="470" cy="284.2" r="5"/><circle class="point-before" cx="650" cy="215.8" r="5"/><circle class="point-before" cx="830" cy="81.1" r="5"/>
+            <circle class="point-after" cx="110" cy="335.9" r="5"/><circle class="point-after" cx="290" cy="335.6" r="5"/><circle class="point-after" cx="470" cy="335.8" r="5"/><circle class="point-after" cx="650" cy="318.6" r="5"/><circle class="point-after" cx="830" cy="284.4" r="5"/>
+            <text class="svg-label" x="785" y="73" text-anchor="end">941.283ms</text><text class="svg-label" x="818" y="274" text-anchor="end">202.353ms</text>
+          </svg>
+          <figcaption>작업자 네 개도 다섯 개 이상의 동시 콜백을 모두 즉시 실행하지는 않습니다. 16개 방에서는 최대 네 개씩 여러 묶음으로 실행되어 p95 대기가 약 202ms 남았습니다.</figcaption>
+        </figure>
+      </div>
+
+      <div class="chart-panel">
+        <div class="chart-head">
+          <h3>16개 방이 만료될 때 콜백 순서별 대기 p50</h3>
+          <span class="chart-scale">가로축: 실제 시작 순서 · 각 순서의 7회 중앙값</span>
+        </div>
+        <div class="chart-legend"><span><i class="legend-mark"></i>작업자 1개 · 16개 순차 대기</span><span><i class="legend-mark after"></i>작업자 4개 · 4개씩 실행</span></div>
+        <figure>
+          <svg viewBox="0 0 900 410" role="img" aria-labelledby="sequence-title sequence-desc">
+            <title id="sequence-title">16개 콜백의 실행 순서별 대기시간 비교</title>
+            <desc id="sequence-desc">작업자 한 개는 16번째 콜백까지 대기시간이 꾸준히 늘어 중앙값 947밀리초에 이릅니다. 작업자 네 개는 네 개씩 묶여 약 14, 77, 139, 201밀리초의 네 단계로 실행됩니다.</desc>
+            <line class="svg-grid" x1="90" y1="330" x2="840" y2="330"/><line class="svg-grid" x1="90" y1="265" x2="840" y2="265"/><line class="svg-grid" x1="90" y1="200" x2="840" y2="200"/><line class="svg-grid" x1="90" y1="135" x2="840" y2="135"/><line class="svg-grid" x1="90" y1="70" x2="840" y2="70"/>
+            <line class="svg-axis" x1="90" y1="70" x2="90" y2="330"/><line class="svg-axis" x1="90" y1="330" x2="840" y2="330"/>
+            <text class="svg-label" x="55" y="334">0</text><text class="svg-label" x="40" y="269">250</text><text class="svg-label" x="40" y="204">500</text><text class="svg-label" x="40" y="139">750</text><text class="svg-label" x="32" y="74">1,000</text>
+            <text class="svg-label" x="90" y="357" text-anchor="middle">1</text><text class="svg-label" x="240" y="357" text-anchor="middle">4</text><text class="svg-label" x="440" y="357" text-anchor="middle">8</text><text class="svg-label" x="640" y="357" text-anchor="middle">12</text><text class="svg-label" x="840" y="357" text-anchor="middle">16</text>
+            <text class="svg-small" x="465" y="390" text-anchor="middle">콜백 시작 순서</text>
+            <polyline class="line-before" points="90,326.4 140,310.2 190,294.0 240,277.7 290,261.9 340,245.9 390,229.6 440,213.4 490,197.0 540,180.9 590,164.9 640,148.7 690,132.7 740,116.9 790,100.4 840,83.8"/>
+            <polyline class="line-after" points="90,326.2 140,326.2 190,326.2 240,326.2 290,310.0 340,310.0 390,310.0 440,310.0 490,293.9 540,293.9 590,293.9 640,293.9 690,277.6 740,277.6 790,277.6 840,277.6"/>
+            <text class="svg-label" x="830" y="76" text-anchor="end">947.046ms</text><text class="svg-label" x="830" y="267" text-anchor="end">201.443ms</text>
+          </svg>
+          <figcaption>1개 작업자는 콜백 하나가 끝날 때마다 다음 방을 시작해 대기가 계속 쌓입니다. 4개 작업자는 방별 콜백 네 개까지 거의 같은 시점에 시작하고, 다음 네 개는 한 처리 묶음 이후 시작합니다. 값은 각 실행 순서에서 7회 측정한 p50입니다.</figcaption>
+        </figure>
+      </div>
+
+      <div class="chart-panel">
+        <div class="chart-head">
+          <h3>콜백 처리시간 p50은 작업자 수에 따라 달라지지 않았다</h3>
+          <span class="chart-scale">세로축: 콜백 진입 후 처리시간(ms)</span>
+        </div>
+        <div class="chart-legend"><span><i class="legend-mark"></i>작업자 1개</span><span><i class="legend-mark after"></i>작업자 4개</span></div>
+        <figure>
+          <svg viewBox="0 0 900 330" role="img" aria-labelledby="processing-title processing-desc">
+            <title id="processing-title">콜백 처리시간 p50 비교</title>
+            <desc id="processing-desc">동시 방 수 1, 2, 4, 8, 16개에서 처리시간 p50은 작업자 한 개와 네 개 모두 약 62밀리초로 같습니다.</desc>
+            <line class="svg-grid" x1="90" y1="270" x2="830" y2="270"/><line class="svg-grid" x1="90" y1="210" x2="830" y2="210"/><line class="svg-grid" x1="90" y1="150" x2="830" y2="150"/><line class="svg-grid" x1="90" y1="90" x2="830" y2="90"/>
+            <line class="svg-axis" x1="90" y1="70" x2="90" y2="270"/><line class="svg-axis" x1="90" y1="270" x2="830" y2="270"/>
+            <text class="svg-label" x="55" y="274">0</text><text class="svg-label" x="48" y="214">20</text><text class="svg-label" x="48" y="154">40</text><text class="svg-label" x="48" y="94">60</text>
+            <text class="svg-label" x="110" y="297" text-anchor="middle">1개</text><text class="svg-label" x="290" y="297" text-anchor="middle">2개</text><text class="svg-label" x="470" y="297" text-anchor="middle">4개</text><text class="svg-label" x="650" y="297" text-anchor="middle">8개</text><text class="svg-label" x="830" y="297" text-anchor="middle">16개</text>
+            <polyline class="line-before" points="110,83.7 290,84.0 470,83.6 650,82.9 830,83.2"/>
+            <polyline class="line-after" points="110,83.5 290,82.8 470,82.3 650,83.2 830,82.9"/>
+            <circle class="point-before" cx="110" cy="83.7" r="4"/><circle class="point-before" cx="290" cy="84.0" r="4"/><circle class="point-before" cx="470" cy="83.6" r="4"/><circle class="point-before" cx="650" cy="82.9" r="4"/><circle class="point-before" cx="830" cy="83.2" r="4"/>
+            <circle class="point-after" cx="110" cy="83.5" r="4"/><circle class="point-after" cx="290" cy="82.8" r="4"/><circle class="point-after" cx="470" cy="82.3" r="4"/><circle class="point-after" cx="650" cy="83.2" r="4"/><circle class="point-after" cx="830" cy="82.9" r="4"/>
+          </svg>
+          <figcaption>고정 대기 50ms의 실제 처리시간 중앙값은 전체 조건에서 62.016~62.570ms였습니다. 대기열은 줄었지만 각 콜백의 처리시간을 줄인 것은 아닙니다.</figcaption>
+        </figure>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h3>방 수별 전체 측정값</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>동시 방</th><th>콜백 표본</th><th>대기 p50<br>1개 → 4개</th><th>대기 p95<br>1개 → 4개</th><th>p95 감소율</th><th>대기 최댓값<br>1개 → 4개</th><th>처리 p50<br>1개 → 4개</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1개</td><td class="num">7 / 7</td><td class="num">12.542 → 13.649ms</td><td class="num">16.367 → 14.824ms</td><td class="num result-neutral">9.43%</td><td class="num">16.367 → 14.824ms</td><td class="num">62.108 → 62.164ms</td></tr>
+              <tr><td>2개</td><td class="num">14 / 14</td><td class="num">15.236 → 14.070ms</td><td class="num">77.510 → 15.920ms</td><td class="num result-good">79.46%</td><td class="num">77.510 → 15.920ms</td><td class="num">62.016 → 62.402ms</td></tr>
+              <tr><td>4개</td><td class="num">28 / 28</td><td class="num">78.134 → 14.154ms</td><td class="num">202.836 → 15.311ms</td><td class="num result-good">92.45%</td><td class="num">203.837 → 15.368ms</td><td class="num">62.128 → 62.570ms</td></tr>
+              <tr><td>8개</td><td class="num">56 / 56</td><td class="num">202.828 → 16.180ms</td><td class="num">451.776 → 77.915ms</td><td class="num result-good">82.75%</td><td class="num">453.362 → 77.928ms</td><td class="num">62.361 → 62.255ms</td></tr>
+              <tr><td>16개</td><td class="num">112 / 112</td><td class="num">452.032 → 77.984ms</td><td class="num">941.283 → 202.353ms</td><td class="num result-good">78.50%</td><td class="num">953.347 → 202.838ms</td><td class="num">62.272 → 62.365ms</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small-note" style="margin:11px 0 0">각 셀은 이전 1개 작업자와 변경 후 4개 작업자 순서입니다. 표본 수는 각 조건의 7회 실행에서 나온 콜백 수입니다. 백분위는 nearest-rank 방식으로 계산했습니다.</p>
+      </div>
+    </section>
+
+    <section id="safety">
+      <p class="section-kicker">05 · 같은 방 안전성</p>
+      <h2>방 사이의 병렬 처리와 방 안의 순서 보장을 분리했다</h2>
+      <div class="split">
+        <article class="panel">
+          <h3>방마다 기존 잠금을 그대로 사용</h3>
+          <p><code>RoomGameService.advancePhase()</code>는 해당 <code>GameRoom</code>의 <code>game.lock</code>을 얻은 뒤 페이즈 상태를 변경합니다. 각 게임방은 별도 잠금을 사용하므로, 방 A의 전환이 방 B의 전환을 막지 않으면서도 한 방의 상태는 한 번에 한 작업만 변경합니다.</p>
+          <p class="small-note">기존 게임 인스턴스 확인도 잠금 획득 전후에 수행합니다. 새 게임이 같은 방 ID를 사용하면 이전 게임 콜백은 현재 게임이 아님을 확인하고 반환합니다.</p>
+        </article>
+        <article class="panel">
+          <h3>예약 식별자로 취소·교체된 콜백 걸러내기</h3>
+          <p>같은 방의 타이머를 교체해도 이미 실행을 시작한 이전 콜백은 즉시 멈추지 않을 수 있습니다. 작업자 네 개 구조에서는 이 경합이 더 쉽게 겹칠 수 있어 예약별 식별자를 비교하게 했습니다.</p>
+          <p class="small-note">테스트에서 실행 중인 구 예약이 신 예약을 완료 처리하지 않는지, 같은 방 예약 교체와 명시적 취소가 동작하는지, 서로 다른 방 4개가 실제로 함께 시작하는지 확인했습니다.</p>
+        </article>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>예약 작업 테스트 결과</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>검증 항목</th><th>확인 내용</th><th>결과</th></tr></thead>
+            <tbody>
+              <tr><td>다른 방 병렬 실행</td><td>4개 작업자가 각각 다른 방 콜백에 진입한 뒤 해제 신호를 기다리는지 확인</td><td class="result-good">통과</td></tr>
+              <tr><td>같은 방 예약 교체</td><td>먼저 등록한 예약을 취소하고 마지막 예약만 실행되는지 확인</td><td class="result-good">통과</td></tr>
+              <tr><td>실행 중인 구 예약</td><td>구 콜백이 실행 중일 때 신 예약으로 교체해도 구 콜백이 신 예약을 완료 처리하지 않는지 확인</td><td class="result-good">통과</td></tr>
+              <tr><td>예약 취소</td><td>취소한 타이머 콜백이 실행되지 않는지 확인</td><td class="result-good">통과</td></tr>
+              <tr><td>전체 프로젝트 단위 테스트</td><td>Java 158개 테스트와 npm JavaScript 45개 테스트</td><td class="result-good">158 + 45 통과</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="limits">
+      <p class="section-kicker">06 · 결과를 읽을 때 주의할 점</p>
+      <h2>대기열 병목은 줄었지만, 운영 지연 전체를 측정한 결과는 아니다</h2>
+      <div class="split">
+        <article class="panel">
+          <h3>이 실험으로 말할 수 있는 것</h3>
+          <ul class="plain-list">
+            <li>콜백 처리시간이 약 62ms일 때, 동시 만료된 방 콜백을 네 작업자로 나누면 방 사이 대기시간이 감소했습니다.</li>
+            <li>16개 방에서 대기 p95는 941.283ms에서 202.353ms로 738.930ms 줄었습니다.</li>
+            <li>콜백 처리 p50은 1개와 4개 작업자에서 거의 같았습니다. 개선된 부분은 콜백 내부 처리시간이 아니라 작업자 앞의 대기입니다.</li>
+          </ul>
+        </article>
+        <article class="panel">
+          <h3>아직 측정하지 않은 것</h3>
+          <ul class="plain-list">
+            <li>실제 방의 게임 진행, DB 통계 저장, WebSocket 전송을 포함한 end-to-end 페이즈 전환 지연</li>
+            <li>동시 콜백 네 개가 DB·메시지 브로커·CPU 사용량에 주는 영향</li>
+            <li>4개를 초과하는 작업자 수, 실제 운영에서 동시 만료되는 방의 분포, 장시간 지속 부하</li>
+            <li>사용자 화면에서 타이머 0초 이후 실제 전환까지 걸리는 시간</li>
+          </ul>
+        </article>
+      </div>
+      <div class="callout caution" style="margin-top:14px">
+        <p><strong>해석:</strong> 한 방만 만료된 조건에서는 작업자 네 개의 우위가 거의 없습니다. 이 최적화의 효과는 여러 방의 만료 시각이 겹치는 상황에 한정됩니다. 실제 페이즈 처리 안에서 DB 저장이나 브로드캐스트가 오래 걸리면 그 처리시간 자체는 그대로이며, 작업자 네 개가 동시에 그런 일을 할 때 생기는 외부 자원 경합은 이번 실험에 포함되지 않았습니다.</p>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>후속 운영 확인 항목</h3>
+        <ul class="plain-list">
+          <li>여러 게임방의 종료 시각이 겹칠 때 예약 만료 시각과 실제 페이즈 변경 시각을 함께 기록합니다.</li>
+          <li>방별 콜백 대기시간과 처리시간을 분리해 p50·p95·최댓값을 관찰합니다.</li>
+          <li>같은 방에서 페이즈가 중복 또는 역순으로 바뀌지 않는지 확인합니다.</li>
+          <li>실제 부하에서 DB 응답시간, 메시지 전송 대기, CPU와 스레드 수를 함께 봅니다.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="sources">
+      <p class="section-kicker">07 · 원자료와 재현 정보</p>
+      <h2>수치와 코드를 다시 확인할 수 있는 자료</h2>
+      <div class="panel">
+        <div class="source-list">
+          <a href="optimization-candidate-phase-scheduler-ko.md"><strong>최적화 계획 문서</strong><span>단일 작업자 병목과 검증 범위</span></a>
+        <a href="../../optimization-explained-ko.html"><strong>기존 최적화 설명 HTML</strong><span>다른 최적화 항목의 원리와 이전 성능 결과</span></a>
+        <a href="GamePhaseScheduler-four-worker-snapshot.java.txt"><strong>GamePhaseScheduler.java</strong><span>실험 당시 작업자 수와 예약·취소·식별자 관리</span></a>
+        <a href="RoomGameService-scheduler-only.patch"><strong>RoomGameService 변경 패치</strong><span>방별 잠금과 페이즈 콜백 처리</span></a>
+        <a href="GamePhaseSchedulerTest.java.txt"><strong>GamePhaseSchedulerTest.java</strong><span>병렬 실행·교체·취소·구 예약 검증</span></a>
+        <a href="measurement-evidence/summary.csv"><strong>summary.csv</strong><span>작업자 수·방 수별 p50, p95, 최댓값</span></a>
+        <a href="measurement-evidence/callback-samples.csv"><strong>callback-samples.csv</strong><span>434개 콜백의 원시 대기·처리시간과 시작 순서</span></a>
+        <a href="measurement-evidence/environment.txt"><strong>environment.txt</strong><span>실행환경과 실험 조건</span></a>
+        <a href="measurement-evidence/PhaseSchedulerBenchmark.java"><strong>PhaseSchedulerBenchmark.java</strong><span>비교 실험 당시의 실행 코드</span></a>
+        </div>
+        <p style="margin:16px 0 0"><strong>재현 순서:</strong> 전체 검증을 위해 <code>.gradlew.bat test</code>를 실행한 뒤, 원자료에 포함된 벤치마크 Java 파일을 <code>build/classes/java/main</code>과 함께 컴파일하고 실행했습니다. 벤치마크 코드는 같은 스케줄러 구현에 작업자 수 1과 4를 주입해 비교하므로, 실행환경·콜백 본문을 동일하게 유지합니다.</p>
+        <p class="small-note" style="margin:9px 0 0">기존의 최적화 항목별 수치는 <a href="../../../output/test_output/2026-09-28/performance-comparison/performance-report-ko.md">이전 성능 비교 보고서</a>에 있습니다. 그 값은 이번 페이즈 스케줄러 실험과 별개입니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>측정일: 2026-09-28 · MAFIAGAME 페이즈 스케줄러 전후 비교</p>
+      <p>이 보고서는 고정 처리시간 콜백을 사용한 스케줄러 대기열 실험입니다. 실제 운영 성능을 보증하는 수치로 확대 해석하지 않습니다.</p>
+    </div>
+  </footer>
+</body>
+</html>

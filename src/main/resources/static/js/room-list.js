@@ -107,6 +107,8 @@
   const emptyRoomState = document.querySelector('#emptyState');
   const roomCount = document.querySelector('#roomCount');
   const pendingRoomCards = new Set();
+  let applyingRoomCountSnapshot = false;
+  let roomListRefreshQueued = false;
 
   function refreshRoomList() {
     const query = roomSearch?.value.trim().toLowerCase() || '';
@@ -168,7 +170,13 @@
     }
   }
 
-  document.addEventListener('room:removed', refreshRoomList);
+  document.addEventListener('room:removed', () => {
+    if (applyingRoomCountSnapshot) {
+      roomListRefreshQueued = true;
+      return;
+    }
+    refreshRoomList();
+  });
 
   const socketUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
   const lobbyDestination = '/topic/rooms/presence';
@@ -264,7 +272,6 @@
           detail: { roomId }
         }));
       }
-      refreshRoomList();
       if (refreshTotal) {
         updateOnlinePlayerCount();
       }
@@ -283,7 +290,7 @@
     }
 
     countElement.textContent = String(Math.max(0, count));
-    refreshRoomList();
+    // 인원수만 바뀌면 검색·필터·정렬·카드 번호는 그대로라 목록 전체를 다시 훑지 않는다.
     if (refreshTotal) {
       updateOnlinePlayerCount();
     }
@@ -293,8 +300,17 @@
     if (Array.isArray(message)) {
       liveCounts.clear();
       onlinePlayerTotal = 0;
-      message.forEach(update => updateRoomCount(update, false));
-      updateOnlinePlayerCount();
+      applyingRoomCountSnapshot = true;
+      try {
+        message.forEach(update => updateRoomCount(update, false));
+      } finally {
+        applyingRoomCountSnapshot = false;
+        if (roomListRefreshQueued) {
+          roomListRefreshQueued = false;
+          refreshRoomList();
+        }
+        updateOnlinePlayerCount();
+      }
       return;
     }
 

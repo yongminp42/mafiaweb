@@ -68,7 +68,20 @@ export function parseConfiguredPlayerCounts(value) {
   if (counts.some(count => !PROFILE_CONFIG.playerCounts.includes(count))) {
     throw new Error(`PLAYER_COUNTS must be a subset of the ${E2E_PROFILE} profile.`);
   }
-  return [...new Set(counts)];
+  if (new Set(counts).size !== counts.length) {
+    throw new Error('PLAYER_COUNTS must not contain duplicate player counts.');
+  }
+  return counts;
+}
+
+export function parseConfiguredUiCapacity(value = process.env.E2E_CAPACITY) {
+  const configuredValue = value == null || !String(value).trim()
+    ? PROFILE_CONFIG.uiCapacity
+    : Number(String(value).trim());
+  if (!Number.isInteger(configuredValue) || configuredValue < 4 || configuredValue > 8) {
+    throw new Error('E2E_CAPACITY must be an integer from 4 through 8.');
+  }
+  return configuredValue;
 }
 
 export function shouldReplayPlayerCount(playerCount) {

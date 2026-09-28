@@ -101,6 +101,10 @@ class RoomGameServiceTest {
                 .containsExactlyInAnyOrder("MAFIA", "DOCTOR", "POLICE", "CITIZEN");
         assertThat(roleCaptor.getAllValues())
                 .allSatisfy(assignment -> assertThat(assignment.roomId()).isEqualTo(ROOM_ID));
+        assertThat(roleCaptor.getAllValues())
+                .filteredOn(assignment -> "MAFIA".equals(assignment.role()))
+                .singleElement()
+                .satisfies(assignment -> assertThat(assignment.mafiaTeammates()).isEmpty());
     }
 
     @Test
@@ -132,6 +136,54 @@ class RoomGameServiceTest {
             };
             assertThat(roles).containsExactlyInAnyOrderElementsOf(expectedRoles);
         }
+    }
+
+    @Test
+    void privatelyShowsEachMafiaTheOtherMafiaAndKeepsPublicRolesHidden() {
+        Map<Long, String> principalNames = principalNamesForCount(7);
+        Map<String, String> nicknameByPrincipal = Map.of(
+                "user1@example.com", "user1",
+                "user2@example.com", "user2",
+                "user3@example.com", "user3",
+                "user4@example.com", "user4",
+                "user5@example.com", "user5",
+                "user6@example.com", "user6",
+                "user7@example.com", "user7");
+
+        gameService.startGame(ROOM_ID, participantsForCount(7), principalNames);
+
+        ArgumentCaptor<String> principalCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<GameRoleAssignment> assignmentCaptor =
+                ArgumentCaptor.forClass(GameRoleAssignment.class);
+        verify(messagingTemplate, times(7)).convertAndSendToUser(
+                principalCaptor.capture(), eq("/queue/game-role"), assignmentCaptor.capture());
+
+        Map<String, GameRoleAssignment> assignmentByPrincipal = new java.util.HashMap<>();
+        for (int index = 0; index < principalCaptor.getAllValues().size(); index++) {
+            assignmentByPrincipal.put(
+                    principalCaptor.getAllValues().get(index), assignmentCaptor.getAllValues().get(index));
+        }
+        List<String> mafiaNicknames = assignmentByPrincipal.entrySet().stream()
+                .filter(entry -> "MAFIA".equals(entry.getValue().role()))
+                .map(entry -> nicknameByPrincipal.get(entry.getKey()))
+                .toList();
+
+        assertThat(mafiaNicknames).hasSize(2);
+        assignmentByPrincipal.forEach((principalName, assignment) -> {
+            assertThat(assignment.roomId()).isEqualTo(ROOM_ID);
+            if ("MAFIA".equals(assignment.role())) {
+                String ownNickname = nicknameByPrincipal.get(principalName);
+                assertThat(assignment.mafiaTeammates())
+                        .containsExactly(mafiaNicknames.stream()
+                                .filter(nickname -> !nickname.equals(ownNickname))
+                                .findFirst()
+                                .orElseThrow());
+            } else {
+                assertThat(assignment.mafiaTeammates()).isEmpty();
+            }
+        });
+        assertThat(latestPublicState().players())
+                .allSatisfy(player -> assertThat(player.role()).isNull());
     }
 
     @Test

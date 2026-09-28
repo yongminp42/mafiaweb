@@ -3,6 +3,7 @@ package kr.or.oti.mafiagame.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -10,6 +11,31 @@ import kr.or.oti.mafiagame.dto.GameFaction;
 import kr.or.oti.mafiagame.dto.GameRole;
 
 class RoomGameRulesTest {
+    @Test
+    void exposesTheExactRoleCompositionForEverySupportedRoomCapacity() {
+        assertThat(RoomGameRules.roleCountsForPlayerCount(4))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        GameRole.MAFIA, 1, GameRole.POLICE, 1,
+                        GameRole.DOCTOR, 1, GameRole.CITIZEN, 1));
+        assertThat(RoomGameRules.roleCountsForPlayerCount(5))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        GameRole.MAFIA, 1, GameRole.POLICE, 1,
+                        GameRole.DOCTOR, 1, GameRole.CITIZEN, 2));
+        assertThat(RoomGameRules.roleCountsForPlayerCount(6))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        GameRole.MAFIA, 1, GameRole.SPY, 1, GameRole.POLICE, 1,
+                        GameRole.DOCTOR, 1, GameRole.SOLDIER, 1, GameRole.CITIZEN, 1));
+        assertThat(RoomGameRules.roleCountsForPlayerCount(7))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        GameRole.MAFIA, 2, GameRole.POLICE, 1, GameRole.DOCTOR, 1,
+                        GameRole.SOLDIER, 1, GameRole.MEDIUM, 1, GameRole.CITIZEN, 1));
+        assertThat(RoomGameRules.roleCountsForPlayerCount(8))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        GameRole.MAFIA, 2, GameRole.SPY, 1, GameRole.POLICE, 1,
+                        GameRole.DOCTOR, 1, GameRole.SOLDIER, 1, GameRole.MEDIUM, 1,
+                        GameRole.CITIZEN, 1));
+    }
+
     @Test
     void uncontactedLivingSpyDoesNotTurnMafiaMinorityIntoParityVictory() {
         List<RulePlayer> players = List.of(

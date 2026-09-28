@@ -364,6 +364,16 @@ public class RoomPresenceService {
         }
     }
 
+    public int currentCount(long roomId) {
+        readLock.lock();
+        try {
+            Map<String, ParticipantPresence> participants = participantsByRoom.get(roomId);
+            return participants == null ? 0 : participants.size();
+        } finally {
+            readLock.unlock();
+        }
+    }
+
     public RoomPresenceState updateRoomSettings(
             long roomId,
             long hostUserId,

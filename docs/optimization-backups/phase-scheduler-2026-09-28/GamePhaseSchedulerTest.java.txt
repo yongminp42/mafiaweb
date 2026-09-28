@@ -1,0 +1,120 @@
+package kr.or.oti.mafiagame.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.junit.jupiter.api.Test;
+
+class GamePhaseSchedulerTest {
+
+    @Test
+    void executesDifferentRoomsInParallel() throws InterruptedException {
+        try (GamePhaseScheduler scheduler = new GamePhaseScheduler(4)) {
+            CountDownLatch entered = new CountDownLatch(4);
+            CountDownLatch release = new CountDownLatch(1);
+            CountDownLatch completed = new CountDownLatch(4);
+
+            for (long roomId = 1; roomId <= 4; roomId++) {
+                long scheduledRoomId = roomId;
+                scheduler.schedule(scheduledRoomId, 1L, taskId -> {
+                    assertThat(scheduler.complete(scheduledRoomId, taskId)).isTrue();
+                    entered.countDown();
+                    try {
+                        release.await(2, TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        completed.countDown();
+                    }
+                });
+            }
+
+            boolean allRoomsStartedBeforeRelease = entered.await(1, TimeUnit.SECONDS);
+            release.countDown();
+
+            assertThat(allRoomsStartedBeforeRelease).isTrue();
+            assertThat(completed.await(2, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void replacingRoomTaskCancelsThePreviousTask() throws InterruptedException {
+        try (GamePhaseScheduler scheduler = new GamePhaseScheduler(2)) {
+            AtomicInteger executions = new AtomicInteger();
+            CountDownLatch replacementCompleted = new CountDownLatch(1);
+
+            scheduler.schedule(7L, 400L, executions::incrementAndGet);
+            scheduler.schedule(7L, 20L, taskId -> {
+                executions.incrementAndGet();
+                replacementCompleted.countDown();
+                scheduler.complete(7L, taskId);
+            });
+
+            assertThat(replacementCompleted.await(1, TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(450L);
+            assertThat(executions).hasValue(1);
+        }
+    }
+
+    @Test
+    void cancelPreventsScheduledTaskFromRunning() throws InterruptedException {
+        try (GamePhaseScheduler scheduler = new GamePhaseScheduler(2)) {
+            AtomicInteger executions = new AtomicInteger();
+            scheduler.schedule(9L, 300L, executions::incrementAndGet);
+
+            scheduler.cancel(9L);
+            Thread.sleep(350L);
+
+            assertThat(executions).hasValue(0);
+        }
+    }
+
+    @Test
+    void runningOldTaskCannotCompleteItsReplacement() throws InterruptedException {
+        try (GamePhaseScheduler scheduler = new GamePhaseScheduler(2)) {
+            CountDownLatch oldTaskStarted = new CountDownLatch(1);
+            CountDownLatch releaseOldTask = new CountDownLatch(1);
+            CountDownLatch oldTaskCompleted = new CountDownLatch(1);
+            CountDownLatch replacementCompleted = new CountDownLatch(1);
+            AtomicBoolean oldTaskWasCurrent = new AtomicBoolean(true);
+            AtomicBoolean replacementWasCurrent = new AtomicBoolean();
+
+            long oldTaskId = scheduler.schedule(11L, 1L, taskId -> {
+                oldTaskStarted.countDown();
+                try {
+                    releaseOldTask.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    oldTaskWasCurrent.set(scheduler.complete(11L, taskId));
+                    oldTaskCompleted.countDown();
+                }
+            });
+
+            assertThat(oldTaskStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            long replacementTaskId = scheduler.schedule(11L, 25L, taskId -> {
+                replacementWasCurrent.set(scheduler.complete(11L, taskId));
+                replacementCompleted.countDown();
+            });
+            releaseOldTask.countDown();
+
+            assertThat(replacementTaskId).isNotEqualTo(oldTaskId);
+            assertThat(oldTaskCompleted.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(replacementCompleted.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(oldTaskWasCurrent).isFalse();
+            assertThat(replacementWasCurrent).isTrue();
+        }
+    }
+
+    @Test
+    void rejectsWorkerCountBelowOne() {
+        assertThatThrownBy(() -> new GamePhaseScheduler(0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("workerCount must be greater than zero");
+    }
+}

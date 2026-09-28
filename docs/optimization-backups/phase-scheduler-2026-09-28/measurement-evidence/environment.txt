@@ -1,0 +1,11 @@
+measured_at=2026-09-28T10:16:58.569886900Z
+java_version=21.0.12
+os_name=Windows 11
+available_processors=24
+workers_before=1
+workers_after=4
+simultaneous_rooms=1,2,4,8,16
+trials_per_case=7
+phase_delay_ms=250
+fixed_callback_work_ms=50
+percentile_method=nearest-rank

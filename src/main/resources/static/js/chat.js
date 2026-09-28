@@ -48,6 +48,9 @@
   const gamePanel = document.querySelector('#gamePanel');
   const gameRolePanel = document.querySelector('#gameRolePanel');
   const gameRoleLabel = document.querySelector('#gameRoleLabel');
+  const mafiaTeammatesPanel = document.querySelector('#mafiaTeammatesPanel');
+  const mafiaTeammatesList = document.querySelector('#mafiaTeammatesList');
+  const noMafiaTeammatesNotice = document.querySelector('#noMafiaTeammatesNotice');
   const confirmGameRole = document.querySelector('#confirmGameRole');
   const finalDefenseNotice = document.querySelector('#finalDefenseNotice');
   const gameResultPanel = document.querySelector('#gameResultPanel');
@@ -763,6 +766,13 @@
     if (gameRoleLabel) {
       gameRoleLabel.textContent = '';
     }
+    if (mafiaTeammatesPanel) {
+      mafiaTeammatesPanel.hidden = true;
+    }
+    mafiaTeammatesList?.replaceChildren();
+    if (noMafiaTeammatesNotice) {
+      noMafiaTeammatesNotice.hidden = true;
+    }
     updateChatAvailability();
     updateRoleConfirmation();
   }
@@ -782,12 +792,36 @@
     if (typeof roleAssignment.mafiaChatUnlocked === 'boolean') {
       mafiaChatUnlocked = roleAssignment.mafiaChatUnlocked;
     }
+    renderMafiaTeammates(roleAssignment);
     roleConfirmed = roleAssignment.confirmed === true;
     roleConfirmationPending = false;
     gameRolePanel.hidden = false;
     updateChatAvailability();
     updateGameActions();
     updateRoleConfirmation();
+  }
+
+  function renderMafiaTeammates(roleAssignment) {
+    if (!mafiaTeammatesPanel || !mafiaTeammatesList) {
+      return;
+    }
+
+    mafiaTeammatesList.replaceChildren();
+    const teammates = currentRole === 'MAFIA' && Array.isArray(roleAssignment.mafiaTeammates)
+      ? roleAssignment.mafiaTeammates.filter(name => typeof name === 'string' && name.trim() !== '')
+      : [];
+    teammates.forEach(nickname => {
+      const item = document.createElement('li');
+      item.textContent = nickname;
+      mafiaTeammatesList.append(item);
+    });
+
+    const isMafia = currentRole === 'MAFIA';
+    mafiaTeammatesPanel.hidden = !isMafia;
+    mafiaTeammatesList.hidden = !isMafia || teammates.length === 0;
+    if (noMafiaTeammatesNotice) {
+      noMafiaTeammatesNotice.hidden = !isMafia || teammates.length > 0;
+    }
   }
 
   function updateRoleConfirmation() {

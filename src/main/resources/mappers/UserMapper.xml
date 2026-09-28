@@ -103,6 +103,14 @@
         )
     </select>
 
+    <select id="existsByNickname" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM `user`
+            WHERE user_name = #{nickname}
+        )
+    </select>
+
     <update id="updateNickname">
         UPDATE `user`
         SET user_name = #{nickname}

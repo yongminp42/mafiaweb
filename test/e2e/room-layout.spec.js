@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  PROFILE_CONFIG,
+  parseConfiguredUiCapacity,
   shouldCaptureScreenshots,
   shouldCaptureVideo
 } from './e2e-profile.js';
@@ -10,9 +10,33 @@ import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const baseURL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const password = process.env.E2E_PASSWORD || 'MafiaTest2026!';
-const capacity = Number(process.env.E2E_CAPACITY || PROFILE_CONFIG.uiCapacity);
+const capacity = parseConfiguredUiCapacity();
 const runId = process.env.E2E_RUN_ID || `local-${Date.now().toString(36)}-${process.pid}`;
+const nicknameRunKey = runId.replace(/[^a-zA-Z0-9]/g, '').slice(-24) || 'qa';
+const roomLayoutNickname = index => `L-${nicknameRunKey}-${index}`;
 const artifactDirectory = resolveTestOutputDirectory(`room-layout-test-${capacity}`, runId);
+const roleCompositionByCapacity = {
+  4: [['마피아', 1], ['경찰', 1], ['의사', 1], ['시민', 1]],
+  5: [['마피아', 1], ['경찰', 1], ['의사', 1], ['시민', 2]],
+  6: [['마피아', 1], ['스파이', 1], ['경찰', 1], ['의사', 1], ['군인', 1], ['시민', 1]],
+  7: [['마피아', 2], ['경찰', 1], ['의사', 1], ['군인', 1], ['영매사', 1], ['시민', 1]],
+  8: [['마피아', 2], ['스파이', 1], ['경찰', 1], ['의사', 1], ['군인', 1], ['영매사', 1], ['시민', 1]]
+};
+
+async function expectRoleComposition(page, expectedCapacity) {
+  await page.locator('#gameHelpButton').click();
+  const modal = page.locator('#gameHelpModal');
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('#gameHelpCompositionCapacity')).toHaveText(`${expectedCapacity}명`);
+  const group = modal.locator(`#gameHelpRoleCompositionGroups [data-capacity="${expectedCapacity}"]`);
+  await expect(group).toBeVisible();
+  for (const [roleName, count] of roleCompositionByCapacity[expectedCapacity]) {
+    const roleCard = group.locator('.col').filter({ hasText: roleName });
+    await expect(roleCard).toContainText(`${count}명`);
+  }
+  await modal.getByRole('button', { name: '확인', exact: true }).click();
+  await expect(modal).toBeHidden();
+}
 
 async function captureScreenshot(page, name, fullPage = true) {
   if (!shouldCaptureScreenshots()) {
@@ -32,7 +56,7 @@ async function closeFirstVisitPatchNotes(page) {
 }
 
 test(`waiting and started room layout (${capacity} players)`, async ({ browser }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   await mkdir(artifactDirectory, { recursive: true });
 
   const contexts = [];
@@ -59,7 +83,9 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
 
       const email = `playwright.${runId}.room-layout.${index}@example.com`;
       await page.goto('/signup');
-      await page.locator('#nickname').fill(`Layout-${runId}-${index}`);
+      const nickname = roomLayoutNickname(index);
+      expect(nickname.length).toBeLessThanOrEqual(30);
+      await page.locator('#nickname').fill(nickname);
       await page.locator('#signupEmail').fill(email);
       await page.locator('#signupPassword').fill(password);
       await page.locator('#passwordConfirm').fill(password);
@@ -73,6 +99,20 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
       await expect(page).toHaveURL(/\/rooms(?:\?.*)?$/);
       await expect(page.locator('.user-menu-toggle .user-menu-level')).toHaveText('Lv. 1');
     }
+
+    const duplicateSignupContext = await browser.newContext({ baseURL });
+    contexts.push(duplicateSignupContext);
+    const duplicateSignupPage = await duplicateSignupContext.newPage();
+    await duplicateSignupPage.goto('/signup');
+    await duplicateSignupPage.locator('#nickname').fill(roomLayoutNickname(0));
+    await duplicateSignupPage.locator('#signupEmail').fill(`playwright.${runId}.room-layout.nickname-check@example.com`);
+    await duplicateSignupPage.locator('#signupPassword').fill(password);
+    await duplicateSignupPage.locator('#passwordConfirm').fill(password);
+    await duplicateSignupPage.locator('#agreement').check();
+    await duplicateSignupPage.locator('#signupForm button[type="submit"]').click();
+    await expect(duplicateSignupPage).toHaveURL(/\/signup$/);
+    await expect(duplicateSignupPage.getByRole('alert'))
+      .toHaveText('이미 사용 중인 닉네임입니다.');
 
     const host = pages[0];
     await closeFirstVisitPatchNotes(host);
@@ -116,6 +156,7 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(pages[1].locator('#roomSettingsButton')).toHaveCount(0);
     expect(await host.locator('#gameHelpButton').evaluate(element => element.nextElementSibling?.id))
       .toBe('roomSettingsButton');
+    await expectRoleComposition(host, capacity);
 
     await host.locator('#roomSettingsButton').click();
     await expect(host.locator('#roomSettingsModal')).toBeVisible();
@@ -165,6 +206,21 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await expect(pages[1].locator('#roomLockIndicator')).toBeHidden({ timeout: 15_000 });
     await host.locator('#roomSettingsModal button[data-bs-dismiss="modal"]').first().click();
     await expect(host.locator('#roomSettingsModal')).toBeHidden();
+
+    if (capacity < 8) {
+      const updatedCapacity = capacity + 1;
+      await host.locator('#roomSettingsButton').click();
+      await host.locator('#roomSettingsMaxPlayers').selectOption(String(updatedCapacity));
+      await host.locator('#roomSettingsSaveButton').click();
+      await expect(host.locator('#roomCapacity')).toHaveText(String(updatedCapacity), {
+        timeout: 15_000
+      });
+      await expect(pages[1].locator('#roomCapacity')).toHaveText(String(updatedCapacity), {
+        timeout: 15_000
+      });
+      await host.locator('#roomSettingsModal button[data-bs-dismiss="modal"]').first().click();
+      await expectRoleComposition(host, updatedCapacity);
+    }
 
     const backLink = host.locator('.room-back-link');
     await expect(backLink).toBeVisible();

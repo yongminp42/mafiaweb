@@ -1,0 +1,96 @@
+package kr.or.oti.mafiagame.service;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongConsumer;
+
+/**
+ * Owns one scheduled phase transition per room and replaces an older task atomically.
+ */
+final class GamePhaseScheduler implements AutoCloseable {
+    private static final int DEFAULT_WORKER_COUNT = 4;
+
+    private final ScheduledExecutorService executor;
+    private final Map<Long, ScheduledTask> tasksByRoom = new HashMap<>();
+    private long nextTaskId;
+
+    GamePhaseScheduler() {
+        this(DEFAULT_WORKER_COUNT);
+    }
+
+    GamePhaseScheduler(int workerCount) {
+        if (workerCount < 1) {
+            throw new IllegalArgumentException("workerCount must be greater than zero");
+        }
+
+        AtomicInteger threadNumber = new AtomicInteger();
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(
+                    runnable,
+                    "room-game-phase-" + threadNumber.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+        this.executor = Executors.newScheduledThreadPool(workerCount, threadFactory);
+    }
+
+    void schedule(long roomId, long delayMillis, Runnable task) {
+        schedule(roomId, delayMillis, ignoredTaskId -> task.run());
+    }
+
+    synchronized long schedule(long roomId, long delayMillis, LongConsumer task) {
+        cancel(roomId);
+        long taskId = ++nextTaskId;
+        ScheduledFuture<?> future = executor.schedule(
+                () -> {
+                    if (isCurrentTask(roomId, taskId)) {
+                        task.accept(taskId);
+                    }
+                },
+                Math.max(1L, delayMillis),
+                TimeUnit.MILLISECONDS);
+        tasksByRoom.put(roomId, new ScheduledTask(taskId, future));
+        return taskId;
+    }
+
+    synchronized void cancel(long roomId) {
+        ScheduledTask task = tasksByRoom.remove(roomId);
+        if (task != null) {
+            task.future.cancel(false);
+        }
+    }
+
+    synchronized void complete(long roomId) {
+        tasksByRoom.remove(roomId);
+    }
+
+    synchronized boolean complete(long roomId, long taskId) {
+        ScheduledTask task = tasksByRoom.get(roomId);
+        if (task == null || task.taskId != taskId) {
+            return false;
+        }
+        tasksByRoom.remove(roomId);
+        return true;
+    }
+
+    private synchronized boolean isCurrentTask(long roomId, long taskId) {
+        ScheduledTask task = tasksByRoom.get(roomId);
+        return task != null && task.taskId == taskId;
+    }
+
+    @Override
+    public synchronized void close() {
+        tasksByRoom.values().forEach(task -> task.future.cancel(false));
+        tasksByRoom.clear();
+        executor.shutdownNow();
+    }
+
+    private record ScheduledTask(long taskId, ScheduledFuture<?> future) {
+    }
+}
