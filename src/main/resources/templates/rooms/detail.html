@@ -200,6 +200,13 @@
           <span class="small fw-semibold">내 역할</span>
           <strong id="gameRoleLabel" class="fs-5"></strong>
         </div>
+        <div id="mafiaTeammatesPanel" class="mt-3 rounded-3 border border-danger-subtle bg-white p-2" hidden>
+          <div class="small fw-semibold text-danger-emphasis mb-1">함께하는 마피아</div>
+          <ul id="mafiaTeammatesList" class="small mb-0 ps-3"></ul>
+          <p id="noMafiaTeammatesNotice" class="small text-secondary mb-0" hidden>
+            이번 게임에서 본인 외 다른 마피아는 없습니다.
+          </p>
+        </div>
         <button id="confirmGameRole" class="btn btn-dark btn-sm mt-2" type="button" hidden>역할 확인 완료</button>
       </div>
 
@@ -320,6 +327,38 @@
           </p>
         </section>
 
+        <section class="rounded-4 border bg-light p-3 p-md-4 mb-4"
+                 aria-labelledby="gameHelpCompositionTitle">
+          <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+            <div>
+              <h3 class="h6 fw-bold mb-1" id="gameHelpCompositionTitle">방 최대 인원 기준 직업 구성</h3>
+              <p class="small text-secondary mb-0">
+                최대 <strong id="gameHelpCompositionCapacity" th:text="${room.capacity + '명'}">8명</strong> 방 기준
+              </p>
+            </div>
+            <span class="badge rounded-pill text-bg-dark">직업별 배정 인원</span>
+          </div>
+          <div id="gameHelpRoleCompositionGroups">
+            <div class="role-composition-group"
+                 th:each="composition : ${gameRoleCompositions}"
+                 th:attr="data-capacity=${composition.key}"
+                 th:classappend="${composition.key != room.capacity} ? ' d-none'">
+              <div class="row row-cols-2 row-cols-md-3 g-2">
+                <div class="col" th:each="roleCount : ${composition.value}">
+                  <div class="h-100 d-flex align-items-center justify-content-between gap-2 rounded-3 border bg-white px-3 py-2">
+                    <span class="small fw-semibold" th:text="${roleCount.key.label()}">마피아</span>
+                    <span class="badge rounded-pill text-bg-light border"
+                          th:text="${roleCount.value + '명'}">1명</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="small text-secondary mt-3 mb-0">
+            실제 게임에서는 시작 시 참가한 인원수에 맞춰 직업이 배정됩니다.
+          </p>
+        </section>
+
         <div class="row g-4">
           <section class="col-lg-5" aria-labelledby="gameHelpPhasesTitle">
             <h3 class="h6 fw-bold mb-3" id="gameHelpPhasesTitle">진행 순서</h3>
@@ -418,6 +457,25 @@
   }
 
   const settingsModal = document.querySelector('#roomSettingsModal');
+  const gameHelpModal = document.querySelector('#gameHelpModal');
+  const gameHelpCompositionCapacity = document.querySelector('#gameHelpCompositionCapacity');
+  const gameHelpRoleCompositionGroups = document.querySelectorAll('#gameHelpRoleCompositionGroups [data-capacity]');
+  function syncGameHelpRoleComposition() {
+    const capacity = Number(document.querySelector('#roomCapacity')?.textContent);
+    const activeGroup = Array.from(gameHelpRoleCompositionGroups)
+      .find(group => Number(group.dataset.capacity) === capacity);
+    if (!Number.isInteger(capacity) || !activeGroup) {
+      return;
+    }
+    gameHelpRoleCompositionGroups.forEach(group => {
+      group.classList.toggle('d-none', group !== activeGroup);
+    });
+    if (gameHelpCompositionCapacity) {
+      gameHelpCompositionCapacity.textContent = `${capacity}명`;
+    }
+  }
+  gameHelpModal?.addEventListener('show.bs.modal', syncGameHelpRoleComposition);
+
   const passwordEnabled = document.querySelector('#roomSettingsPasswordEnabled');
   const passwordInput = document.querySelector('#roomSettingsPassword');
   function syncPasswordInput() {

@@ -22,6 +22,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import kr.or.oti.mafiagame.domain.User;
 import kr.or.oti.mafiagame.domain.UserStats;
+import kr.or.oti.mafiagame.dto.GameRole;
 import kr.or.oti.mafiagame.dto.RoomParticipant;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomView;
@@ -62,7 +63,7 @@ class RoomControllerTest {
     @Test
     void roomCardReturnsOneFragmentWithTheLatestLiveCount() {
         when(roomService.getRoomView(99L)).thenReturn(room(99L, 0));
-        when(roomPresenceService.currentCounts()).thenReturn(Map.of(99L, 3));
+        when(roomPresenceService.currentCount(99L)).thenReturn(3);
         ExtendedModelMap model = new ExtendedModelMap();
 
         String view = controller.roomCard(99L, model);
@@ -70,6 +71,7 @@ class RoomControllerTest {
         assertThat(view).isEqualTo("rooms/room-card-fragment");
         assertThat(((RoomView) model.get("room")).players()).isEqualTo(3);
         assertThat(model.get("roomIndex")).isEqualTo(-1);
+        verify(roomPresenceService, never()).currentCounts();
     }
 
     @Test
@@ -97,7 +99,17 @@ class RoomControllerTest {
         assertThat(view).isEqualTo("rooms/detail");
         assertThat(model.get("members")).isEqualTo(List.of("one", "two"));
         assertThat(((RoomView) model.get("room")).players()).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        Map<Integer, Map<GameRole, Integer>> compositions =
+                (Map<Integer, Map<GameRole, Integer>>) model.get("gameRoleCompositions");
+        assertThat(compositions).containsOnlyKeys(4, 5, 6, 7, 8);
+        assertThat(compositions.get(5)).containsEntry(GameRole.CITIZEN, 2);
+        assertThat(compositions.get(7)).containsEntry(GameRole.MAFIA, 2)
+                .containsEntry(GameRole.SOLDIER, 1)
+                .containsEntry(GameRole.MEDIUM, 1)
+                .doesNotContainKey(GameRole.SPY);
         verify(roomService, never()).getMemberNames(1L);
+        verify(roomPresenceService, never()).currentCount(1L);
     }
 
     @Test
@@ -120,10 +132,12 @@ class RoomControllerTest {
     void lockedRoomRequiresPasswordAndGrantsSessionAccess() {
         RoomView lockedRoom = new RoomView(2L, "locked", "description", "host", 1, 8, "WAITING", true);
         when(roomService.getRoomView(2L)).thenReturn(lockedRoom);
+        when(roomPresenceService.currentCount(2L)).thenReturn(2);
         MockHttpSession session = new MockHttpSession();
+        ExtendedModelMap accessModel = new ExtendedModelMap();
 
-        assertThat(controller.roomDetail(2L, null, session, new ExtendedModelMap()))
-                .isEqualTo("rooms/access");
+        assertThat(controller.roomDetail(2L, null, session, accessModel)).isEqualTo("rooms/access");
+        assertThat(((RoomView) accessModel.get("room")).players()).isEqualTo(2);
 
         when(roomService.verifyRoomPassword(2L, "secret")).thenReturn(true);
         assertThat(controller.accessRoom(2L, "secret", session, new ExtendedModelMap()))

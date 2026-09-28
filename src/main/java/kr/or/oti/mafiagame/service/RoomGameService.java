@@ -986,7 +986,20 @@ public class RoomGameService {
                 player.role.name(),
                 player.role.label(),
                 game.confirmedRoleUserIds.contains(player.userId),
-                player.mafiaChatUnlocked);
+                player.mafiaChatUnlocked,
+                mafiaTeammates(game, player));
+    }
+
+    private List<String> mafiaTeammates(GameRoom game, GamePlayerState player) {
+        if (player.role != GameRole.MAFIA) {
+            return List.of();
+        }
+        return game.players.values().stream()
+                .filter(teammate -> teammate.userId != player.userId
+                        && teammate.role == GameRole.MAFIA)
+                .map(teammate -> teammate.nickname)
+                .filter(nickname -> nickname != null && !nickname.isBlank())
+                .toList();
     }
 
     private GameResult toGameResult(GameRoom game, GamePlayerState player) {

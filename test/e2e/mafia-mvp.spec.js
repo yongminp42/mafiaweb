@@ -908,10 +908,41 @@ for (const playerCount of PLAYER_COUNTS) {
           const role = Object.entries(ROLE_LABELS)
             .find(([, label]) => roleLabel === label)?.[0];
           expect(role).toBeTruthy();
-          rolePages[role].push({ page: pages[index], userId: userIds[index] });
+          rolePages[role].push({
+            page: pages[index],
+            userId: userIds[index],
+            index,
+            nickname: 'PW' + scenarioId + '-' + (index + 1)
+          });
         }
         assertRoleAssignments(roleLabels, playerCount);
         expect(rolePages.MAFIA).toHaveLength(expectedMafiaCount(playerCount));
+        const orderedMafiaPlayers = [...rolePages.MAFIA].sort((left, right) => left.index - right.index);
+        for (let index = 0; index < pages.length; index += 1) {
+          const page = pages[index];
+          const role = Object.entries(ROLE_LABELS)
+            .find(([, label]) => label === roleLabels[index])?.[0];
+          const teammatesPanel = page.locator('#mafiaTeammatesPanel');
+          if (role !== 'MAFIA') {
+            await expect(teammatesPanel).toBeHidden();
+            continue;
+          }
+
+          await expect(teammatesPanel).toBeVisible();
+          const expectedTeammates = orderedMafiaPlayers
+            .filter(player => player.index !== index)
+            .map(player => player.nickname);
+          if (expectedTeammates.length === 0) {
+            await expect(page.locator('#mafiaTeammatesList')).toBeHidden();
+            await expect(page.locator('#noMafiaTeammatesNotice'))
+              .toHaveText('이번 게임에서 본인 외 다른 마피아는 없습니다.');
+            await expect(page.locator('#noMafiaTeammatesNotice')).toBeVisible();
+          } else {
+            await expect(page.locator('#mafiaTeammatesList li'))
+              .toHaveText(expectedTeammates);
+            await expect(page.locator('#noMafiaTeammatesNotice')).toBeHidden();
+          }
+        }
         for (const role of ['DOCTOR', 'POLICE']) {
           expect(rolePages[role]).toHaveLength(1);
         }

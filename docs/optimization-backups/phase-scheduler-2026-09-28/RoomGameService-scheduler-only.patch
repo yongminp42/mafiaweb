@@ -1,0 +1,39 @@
+diff --git a/src/main/java/kr/or/oti/mafiagame/service/RoomGameService.java b/src/main/java/kr/or/oti/mafiagame/service/RoomGameService.java
+index fe6d555..7be291d 100644
+--- a/src/main/java/kr/or/oti/mafiagame/service/RoomGameService.java
++++ b/src/main/java/kr/or/oti/mafiagame/service/RoomGameService.java
+@@ -666,6 +666,10 @@ public class RoomGameService {
+     }
+ 
+     private void advancePhase(GameRoom game) {
++        advancePhase(game, null);
++    }
++
++    private void advancePhase(GameRoom game, Long scheduledTaskId) {
+         RoomGameState state = null;
+         List<GameResultDelivery> resultDeliveries = List.of();
+         NightDeliveries nightDeliveries = NightDeliveries.empty();
+@@ -679,8 +683,13 @@ public class RoomGameService {
+             if (!isCurrentGame(game)) {
+                 return;
+             }
++            if (scheduledTaskId == null) {
++                phaseScheduler.complete(game.roomId);
++            } else if (!phaseScheduler.complete(game.roomId, scheduledTaskId)) {
++                // 같은 방에서 교체된 예약 작업이 남아 있으면 오래된 콜백은 상태를 바꾸지 않는다.
++                return;
++            }
+             previousPhase = game.phase;
+-            phaseScheduler.complete(game.roomId);
+             long now = System.currentTimeMillis();
+             if (now < game.phaseEndsAt) {
+                 // 이전 예약이 조금 일찍 실행됐으면 남은 시간만큼 다시 예약한다.
+@@ -852,7 +861,7 @@ public class RoomGameService {
+     private void scheduleNextPhase(GameRoom game) {
+         // 방마다 하나의 타이머만 유지해 이전 페이즈 콜백이 중복 실행되지 않게 한다.
+         long delay = Math.max(1L, game.phaseEndsAt - System.currentTimeMillis());
+-        phaseScheduler.schedule(game.roomId, delay, () -> advancePhase(game));
++        phaseScheduler.schedule(game.roomId, delay, taskId -> advancePhase(game, taskId));
+     }
+ 
+     private boolean isCurrentGame(GameRoom game) {

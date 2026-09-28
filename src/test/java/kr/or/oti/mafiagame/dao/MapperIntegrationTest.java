@@ -1,11 +1,13 @@
 package kr.or.oti.mafiagame.dao;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import kr.or.oti.mafiagame.domain.Room;
 import kr.or.oti.mafiagame.domain.User;
@@ -33,6 +35,8 @@ class MapperIntegrationTest {
         assertThat(userMapper.insertStats(user.getUserId())).isEqualTo(1);
 
         assertThat(userMapper.existsByEmail("user@example.com")).isTrue();
+        assertThat(userMapper.existsByNickname("player")).isTrue();
+        assertThat(userMapper.existsByNickname("missing-player")).isFalse();
         assertThat(userMapper.findByEmail("user@example.com"))
                 .hasValueSatisfying(found -> assertThat(found.getUserName()).isEqualTo("player"));
         UserStats stats = userMapper.findStatsByUserId(user.getUserId());
@@ -41,6 +45,16 @@ class MapperIntegrationTest {
         assertThat(stats.getLosses()).isZero();
         assertThat(stats.getRating()).isEqualTo(UserStats.DEFAULT_RATING);
         assertThat(stats.getExperience()).isEqualTo(UserStats.DEFAULT_RATING);
+    }
+
+    @Test
+    void nicknameLookupAndUniqueConstraintRejectDuplicateNicknames() {
+        insertUser("first@example.com", "shared-name");
+
+        assertThat(userMapper.existsByNickname("shared-name")).isTrue();
+        assertThat(userMapper.existsByNickname("unused-name")).isFalse();
+        assertThatThrownBy(() -> userMapper.insert(newUser("second@example.com", "shared-name")))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

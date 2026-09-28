@@ -1,0 +1,14 @@
+{
+  "summaries": [
+    {"workers":1,"rooms":1,"samples":7,"queueP50":12.542,"queueP95":16.367,"queueMax":16.367,"processingP50":62.108,"processingP95":63.844,"processingMax":63.844},
+    {"workers":1,"rooms":2,"samples":14,"queueP50":15.236,"queueP95":77.510,"queueMax":77.510,"processingP50":62.016,"processingP95":62.971,"processingMax":62.971},
+    {"workers":1,"rooms":4,"samples":28,"queueP50":78.134,"queueP95":202.836,"queueMax":203.837,"processingP50":62.128,"processingP95":63.075,"processingMax":63.103},
+    {"workers":1,"rooms":8,"samples":56,"queueP50":202.828,"queueP95":451.776,"queueMax":453.362,"processingP50":62.361,"processingP95":63.455,"processingMax":63.876},
+    {"workers":1,"rooms":16,"samples":112,"queueP50":452.032,"queueP95":941.283,"queueMax":953.347,"processingP50":62.272,"processingP95":63.632,"processingMax":64.192},
+    {"workers":4,"rooms":1,"samples":7,"queueP50":13.649,"queueP95":14.824,"queueMax":14.824,"processingP50":62.164,"processingP95":62.627,"processingMax":62.627},
+    {"workers":4,"rooms":2,"samples":14,"queueP50":14.070,"queueP95":15.920,"queueMax":15.920,"processingP50":62.402,"processingP95":63.380,"processingMax":63.380},
+    {"workers":4,"rooms":4,"samples":28,"queueP50":14.154,"queueP95":15.311,"queueMax":15.368,"processingP50":62.570,"processingP95":63.244,"processingMax":63.336},
+    {"workers":4,"rooms":8,"samples":56,"queueP50":16.180,"queueP95":77.915,"queueMax":77.928,"processingP50":62.255,"processingP95":63.542,"processingMax":63.565},
+    {"workers":4,"rooms":16,"samples":112,"queueP50":77.984,"queueP95":202.353,"queueMax":202.838,"processingP50":62.365,"processingP95":63.280,"processingMax":63.999}
+  ]
+}

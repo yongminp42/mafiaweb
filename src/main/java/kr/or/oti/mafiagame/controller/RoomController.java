@@ -1,25 +1,29 @@
 package kr.or.oti.mafiagame.controller;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import jakarta.servlet.http.HttpSession;
 
+import kr.or.oti.mafiagame.dto.GameRole;
 import kr.or.oti.mafiagame.dto.RoomPresenceState;
 import kr.or.oti.mafiagame.dto.RoomView;
 import kr.or.oti.mafiagame.security.CustomUserDetails;
 import kr.or.oti.mafiagame.security.RoomAccess;
+import kr.or.oti.mafiagame.service.RoomGameRules;
 import kr.or.oti.mafiagame.service.RoomPresenceService;
 import kr.or.oti.mafiagame.service.RoomService;
 import kr.or.oti.mafiagame.service.RoomService.RoomCreationException;
@@ -27,6 +31,9 @@ import kr.or.oti.mafiagame.service.RoomService.RoomSettingsException;
 
 @Controller
 public class RoomController {
+    private static final Map<Integer, Map<GameRole, Integer>> GAME_ROLE_COMPOSITIONS =
+            createGameRoleCompositions();
+
     private final RoomService roomService;
     private final RoomPresenceService roomPresenceService;
 
@@ -61,7 +68,7 @@ public class RoomController {
         if (room == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        int currentPlayers = roomPresenceService.currentCounts().getOrDefault(roomId, 0);
+        int currentPlayers = roomPresenceService.currentCount(roomId);
         model.addAttribute("room", room.withPlayerCount(currentPlayers));
         model.addAttribute("roomIndex", -1);
         return "rooms/room-card-fragment";
@@ -110,9 +117,9 @@ public class RoomController {
         if (room == null) {
             return "redirect:/rooms";
         }
-        room = room.withPlayerCount(roomPresenceService.currentCounts().getOrDefault(roomId, 0));
         boolean isHost = user != null && room.hostUserId() == user.getUserId();
         if (room.locked() && !isHost && !RoomAccess.isGranted(session, roomId)) {
+            room = room.withPlayerCount(roomPresenceService.currentCount(roomId));
             model.addAttribute("room", room);
             return "rooms/access";
         }
@@ -135,7 +142,18 @@ public class RoomController {
         model.addAttribute("room", room);
         model.addAttribute("members", members);
         model.addAttribute("isHost", isHost);
+        model.addAttribute("gameRoleCompositions", GAME_ROLE_COMPOSITIONS);
         return "rooms/detail";
+    }
+
+    private static Map<Integer, Map<GameRole, Integer>> createGameRoleCompositions() {
+        Map<Integer, Map<GameRole, Integer>> compositions = new LinkedHashMap<>();
+        for (int playerCount = RoomGameRules.MIN_PLAYERS;
+                playerCount <= RoomGameRules.MAX_PLAYERS;
+                playerCount++) {
+            compositions.put(playerCount, RoomGameRules.roleCountsForPlayerCount(playerCount));
+        }
+        return Collections.unmodifiableMap(compositions);
     }
 
     @PostMapping("/rooms/{roomId}/settings")

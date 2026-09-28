@@ -131,6 +131,65 @@ test('room list subscribes to lobby presence and applies live counts', () => {
   }
 });
 
+test('room list updates existing counts without rescanning cards and refreshes once for batched removals', () => {
+  const markup = roomListMarkup().replace(
+    '      </div>\n      <p id="emptyState"',
+    `        <article class="room-card" data-room-id="3" data-status="WAITING" data-title="room three">
+          <span class="room-number">03</span>
+          <span data-room-player-count>6</span>
+        </article>
+      </div>
+      <p id="emptyState"`
+  );
+  const dom = createDom(markup);
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+    const roomList = dom.window.document.querySelector('#roomList');
+    const originalQuerySelectorAll = roomList.querySelectorAll.bind(roomList);
+    let cardListScans = 0;
+    roomList.querySelectorAll = selector => {
+      if (selector === '.room-card') cardListScans += 1;
+      return originalQuerySelectorAll(selector);
+    };
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify([
+        { roomId: 1, currentPlayers: 2 },
+        { roomId: 2, currentPlayers: 3 },
+        { roomId: 3, currentPlayers: 4 }
+      ])
+    ));
+
+    assert.equal(cardListScans, 0, 'count-only snapshots should not rescan the room-card list');
+    assert.equal(dom.window.document.querySelector('#onlinePlayerCount').textContent, '9');
+
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify([
+        { roomId: 1, currentPlayers: 2 },
+        { roomId: 2, currentPlayers: 0 },
+        { roomId: 3, currentPlayers: 0 }
+      ])
+    ));
+
+    assert.equal(cardListScans, 1, 'a snapshot that removes cards should refresh and renumber once');
+    assert.equal(dom.window.document.querySelector('[data-room-id="2"]'), null);
+    assert.equal(dom.window.document.querySelector('[data-room-id="3"]'), null);
+    assert.equal(dom.window.document.querySelector('#onlinePlayerCount').textContent, '2');
+    assert.equal(dom.window.document.querySelector('#roomCount').textContent, '1');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('room list applies the server online player count', () => {
   const dom = createDom(roomListMarkup());
   try {

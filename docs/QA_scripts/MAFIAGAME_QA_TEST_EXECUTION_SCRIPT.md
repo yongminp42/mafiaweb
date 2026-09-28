@@ -20,8 +20,9 @@ $onlineBaseline = $null
 $workerCount = 1
 $baseUrl = 'http://127.0.0.1:8080'
 $serverPort = 8080
-$dbHost = '127.0.0.1'
-$dbPort = 23306
+$dbHost = $null
+$dbPort = $null
+$dbName = $null
 $mvpDocument = 'docs/MAFIAGAME_MVP.md'
 $qaReportDirectory = 'docs/QA_report'
 $sourceModificationAllowed = $false
@@ -96,6 +97,39 @@ if ($null -eq $uiCapacity) {
 }
 $phaseProfile = $profileDefaults[$e2eProfile].phaseProfile
 
+if ($e2eEnabled) {
+    $allowedPlayerCounts = @(
+        $profileDefaults[$e2eProfile].playerCounts -split ',' |
+            ForEach-Object { [int]$_.Trim() }
+    )
+    $configuredPlayerCounts = [System.Collections.Generic.List[int]]::new()
+    foreach ($playerCountText in ($playerCounts -split ',')) {
+        $playerCountText = $playerCountText.Trim()
+        if ($playerCountText -notmatch '^\d+$') {
+            throw "Invalid PLAYER_COUNTS value '$playerCountText'. Use unique integers supported by the selected profile. No DB check or test has started."
+        }
+        $playerCount = [int]$playerCountText
+        if ($playerCount -notin $allowedPlayerCounts) {
+            throw "PLAYER_COUNTS value $playerCount is outside the $e2eProfile profile. Allowed values: $($allowedPlayerCounts -join ','). No DB check or test has started."
+        }
+        if ($configuredPlayerCounts.Contains($playerCount)) {
+            throw "PLAYER_COUNTS repeats $playerCount. Remove duplicate counts. No DB check or test has started."
+        }
+        $configuredPlayerCounts.Add($playerCount)
+    }
+    if ($configuredPlayerCounts.Count -eq 0) {
+        throw 'PLAYER_COUNTS cannot be empty when E2E is enabled. No DB check or test has started.'
+    }
+    $playerCounts = $configuredPlayerCounts -join ','
+    if ($e2eProfile -eq 'full' -and $playerCounts -ne $profileDefaults.full.playerCounts) {
+        throw "A complete Full QA run requires PLAYER_COUNTS=$($profileDefaults.full.playerCounts); current value is $playerCounts. No DB check or test has started."
+    }
+    if ([string]$uiCapacity -notmatch '^[4-8]$') {
+        throw "E2E_CAPACITY must be an integer from 4 through 8; current value is '$uiCapacity'. No DB check or test has started."
+    }
+    $uiCapacity = [int]$uiCapacity
+}
+
 Write-Host "Selected QA profile: $e2eProfile" -ForegroundColor Green
 Write-Host "Player counts: $playerCounts; UI capacity: $uiCapacity; server phase profile: $phaseProfile"
 if ((Read-Host 'Start this QA scenario now? Enter Y to continue') -notmatch '(?i)^y$') {
@@ -111,10 +145,10 @@ Configuration rules:
 - The Playwright configuration also rejects a missing `E2E_PROFILE`; running Playwright directly is not a way to skip profile selection.
 - Reset `$e2eProfile` to `$null` for every new QA request unless the user explicitly named the profile in that request; never carry a profile forward from an earlier QA run.
 - A previous PASS, FAIL, BLOCKED, or cancelled QA result does not satisfy profile selection for the next request.
-- Smoke runs `PLAYER_COUNTS=4`, skips replay and the two six-player resilience cases, and skips chat-scroll.
-- Regression runs `PLAYER_COUNTS=4,6,8`, replays only the 4-player room, and runs chat-scroll with 30 messages.
-- Full runs `PLAYER_COUNTS=4,5,6,7,8`, replays every room, includes both six-player resilience cases, and preserves production phase timing.
-- Use the profile defaults for `$playerCounts` and `$uiCapacity` unless a narrower explicit override is required for a targeted investigation. `PLAYER_COUNTS` may contain only counts in the selected profile; a complete Full QA run requires all five counts.
+- Smoke runs `PLAYER_COUNTS=4`, skips replay and the two six-player resilience cases, and skips chat-scroll. Its shared tests cover nickname uniqueness and role composition for all supported capacities; its 4-player browser run verifies the solo-Mafia notice.
+- Regression runs `PLAYER_COUNTS=4,6,8`, replays only the 4-player room, and runs chat-scroll with 30 messages. Its shared tests cover the same nickname and role-composition rules; the 8-player browser run verifies that Mafia teammates are disclosed privately.
+- Full runs `PLAYER_COUNTS=4,5,6,7,8`, replays every room, includes both six-player resilience cases, and preserves production phase timing. Its shared tests cover the same rules, with browser checks across every role-count boundary and the 8-player help panel.
+- Use the profile defaults for `$playerCounts` and `$uiCapacity` unless a narrower explicit override is required for a targeted investigation. Before the confirmation prompt, the script rejects empty, repeated, malformed, or out-of-profile player counts and rejects UI capacities outside 4–8; a complete Full QA run requires all five counts. These checks happen before the database probe, build, or server startup.
 - Leave `$onlineBaseline = $null` unless the existing online-user count is known and intentionally fixed. The first core scenario measures the baseline before its other test accounts sign in; set an explicit non-negative integer only when a shared-server count is externally verified.
 - Smoke and Regression set `MAFIAGAME_PHASE_PROFILE=short` (3 seconds per non-terminal phase). Full sets `MAFIAGAME_PHASE_PROFILE=production` and is the only profile that judges 15/60/20/20/20/35-second timings.
 - Playwright uses `trace: retain-on-failure` for Smoke/Regression and `trace: on` for Full. Core and UI invocations use separate `core/` and `ui/` output folders under `output/test_output/YYYY-MM-DD/playwright-<E2E_RUN_ID>/` so the UI run cannot erase core traces.
@@ -134,6 +168,7 @@ Configuration rules:
 - The expected opening phase order is `ROLE_ASSIGNMENT(15s) → NIGHT(35s) → DAY_DISCUSSION(60s)`. Role confirmation may end `ROLE_ASSIGNMENT` early. Subsequent cycles continue `DAY_DISCUSSION(60s) → NOMINATION_VOTE(20s) → FINAL_DEFENSE(20s, when a unique nominee exists) → EXECUTION_VOTE(20s) → NIGHT(35s) → DAY_DISCUSSION(60s)`.
 - Replace `$projectPath` and `$baseUrl` if the project is moved or the server configuration changes.
 - Reserve `$serverPort` for a fresh QA server built from the current workspace. If that port is already occupied, choose another unused port and update `$baseUrl` before proceeding. Never assume an existing server contains the current source.
+- Do not hardcode the database endpoint separately from Spring. Preflight derives host, port, and schema from `SPRING_DATASOURCE_URL` when set, otherwise from `spring.datasource.url` in `src/main/resources/application.properties`.
 
 ### Evidence policy by profile
 
@@ -486,30 +521,103 @@ Inspect the following files and directories before running tests:
 - `src/test/**`
 - `test/js/**`
 - `test/e2e/**`
-- `src/main/resources/application.properties` (datasource host and port)
+- `src/main/resources/application.properties` and the effective `SPRING_DATASOURCE_URL` override (datasource host, port, and schema; record presence, never credentials)
 
 Record the relevant project structure, test scripts, test configuration, and MVP requirements.
 
 ## 0. Environment Preflight
 
-Run this gate before any Java, JavaScript, or Playwright command:
+Run this gate after profile selection and before any Java, JavaScript, or Playwright command. It verifies an authenticated, read-only query against the same datasource endpoint Spring will use; a port-only probe is insufficient.
 
 ```powershell
 Write-Host '[QA_PROGRESS] 0/6 Environment preflight started.' -ForegroundColor Cyan
 
-$databaseProbe = Test-NetConnection `
-    -ComputerName $dbHost `
-    -Port $dbPort `
-    -InformationLevel Quiet `
-    -WarningAction SilentlyContinue
-
-if (-not $databaseProbe) {
-    throw "MariaDB is not reachable at $dbHost`:$dbPort. Stop this QA run; all requested test cases are NOT RUN."
+$effectiveDataSourceUrl = $env:SPRING_DATASOURCE_URL
+if ([string]::IsNullOrWhiteSpace($effectiveDataSourceUrl)) {
+    $applicationPropertiesPath = Join-Path $projectPath 'src/main/resources/application.properties'
+    $dataSourceProperty = Get-Content -LiteralPath $applicationPropertiesPath |
+        Where-Object { $_ -match '^\s*spring\.datasource\.url\s*=' } |
+        Select-Object -First 1
+    if ($null -eq $dataSourceProperty -or $dataSourceProperty -notmatch '^\s*spring\.datasource\.url\s*=\s*(.*?)\s*$') {
+        throw 'Could not resolve spring.datasource.url. Stop QA before tests; all requested test cases are NOT RUN.'
+    }
+    $effectiveDataSourceUrl = $Matches[1]
 }
 
-if ($e2eEnabled -and $e2eProfile -eq 'full' -and $playerCounts -ne '4,5,6,7,8') {
-    throw "A complete QA run requires PLAYER_COUNTS=4,5,6,7,8; current value is $playerCounts."
+try {
+    $databaseUri = [System.Uri]($effectiveDataSourceUrl -replace '^jdbc:', '')
+} catch {
+    throw 'The effective datasource URL is invalid. Stop QA before tests; all requested test cases are NOT RUN.'
 }
+if ($databaseUri.Scheme -notin @('mariadb', 'mysql') -or [string]::IsNullOrWhiteSpace($databaseUri.Host)) {
+    throw 'The effective datasource URL is not a supported MariaDB/MySQL endpoint. Stop QA before tests; all requested test cases are NOT RUN.'
+}
+$dbHost = $databaseUri.DnsSafeHost
+$dbPort = if ($databaseUri.IsDefaultPort) { 3306 } else { $databaseUri.Port }
+$dbName = $databaseUri.AbsolutePath.Trim('/')
+if ([string]::IsNullOrWhiteSpace($dbName) -or $dbPort -lt 1 -or $dbPort -gt 65535) {
+    throw 'The effective datasource URL must include a schema and a valid port. Stop QA before tests; all requested test cases are NOT RUN.'
+}
+if ([string]::IsNullOrWhiteSpace($env:DB_USERNAME) -or -not (Test-Path Env:DB_PASSWORD)) {
+    throw 'DB_USERNAME and DB_PASSWORD must be provided to the QA process; values are never printed. Stop QA before tests.'
+}
+
+$databaseClientCommand = Get-Command mariadb.exe -ErrorAction SilentlyContinue
+if ($null -eq $databaseClientCommand) {
+    $databaseClientCommand = Get-Command mysql.exe -ErrorAction SilentlyContinue
+}
+if ($null -eq $databaseClientCommand) {
+    throw 'mariadb.exe/mysql.exe is unavailable. Stop QA as BLOCKED before tests; do not install a client or start a database service automatically.'
+}
+
+$databaseArguments = @(
+    '--protocol=tcp',
+    "--host=$dbHost",
+    "--port=$dbPort",
+    "--user=$env:DB_USERNAME",
+    "--database=$dbName"
+)
+$isLoopbackDatabase = $dbHost -in @('localhost', '127.0.0.1', '::1')
+if ($isLoopbackDatabase) {
+    # The local MariaDB endpoint has an SSL initialization failure (client error 2026).
+    # Keep SSL enabled for non-loopback database hosts.
+    $databaseArguments += '--skip-ssl'
+}
+$databaseArguments += @('--batch', '--skip-column-names', '-e', 'SELECT 1;')
+
+$savedMysqlPassword = $env:MYSQL_PWD
+$env:MYSQL_PWD = $env:DB_PASSWORD
+try {
+    $databaseProbeOutput = @(& $databaseClientCommand.Source @databaseArguments 2>&1)
+    $databaseProbeExitCode = $LASTEXITCODE
+} catch {
+    $databaseProbeOutput = @($_.Exception.Message)
+    $databaseProbeExitCode = 1
+} finally {
+    if ($null -eq $savedMysqlPassword) {
+        Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue
+    } else {
+        $env:MYSQL_PWD = $savedMysqlPassword
+    }
+}
+
+$databaseProbeText = ($databaseProbeOutput | ForEach-Object { [string]$_ }) -join ' '
+$databaseProbeValues = @(
+    $databaseProbeOutput | ForEach-Object { ([string]$_).Trim() }
+)
+$databaseProbeSucceeded = ($databaseProbeExitCode -eq 0) -and ($databaseProbeValues -contains '1')
+if (-not $databaseProbeSucceeded) {
+    $databaseErrorMatch = [regex]::Match($databaseProbeText, 'ERROR\s+(\d+)')
+    $databaseErrorCode = if ($databaseErrorMatch.Success) { $databaseErrorMatch.Groups[1].Value } else { 'unavailable' }
+    if ($databaseProbeText -match '(?i)access is denied|permission denied|operation not permitted|EPERM|10013') {
+        throw "The authenticated MariaDB probe was blocked by execution permissions at $dbHost`:$dbPort. Retry the same read-only probe in an authorized execution context; do not change ACLs/firewall or restart the service. All tests are NOT RUN."
+    }
+    if ($databaseErrorCode -eq '2026' -or $databaseProbeText -match '(?i)SSL connection error') {
+        throw "MariaDB SSL initialization failed (client error $databaseErrorCode) at $dbHost`:$dbPort. Loopback probes use --skip-ssl; for remote endpoints, configure valid TLS instead of disabling SSL. All tests are NOT RUN."
+    }
+    throw "Authenticated MariaDB SELECT 1 failed at $dbHost`:$dbPort/$dbName (client error $databaseErrorCode, exit $databaseProbeExitCode). Check TCP reachability, credentials, and schema grants without printing secrets. All tests are NOT RUN."
+}
+Write-Host "Authenticated MariaDB SELECT 1 passed at $dbHost`:$dbPort/$dbName (loopback SSL policy: $(if ($isLoopbackDatabase) { 'disabled for this local endpoint' } else { 'enabled' }))."
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw 'Node.js is not available. Stop this QA run as BLOCKED; do not install dependencies automatically.'
@@ -593,8 +701,32 @@ worker count: `--workers=1` still creates a worker process and does not bypass
 `EPERM`.
 
 The project currently uses `jdbc:mariadb://localhost:23306/mafiaweb`. A failed
-database probe is an environment `BLOCKED` result, not an application `PASS`, and
-the script must not start MariaDB or install a missing client/service.
+database probe is an environment `BLOCKED` result, not an application `PASS`. The
+preflight resolves the effective JDBC URL, then uses the MariaDB command-line client
+for a read-only `SELECT 1`; it does not rely on `Test-NetConnection` alone. On a
+loopback endpoint, use `--protocol=tcp --skip-ssl` because the local MariaDB client
+has produced SSL initialization error 2026 without that option. Never disable TLS
+for a non-loopback host. The password is passed only through the child process's
+temporary `MYSQL_PWD` environment variable, restored in `finally`, and must never be
+written to command arguments, logs, screenshots, or reports. Do not start, stop,
+restart, reinstall, or reconfigure the existing MariaDB service as QA remediation.
+
+Current-workstation diagnosis (2026-09-28): TCP and the MariaDB greeting were
+reachable on port 23306, but a direct client query without `--skip-ssl` returned
+error 2026. Repeating the same `SELECT 1` against `localhost:23306/mafiaweb` with
+`--protocol=tcp --skip-ssl` succeeded. This isolates the failure to the local CLI's
+SSL initialization; it is not evidence that the server is stopped or that the
+credentials are invalid. Prior QA app-start and transaction reports also passed.
+
+If the SQL probe reports access denied/`EPERM`/Windows socket error `10013`, treat
+that as an execution-permission boundary rather than a stopped database. Retry the
+same non-mutating probe in an authorized execution context. Continue QA only in a
+context that can also start the selected test processes and reach the same endpoint;
+if that context is unavailable, report DB/QA as `BLOCKED` and all unexecuted tests
+as `NOT RUN`. Do not alter Windows ACLs, firewall rules, or persistent execution
+policy. If process-enumeration APIs return access denied, use `netstat.exe -ano`
+plus the QA startup log PID; never terminate a listener whose owner cannot be
+verified.
 
 ## 1. Java Tests
 
@@ -627,12 +759,15 @@ Collect and report:
 - Total test count
 - Passed, failed, and errored test counts
 - Failed test class, method, file, and line number
-- Optimization regressions: `RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries`, `RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock`, `RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes`, `RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock`, `RoomPresenceServiceTest.lobbyCountBroadcastsOnlyWhenParticipantCountChanges`, `RoomPresenceServiceTest.lobbySnapshotStillSynchronizesCurrentCountsAfterIncrementalBroadcasts`, `RoomPresenceServiceTest.staleRoomCountBroadcastDoesNotOverwriteTheLatestPresenceCount`, `RoomPresenceServiceTest.lobbySnapshotIsDeliveredBeforeAnyNewerIncrementalRoomCount`, `RoomPresenceServiceTest.stalledLobbySnapshotDoesNotBlockPresenceWrites`, and `RoomPresenceServiceTest.lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked`
-- Mapper query behavior: `MapperIntegrationTest.roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom` confirms `findAll`/`findById` do not aggregate `room_members`; `RoomControllerTest.roomListOverlaysDatabaseCountWithLivePresenceCount` and `RoomControllerTest.roomCardReturnsOneFragmentWithTheLatestLiveCount` confirm the live in-memory count is applied by the web layer
+- Optimization regressions: `RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries`, `RoomPresenceServiceTest.currentCountReturnsDistinctLiveParticipantsForTheRequestedRoom`, `RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock`, `RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes`, `RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock`, `RoomPresenceServiceTest.lobbyCountBroadcastsOnlyWhenParticipantCountChanges`, `RoomPresenceServiceTest.lobbySnapshotStillSynchronizesCurrentCountsAfterIncrementalBroadcasts`, `RoomPresenceServiceTest.staleRoomCountBroadcastDoesNotOverwriteTheLatestPresenceCount`, `RoomPresenceServiceTest.lobbySnapshotIsDeliveredBeforeAnyNewerIncrementalRoomCount`, `RoomPresenceServiceTest.stalledLobbySnapshotDoesNotBlockPresenceWrites`, and `RoomPresenceServiceTest.lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked`
+- Mapper query behavior: `MapperIntegrationTest.roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom` confirms `findAll`/`findById` do not aggregate `room_members`; `RoomControllerTest.roomListOverlaysDatabaseCountWithLivePresenceCount` and `RoomControllerTest.roomCardReturnsOneFragmentWithTheLatestLiveCount` confirm the live in-memory count is applied by the web layer, and the card route reads only the requested room's live count
 - Role-confirmation and final-defense phase results, including timer and permission assertions
 - Restart recovery: `MapperIntegrationTest.interruptedGameRecoveryResetsOnlyRoomsThatArePlaying` and `RoomPresenceServiceTest.resetsInterruptedPlayingRoomsWhenApplicationBecomesReady`; report that persisted `PLAYING` rooms reset while `WAITING` rooms remain unchanged
 - Mafia parity termination: `RoomGameServiceTest.endsOneMafiaOneDoctorGameAtParityBeforeTheNightCanRepeat`
-- Updated role table and opening phase: `RoomGameServiceTest.assignsExactRoleCountsAtTheSupportedPlayerBoundaries`, `RoomGameServiceTest.confirmsRolesPrivatelyAndStartsTheFirstNightWhenEveryLivingPlayerConfirms`, and `RoomGameServiceTest.startsTheFirstNightWhenTheRoleConfirmationTimerExpiresInRealTime`; the Playwright core case also observes `ROLE_ASSIGNMENT → NIGHT → DAY_DISCUSSION`.
+- Updated role table and opening phase: `RoomGameServiceTest.assignsExactRoleCountsAtTheSupportedPlayerBoundaries`, `RoomGameServiceTest.confirmsRolesPrivatelyAndStartsTheFirstNightWhenEveryLivingPlayerConfirms`, and `RoomGameServiceTest.startsTheFirstNightWhenTheRoleConfirmationTimerExpiresInRealTime`; `RoomGameRules.assignRoles` shuffles player IDs before assigning the fixed composition, so the test compares the exact role multiset without assuming a fixed player-to-role mapping. The Playwright core case also observes `ROLE_ASSIGNMENT → NIGHT → DAY_DISCUSSION`.
+- v0.5.1-alpha signup nickname uniqueness: `SignupServiceTest.rejectsInvalidInputsDuplicateEmailAndDuplicateNickname` checks an already-used nickname message, `SignupServiceTest.classifiesNicknameUniquenessRaceAsDuplicateNickname` and `SignupServiceTest.classifiesEmailUniquenessRaceAsDuplicateEmail` cover the post-insert unique-constraint race, and `MapperIntegrationTest.nicknameLookupAndUniqueConstraintRejectDuplicateNicknames` checks both the mapper lookup and database constraint. All three profiles run these Gradle tests; the shared room-layout browser case also attempts signup with an existing nickname and a new email.
+- v0.5.1-alpha help role composition: `RoomGameRulesTest.exposesTheExactRoleCompositionForEverySupportedRoomCapacity` and `RoomControllerTest.roomDetailUsesLiveParticipantsInsteadOfDatabaseMembers` cover exact 4–8 composition data in every profile. The shared room-layout browser case checks the current capacity, changes it from 5 to 6 in Smoke/Regression, confirms the update reaches a guest, and checks the new composition; Full checks the 8-player composition at maximum capacity.
+- v0.5.1-alpha private Mafia teammate identity: `RoomGameServiceTest.privatelyShowsEachMafiaTheOtherMafiaAndKeepsPublicRolesHidden` checks the 7-player private assignment and public-role secrecy; `chat renders a role received through the private role queue` checks Mafia, Spy, and solo-Mafia UI states. Core Playwright checks every Mafia participant at the selected player counts, including the solo case at 4 and teammate names at 7/8; non-Mafia roles must not show the panel.
 - Spy parity: `RoomGameRulesTest.uncontactedLivingSpyDoesNotTurnMafiaMinorityIntoParityVictory`, `RoomGameRulesTest.contactedLivingSpyCountsTowardMafiaParityVictory`, and `RoomGameServiceTest.countsOnlyAContactedSpyTowardTheMafiaParityThreshold`.
 - Settings-save feedback: `RoomControllerTest.savingRoomSettingsFlashesTheSuccessMessageForTheModal` and `test/e2e/room-layout.spec.js` verify modal feedback after password set, change, and removal.
 - Reconnect grace: `RoomPresenceServiceTest.cancelsGameDepartureWhenThePlayerReconnectsWithinTheGracePeriod`, `RoomGameServiceTest.removesAQueuedNightActionWhenAPlayerLeavesAfterReconnectGrace`, and the Full-profile browser deadline/reconnect scenario cover reconnect, expiry, and pending-action handling.
@@ -686,6 +821,7 @@ Verify and report:
 - Role-confirmation phase UI and confirmation request
 - Final-defense phase UI and nominee-only public chat permission
 - Private role rendering
+- Private Mafia teammate rendering: only a Mafia role displays other Mafia nicknames; a solo Mafia sees the no-teammate notice; Spy and citizen roles do not display this information
 - Voting UI
 - Police investigation result rendering
 - Faction-first investigation rendering: `마피아팀`/`시민팀` labels and separate exact-role output for Spy/Medium
@@ -829,15 +965,29 @@ $env:SERVER_PORT = "$serverPort"
 $env:E2E_PROFILE = $e2eProfile
 $env:MAFIAGAME_PHASE_PROFILE = $phaseProfile
 
-$serverLaunchTime = Get-Date
-$appProcess = Start-Process `
-    -FilePath 'cmd.exe' `
-    -ArgumentList '/c .\gradlew.bat bootRun --no-daemon' `
-    -WorkingDirectory $projectPath `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $startupStdoutPath `
-    -RedirectStandardError $startupStderrPath `
-    -PassThru
+$qaJavaTempPath = Join-Path $testResultPath 'java-tmp'
+New-Item -ItemType Directory -Path $qaJavaTempPath -Force | Out-Null
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
+try {
+    # Spring Boot checks ownership of its temp directory. Isolate it from a shared
+    # Windows TEMP folder that may have been created by another account.
+    $env:TEMP = $qaJavaTempPath
+    $env:TMP = $qaJavaTempPath
+    $serverLaunchTime = Get-Date
+    $appProcess = Start-Process `
+        -FilePath 'cmd.exe' `
+        -ArgumentList '/c .\gradlew.bat bootRun --no-daemon' `
+        -WorkingDirectory $projectPath `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $startupStdoutPath `
+        -RedirectStandardError $startupStderrPath `
+        -PassThru
+}
+finally {
+    if ($null -eq $previousTemp) { Remove-Item Env:TEMP -ErrorAction SilentlyContinue } else { $env:TEMP = $previousTemp }
+    if ($null -eq $previousTmp) { Remove-Item Env:TMP -ErrorAction SilentlyContinue } else { $env:TMP = $previousTmp }
+}
 
 $startedServer = $true
 $launcherStartTime = $appProcess.StartTime
@@ -980,22 +1130,46 @@ foreach ($scenario in $requiredScenarioFragments) {
 
 After discovery succeeds, run the core suite and then the UI regression suite once:
 
+PowerShell can convert a native executable's stderr output (including a harmless
+Node.js warning) into an error record. When `$ErrorActionPreference` is `Stop`, that
+can abort this outer lifecycle before `$LASTEXITCODE` is captured and before the UI
+suite runs. For each `npm.cmd` invocation, temporarily use `Continue`, capture the
+native exit code immediately, and restore the prior preference in `finally`. Judge
+the suite by its exit code and Playwright result summary, not by stderr output alone.
+
 ```powershell
+$coreLogPath = Join-Path $testResultPath 'playwright-core.log'
+$uiLogPath = Join-Path $testResultPath 'playwright-ui.log'
 $env:PLAYWRIGHT_OUTPUT_STAGE = 'core'
 Write-Host '[QA_PROGRESS] 3/6 Playwright core suite started.' -ForegroundColor Cyan
-npm.cmd run test:e2e -- --workers=$workerCount --retries=0 --reporter=list
-$e2eExitCode = $LASTEXITCODE
+$savedNativeErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    npm.cmd run test:e2e -- --workers=$workerCount --retries=0 --reporter=list 2>&1 |
+        Tee-Object -FilePath $coreLogPath
+    $e2eExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $savedNativeErrorActionPreference
+}
 Write-Host "[QA_PROGRESS] Playwright core suite exited with code $e2eExitCode." -ForegroundColor Cyan
 
 $env:PLAYWRIGHT_OUTPUT_STAGE = 'ui'
 Write-Host '[QA_PROGRESS] 3/6 Playwright UI suite started.' -ForegroundColor Cyan
-if ($e2eProfile -eq 'smoke') {
-    npm.cmd exec -- playwright test test/e2e/room-layout.spec.js `
-        --workers=$workerCount --retries=0 --reporter=list
-} else {
-    npm.cmd run test:e2e:ui -- --workers=$workerCount --retries=0 --reporter=list
+$savedNativeErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    if ($e2eProfile -eq 'smoke') {
+        npm.cmd exec -- playwright test test/e2e/room-layout.spec.js `
+            --workers=$workerCount --retries=0 --reporter=list 2>&1 |
+            Tee-Object -FilePath $uiLogPath
+    } else {
+        npm.cmd run test:e2e:ui -- --workers=$workerCount --retries=0 --reporter=list 2>&1 |
+            Tee-Object -FilePath $uiLogPath
+    }
+    $uiE2eExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $savedNativeErrorActionPreference
 }
-$uiE2eExitCode = $LASTEXITCODE
 Write-Host "[QA_PROGRESS] Playwright UI suite exited with code $uiE2eExitCode." -ForegroundColor Cyan
 Remove-Item Env:E2E_CAPACITY -ErrorAction SilentlyContinue
 Remove-Item Env:E2E_PROFILE -ErrorAction SilentlyContinue
@@ -1123,23 +1297,25 @@ Verify:
 - The waiting-room `GAME` placeholder is visible before start and the started role panel is visible after start
 - The 8-player role panel reaches the lower game-card edge and the `역할 확인 완료` button remains at the role panel bottom
 
-The selected profile maps to the following executable scope:
+The selected profile maps to the following executable scope. The nickname and
+composition service/database/browser checks are common gates across all profiles;
+core-game Mafia teammate checks follow the listed player counts.
 
 | Profile | Core E2E | UI E2E | Timing/evidence policy |
 |---|---|---|---|
-| Smoke | 4 players; no replay; no resilience | room-layout/profile at 5 players, including 300px game panel and user stats/level | short phases; retain trace on failure; no routine video/screenshots |
-| Regression | 4/6/8 players; replay only 4 | chat-scroll at 30 messages and room-layout/profile at 5 players, including 300px game panel and user stats/level | short phases; retain trace on failure; screenshots enabled, video off |
-| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases | chat-scroll at 210 messages and room-layout/profile at 8 players, including 300px game panel and user stats/level | production phases; full trace/video/screenshot evidence |
+| Smoke | 4 players; no replay; no resilience; confirms the solo-Mafia notice | room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level | short phases; retain trace on failure; no routine video/screenshots |
+| Regression | 4/6/8 players; replay only 4; 8-player case confirms private Mafia teammate names | chat-scroll at 30 messages and room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level | short phases; retain trace on failure; screenshots enabled, video off |
+| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases; private teammate checks at 7/8 | chat-scroll at 210 messages and room-layout/profile at 8 players; duplicate-nickname rejection; maximum-capacity role-help counts; 300px game panel and user stats/level | production phases; full trace/video/screenshot evidence |
 
 Full QA must map to the following executable cases:
 
 | Case | Playwright test | Required result |
 |---|---|---|
-| 4 players | `MVP 4인 핵심 게임 흐름` | Role confirmation, one-mafia role set, final defense, complete game, replay |
+| 4 players | `MVP 4인 핵심 게임 흐름` | Role confirmation, one-mafia role set, visible solo-Mafia notice with no teammate names, final defense, complete game, replay |
 | 5 players | `MVP 5인 핵심 게임 흐름` | Role confirmation, two citizen slots (`MAFIA/POLICE/DOCTOR/CITIZEN/CITIZEN`), final defense, complete game, replay |
 | 6 players | `MVP 6인 핵심 게임 흐름` | Role confirmation, Mafia+Spy+Soldier role set, Spy investigation, Soldier one-hit shield, final defense, Mafia-team execution, night actions, victory, replay |
-| 7 players | `MVP 7인 핵심 게임 흐름` | Role confirmation, two-Mafia+Soldier+Medium role set without Spy, concurrent Mafia-target aggregation, final defense, night actions, victory, replay |
-| 8 players | `MVP 8인 핵심 게임 흐름` | Role confirmation, maximum supported browser flow, final defense, replay |
+| 7 players | `MVP 7인 핵심 게임 흐름` | Role confirmation, two-Mafia+Soldier+Medium role set without Spy; each Mafia privately sees the other Mafia nickname, Spy is absent, and the public game state keeps roles hidden; concurrent Mafia-target aggregation, final defense, night actions, victory, replay |
+| 8 players | `MVP 8인 핵심 게임 흐름` | Role confirmation, maximum supported browser flow; each Mafia privately sees the other Mafia nickname and the public game state keeps roles hidden; final defense, replay |
 | 6→5 before start | `closing a waiting-room tab changes six players to the five-player role threshold` | Closed tab is removed before start; `SPY` and `SOLDIER` are removed, a second `CITIZEN` is added, and the exact five-player role set is assigned |
 | Deadline/reconnect | `browser deadline, reconnect grace, and expired night action` | Near-deadline requests do not hang; reconnect within 30 seconds preserves state; expiry removes the departed player after 30 seconds |
 
@@ -1148,7 +1324,7 @@ Full QA's UI regression inventory must also map to these executable cases:
 | Case | Playwright test | Required result |
 |---|---|---|
 | Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
-| 8-player room layout, profile stats/level, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1`, `1000 XP`, and zero initial totals; successful password set/change/remove saves keep the settings modal open with the success message in its footer; the friend-invite control is absent, help and host-only room settings buttons appear in order, and guests do not see settings; settings strip absent; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
+| 8-player room layout, profile stats/level, signup uniqueness, help composition, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1`, `1000 XP`, and zero initial totals; signup rejects a nickname already used by another account even when the email is new; help shows the exact 8-player role counts; successful password set/change/remove saves keep the settings modal open with the success message in its footer; the friend-invite control is absent, help and host-only room settings buttons appear in order, and guests do not see settings; settings strip absent; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
 
 The normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 registered only when both the Full profile and player count `6` are active. Their
@@ -1247,8 +1423,17 @@ finally {
                 }
 
                 if ($launcherIsSameRun) {
-                    $null = & taskkill.exe /PID $appProcess.Id /T /F 2>&1
-                    $launcherTreeExitCode = $LASTEXITCODE
+                    $savedNativeErrorActionPreference = $ErrorActionPreference
+                    try {
+                        $ErrorActionPreference = 'Continue'
+                        $launcherTreeOutput = @(& taskkill.exe /PID $appProcess.Id /T /F 2>&1)
+                        $launcherTreeExitCode = $LASTEXITCODE
+                    } finally {
+                        $ErrorActionPreference = $savedNativeErrorActionPreference
+                    }
+                    if ($launcherTreeOutput.Count -gt 0) {
+                        $launcherTreeOutput | ForEach-Object { Write-Host $_ }
+                    }
                     if (Get-Process -Id $appProcess.Id -ErrorAction SilentlyContinue) {
                         Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue
                     }
@@ -1317,6 +1502,13 @@ listener cannot be verified, leave the unverified process untouched and report
 cleanup as `BLOCKED`; confirm both the QA process and port are clear before reporting
 cleanup `PASS`.
 
+`taskkill.exe` can return `Access denied` even when the verified QA launcher is
+already exiting. Treat its exit code as diagnostic evidence, continue the direct
+`Stop-Process` fallback, and make the cleanup decision only after the bounded wait:
+the run's Java PID and launcher PID must be absent and the server port must be free.
+Do not keep an early cleanup warning as a final blocker if those post-wait checks
+confirm the QA processes have exited; retain the taskkill output in the run log.
+
 ### 3.5 Delete Test Accounts After the Run
 
 Print `[QA_PROGRESS] 4/6 current-run test-account cleanup started.` before cleanup,
@@ -1348,6 +1540,7 @@ Cleanup rules:
 - Do not delete pre-existing users, rooms, or records. Do not delete a room or account that is still being used by another active session.
 - If the database cleanup cannot be executed or verification shows remaining matching accounts, report cleanup as `BLOCKED` and do not claim the QA run is fully complete.
 - Leave every pre-existing server running; account cleanup must not terminate it.
+- Use `mariadb.exe` (or compatible `mysql.exe`) with `--protocol=tcp`; add `--skip-ssl` only for a loopback endpoint. Temporarily map `DB_PASSWORD` to `MYSQL_PWD`, restore the prior value in `finally`, and never place the password in a command-line argument or captured output.
 
 Use the database client configured for the environment. The following SQL is a template; bind the exact generated email prefix from the current run rather than copying an untrusted value into the query:
 
@@ -1454,13 +1647,16 @@ Validate the following:
 47. When the parity-eligible living Mafia team and the living citizen faction reach parity, the game ends in Mafia victory before another night cycle; an uncontacted living Spy is excluded, and zero living Mafia-team roles still takes precedence for citizen victory
 48. Anonymous lobby presence requests remain allowed, while repeated requests from one session are throttled and requests across sessions are coalesced under the global broadcast limit
 49. Game start is delegated with the WebSocket session ID, transitions the database room before in-memory game creation, restores `WAITING` if creation fails, and removes partial game state if initial publication fails
-50. Role assignment uses the exact 4–8 player table: five players have two Citizens and no Spy; seven players have two Mafia, Soldier, and Medium, with no Spy
+50. Role assignment shuffles players across the exact 4–8 player table: five players have two Citizens and no Spy; seven players have two Mafia, Soldier, and Medium, with no Spy. Verify the role multiset, not a fixed player-to-role order
 51. Role confirmations or the 15-second role timer advance to the first `NIGHT`; the first night lasts 35 seconds before `DAY_DISCUSSION`
 52. Saving room settings reopens the settings modal and shows `방 설정이 저장되었습니다.` in its footer; password set, change, and removal each retain the feedback
 53. An uncontacted living Spy is excluded from Mafia parity, while a successfully contacted Spy is included; contact also grants access to Mafia chat
 54. The 30-second playing-game reconnect grace preserves state and pending night actions; expiry removes the departed player and re-evaluates victory
 55. A completed game updates each participant's statistics once for its completion id; replay increments totals again, while an unfinished game leaves totals unchanged
 56. A win adds 500 XP and a loss adds 100 XP, profile XP and level reflect the persisted amount, and a repeated completion id does not award XP again
+57. Signup rejects a nickname already in use, returns the nickname-specific message, and remains correct when concurrent signups race at the database unique constraint; mapper lookup and the unique index agree
+58. The room-help modal lists the exact role counts for the current 4–8 player capacity and refreshes when a saved capacity update reaches participants; actual role assignment still follows the number of players who start the game
+59. Each Mafia receives the other Mafia nicknames only through their private role assignment; solo Mafia sees the no-teammate notice, Spy and citizens do not see the panel, and public game state continues to hide roles
 
 ### 4.1 Extended Boundary and Resilience Checks
 
@@ -1510,7 +1706,7 @@ Use this evidence split when producing the report:
 
 ### 4.2 Implementation Contracts to Verify
 
-The Java and JavaScript optimization checks below run in every selected profile because their suites execute before the profile-specific Playwright branches. Record their actual test results separately from the profile-specific browser scenarios.
+The shared Java and JavaScript regression checks below run in every selected profile because their suites execute before the profile-specific Playwright branches. Record their actual test results separately from the profile-specific browser scenarios.
 
 #### Optimized room and lobby paths
 
@@ -1521,10 +1717,12 @@ The Java and JavaScript optimization checks below run in every selected profile 
 - Incremental lobby room-count and online-player messages are sent only when their values change. A ready-state-only update must continue reaching the room topic without producing duplicate lobby count messages, while an explicit lobby snapshot still sends the current full counts to a new subscriber.
 - `RoomMapper.findAll` and `RoomMapper.findById` return room metadata without aggregating `room_members`; the lobby and new-card controller paths overlay the live count from `RoomPresenceService`.
 - The new `/rooms/{roomId}/card` route returns one Thymeleaf room-card fragment with the current live count and a 404 if the room disappears before the fetch completes. `room-list.js` must insert only a still-active room and rerun list numbering, search, and filtering.
+- Existing room-card count updates must use the requested room's live count directly. Count-only lobby snapshots must not rescan the rendered card list; a snapshot removing cards should refresh and renumber the list once after the batch.
 
 Automated evidence for these checks:
 
 - `RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries`
+- `RoomPresenceServiceTest.currentCountReturnsDistinctLiveParticipantsForTheRequestedRoom`
 - `RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock`
 - `RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes`
 - `RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock`
@@ -1536,7 +1734,17 @@ Automated evidence for these checks:
 - `RoomPresenceServiceTest.lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked`
 - `MapperIntegrationTest.roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom`
 - `RoomControllerTest.roomCardReturnsOneFragmentWithTheLatestLiveCount` and `RoomControllerTest.roomCardReturnsNotFoundWhenTheRoomWasDeletedBeforeItWasFetched`
-- `test/js/room-list.test.js` covers insertion, active filtering/search, and a zero-count response arriving before the fetched card.
+- `test/js/room-list.test.js` covers insertion, active filtering/search, a zero-count response arriving before the fetched card, and no full-card scan for count-only snapshots with one batched refresh for removals.
+- The shared `RoomControllerTest` and `RoomPresenceServiceTest` coverage runs in Smoke, Regression, and Full; the room-list contract runs in the JavaScript suite used by all three profiles.
+
+#### v0.5.1-alpha feature contracts
+
+- Signup normalizes the nickname before checking `UserMapper.existsByNickname`; Flyway migration `V2__unique_user_name.sql` adds the unique `user_name` constraint as the final guard if two signup requests pass the precheck concurrently. A constraint race is rechecked and reported as the matching nickname/email validation message.
+- `RoomGameRules.roleCountsForPlayerCount` exposes the same exact role table used by game assignment. `RoomController.roomDetail` provides the 4–8 table to `rooms/detail.html`; opening the help modal selects the group matching the latest room capacity.
+- `RoomGameService` includes teammate nicknames only in a Mafia player's private `/queue/game-role` assignment. Spy/citizen assignments carry no teammate list, a solo Mafia gets an empty list, and public `RoomGameState` continues to omit roles.
+- `chat.js` creates teammate list items with text content, hides the panel for non-Mafia roles, and displays the solo-Mafia message when the private list is empty.
+
+Automated evidence, run in all three profiles through Gradle and the shared JavaScript suite, includes `SignupServiceTest`, `MapperIntegrationTest.nicknameLookupAndUniqueConstraintRejectDuplicateNicknames`, `RoomGameRulesTest.exposesTheExactRoleCompositionForEverySupportedRoomCapacity`, `RoomControllerTest.roomDetailUsesLiveParticipantsInsteadOfDatabaseMembers`, `RoomGameServiceTest.privatelyShowsEachMafiaTheOtherMafiaAndKeepsPublicRolesHidden`, and `chat renders a role received through the private role queue`. The shared browser UI case checks duplicate signup and capacity-matched help; core E2E checks the solo and teammate displays for its active counts.
 
 When source inspection is used to explain a result, inspect these contracts directly and include the file and line number in the report:
 
@@ -1667,6 +1875,11 @@ Write the report in the following order:
 
 1. Execution environment
 2. MariaDB preflight and dependency availability
+   Include the effective host, port, and schema (never credentials), whether the
+   authenticated read-only `SELECT 1` succeeded, the local/remote SSL policy used,
+   and any permission-related retry context/result. If the probe did not pass,
+   mark dependent test scopes `BLOCKED`/`NOT RUN` and explain the safe fallback
+   or missing permission without claiming the database service is stopped.
 3. Inspected files and directories
 4. Commands executed
 5. Java test summary and details
@@ -1693,8 +1906,9 @@ The MVP validation table and the per-scenario results must explicitly report:
 - `ROLE_ASSIGNMENT`: role delivery is private, the public game state does not reveal roles, each living player can confirm once, duplicate confirmation is rejected, and the phase advances to the first `NIGHT` on all confirmations or after 15 seconds. The first `NIGHT` lasts 35 seconds before `DAY_DISCUSSION`.
 - `FINAL_DEFENSE`: a unique nominee enters the 20-second phase, only the nominee can use public chat, non-nominees are rejected, and a nominee departure skips execution and advances to night.
 - Measured server-side phase durations: approximately 15 seconds for role assignment, 60 seconds for day discussion, 20 seconds for nomination, 20 seconds for final defense, 20 seconds for execution, and 35 seconds for night.
-- Restart recovery, Mafia parity, anonymous lobby throttling/coalescing, game-start ordering/rollback, and the F-18–F-24 feature checks: report validation items 46–56 with their Java, Playwright, JavaScript, or external evidence, and distinguish the `MapperIntegrationTest` database result from service and controller unit tests.
-- Optimization regressions: report the ten `RoomPresenceServiceTest` methods, mapper metadata behavior, controller card route/404 behavior, and room-list insertion/filter/race checks as shared Java/JavaScript evidence for the selected profile; never infer that the separate performance-benchmark numbers were rerun from these functional regressions.
+- Restart recovery, Mafia parity, anonymous lobby throttling/coalescing, game-start ordering/rollback, and the F-18–F-24 feature checks: report validation items 46–59 with their Java, Playwright, JavaScript, or external evidence, and distinguish the `MapperIntegrationTest` database result from service and controller unit tests.
+- Current v0.5.1-alpha checks: report duplicate nickname behavior and database uniqueness (item 57), role compositions for all 4–8 capacities and live capacity synchronization (item 58), and private Mafia teammate names/role secrecy (item 59). Use shared Java/JavaScript results plus the profile-specific Playwright cases; mark only unselected player-count scenarios `NOT RUN`.
+- Optimization regressions: report the eleven `RoomPresenceServiceTest` methods, mapper metadata behavior, controller card route/404 behavior, and room-list insertion/filter/race/no-rescan/batched-removal checks as shared Java/JavaScript evidence for the selected profile; never infer that the separate performance-benchmark numbers were rerun from these functional regressions.
 
 For every result, include:
 
