@@ -58,7 +58,8 @@
         SET
             total_games = total_games + 1,
             wins = wins + #{wins},
-            losses = losses + #{losses}
+            losses = losses + #{losses},
+            rating = rating + #{experience}
         WHERE user_id = #{userId}
     </update>
 
@@ -89,7 +90,7 @@
     </select>
 
     <select id="findStatsByUserId" resultType="kr.or.oti.mafiagame.domain.UserStats">
-        SELECT total_games, wins, losses, rating
+        SELECT total_games, wins, losses, rating AS experience
         FROM user_stats
         WHERE user_id = #{userId}
     </select>

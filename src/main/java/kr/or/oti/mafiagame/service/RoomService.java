@@ -1,6 +1,7 @@
 package kr.or.oti.mafiagame.service;
 
 import java.util.List;
+import java.util.function.Function;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -80,22 +81,16 @@ public class RoomService {
         if (!"WAITING".equals(room.getStatus())) {
             throw new RoomSettingsException("게임이 시작된 뒤에는 게임방 설정을 변경할 수 없어요.");
         }
-        if (maxPlayers == null
-                || maxPlayers < RoomGameRules.MIN_PLAYERS
-                || maxPlayers > RoomGameRules.MAX_PLAYERS) {
-            throw new RoomSettingsException("최대 인원은 4명에서 8명 사이로 선택해 주세요.");
-        }
+        validateMaxPlayers(maxPlayers, RoomSettingsException::new);
         if (maxPlayers < currentPlayers) {
             throw new RoomSettingsException("현재 참가자 수보다 적은 인원으로 설정할 수 없어요.");
         }
 
         String roomPassword = null;
-        String normalizedPassword = password == null ? "" : password.trim();
+        String normalizedPassword = normalizePassword(password);
         if (passwordEnabled) {
             if (!normalizedPassword.isEmpty()) {
-                if (normalizedPassword.length() < 4 || normalizedPassword.length() > 20) {
-                    throw new RoomSettingsException("비밀번호는 4자 이상 20자 이하로 입력해 주세요.");
-                }
+                validatePasswordLength(normalizedPassword, RoomSettingsException::new);
                 roomPassword = passwordEncoder.encode(normalizedPassword);
             } else if (room.isLocked()) {
                 roomPassword = roomMapper.findPasswordHash(roomId);
@@ -139,16 +134,11 @@ public class RoomService {
         if (normalizedTitle.length() < 2 || normalizedTitle.length() > 100) {
             throw new RoomCreationException("방 제목은 2자 이상 100자 이하로 입력해 주세요.");
         }
-        if (maxPlayers == null
-                || maxPlayers < RoomGameRules.MIN_PLAYERS
-                || maxPlayers > RoomGameRules.MAX_PLAYERS) {
-            throw new RoomCreationException("최대 인원은 4명에서 8명 사이로 선택해 주세요.");
-        }
+        validateMaxPlayers(maxPlayers, RoomCreationException::new);
 
-        String normalizedPassword = password == null ? "" : password.trim();
-        if (!normalizedPassword.isEmpty()
-                && (normalizedPassword.length() < 4 || normalizedPassword.length() > 20)) {
-            throw new RoomCreationException("비밀번호는 4자 이상 20자 이하로 입력해 주세요.");
+        String normalizedPassword = normalizePassword(password);
+        if (!normalizedPassword.isEmpty()) {
+            validatePasswordLength(normalizedPassword, RoomCreationException::new);
         }
 
         Room room = Room.builder()
@@ -166,6 +156,28 @@ public class RoomService {
             throw new RoomCreationException("방장을 등록하지 못했어요. 잠시 후 다시 시도해 주세요.");
         }
         return room.getRoomId();
+    }
+
+    private static void validateMaxPlayers(
+            Integer maxPlayers,
+            Function<String, RuntimeException> exceptionFactory) {
+        if (maxPlayers == null
+                || maxPlayers < RoomGameRules.MIN_PLAYERS
+                || maxPlayers > RoomGameRules.MAX_PLAYERS) {
+            throw exceptionFactory.apply("최대 인원은 4명에서 8명 사이로 선택해 주세요.");
+        }
+    }
+
+    private static String normalizePassword(String password) {
+        return password == null ? "" : password.trim();
+    }
+
+    private static void validatePasswordLength(
+            String normalizedPassword,
+            Function<String, RuntimeException> exceptionFactory) {
+        if (normalizedPassword.length() < 4 || normalizedPassword.length() > 20) {
+            throw exceptionFactory.apply("비밀번호는 4자 이상 20자 이하로 입력해 주세요.");
+        }
     }
 
     public static class RoomCreationException extends RuntimeException {

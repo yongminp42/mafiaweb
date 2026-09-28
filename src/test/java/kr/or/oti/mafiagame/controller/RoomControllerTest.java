@@ -1,6 +1,7 @@
 package kr.or.oti.mafiagame.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -15,6 +16,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ui.ExtendedModelMap;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import kr.or.oti.mafiagame.domain.User;
@@ -54,6 +57,29 @@ class RoomControllerTest {
         List<RoomView> rooms = (List<RoomView>) model.get("rooms");
         assertThat(rooms).singleElement().extracting(RoomView::players).isEqualTo(2);
         assertThat(model.get("onlinePlayerCount")).isEqualTo(2);
+    }
+
+    @Test
+    void roomCardReturnsOneFragmentWithTheLatestLiveCount() {
+        when(roomService.getRoomView(99L)).thenReturn(room(99L, 0));
+        when(roomPresenceService.currentCounts()).thenReturn(Map.of(99L, 3));
+        ExtendedModelMap model = new ExtendedModelMap();
+
+        String view = controller.roomCard(99L, model);
+
+        assertThat(view).isEqualTo("rooms/room-card-fragment");
+        assertThat(((RoomView) model.get("room")).players()).isEqualTo(3);
+        assertThat(model.get("roomIndex")).isEqualTo(-1);
+    }
+
+    @Test
+    void roomCardReturnsNotFoundWhenTheRoomWasDeletedBeforeItWasFetched() {
+        when(roomService.getRoomView(99L)).thenReturn(null);
+
+        assertThatThrownBy(() -> controller.roomCard(99L, new ExtendedModelMap()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> assertThat(((ResponseStatusException) exception).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     @Test

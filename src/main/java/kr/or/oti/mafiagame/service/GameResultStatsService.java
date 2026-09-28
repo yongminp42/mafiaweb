@@ -13,6 +13,9 @@ import kr.or.oti.mafiagame.dto.GameFaction;
 
 @Service
 public class GameResultStatsService {
+    private static final int WIN_EXPERIENCE = 500;
+    private static final int LOSS_EXPERIENCE = 100;
+
     private final UserMapper userMapper;
 
     public GameResultStatsService(UserMapper userMapper) {
@@ -55,8 +58,7 @@ public class GameResultStatsService {
     }
 
     private int incrementStats(PlayerOutcome outcome) {
-        int updatedRows = userMapper.incrementGameStats(
-                outcome.userId(), outcome.won() ? 1 : 0, outcome.won() ? 0 : 1);
+        int updatedRows = incrementGameStats(outcome);
         if (updatedRows > 0) {
             return updatedRows;
         }
@@ -66,8 +68,15 @@ public class GameResultStatsService {
         } catch (DuplicateKeyException concurrentInsert) {
             // Another completion created the missing stats row; update that row below.
         }
+        return incrementGameStats(outcome);
+    }
+
+    private int incrementGameStats(PlayerOutcome outcome) {
         return userMapper.incrementGameStats(
-                outcome.userId(), outcome.won() ? 1 : 0, outcome.won() ? 0 : 1);
+                outcome.userId(),
+                outcome.won() ? 1 : 0,
+                outcome.won() ? 0 : 1,
+                outcome.won() ? WIN_EXPERIENCE : LOSS_EXPERIENCE);
     }
 
     public record PlayerOutcome(long userId, boolean won) {

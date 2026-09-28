@@ -17,13 +17,32 @@ function roomListMarkup() {
   return `<!doctype html>
     <html><body>
       <span id="onlinePlayerCount">0</span>
-      <article class="room-card" data-room-id="1">
-        <span data-room-player-count>5</span>
-      </article>
-      <article class="room-card" data-room-id="2">
-        <span data-room-player-count>4</span>
-      </article>
+      <span id="roomCount">2</span>
+      <input id="roomSearch" type="search">
+      <select id="roomFilter">
+        <option value="all" selected>모든 게임</option>
+        <option value="WAITING">대기 중</option>
+        <option value="PLAYING">게임 중</option>
+      </select>
+      <div id="roomList">
+        <article class="room-card" data-room-id="1" data-status="WAITING" data-title="room one">
+          <span class="room-number">01</span>
+          <span data-room-player-count>5</span>
+        </article>
+        <article class="room-card" data-room-id="2" data-status="PLAYING" data-title="room two">
+          <span class="room-number">02</span>
+          <span data-room-player-count>4</span>
+        </article>
+      </div>
+      <p id="emptyState" hidden>조건에 맞는 게임이 없습니다.</p>
     </body></html>`;
+}
+
+function roomCardFragment(roomId = 99) {
+  return `<article class="room-card" data-room-id="${roomId}" data-status="WAITING" data-title="new room">
+    <span class="room-number">--</span>
+    <span data-room-player-count>0</span>
+  </article>`;
 }
 
 function patchNotesMarkup(content, detailContent = '') {
@@ -191,14 +210,13 @@ test('room list keeps its lobby connection when there are no room cards', () => 
   }
 });
 
-test('room list schedules a refresh when a live room is not in the current cards', () => {
+test('room list fetches and inserts a missing live room card without reloading the page', async () => {
   const dom = createDom(roomListMarkup());
-  const scheduledCallbacks = [];
-  dom.window.setTimeout = callback => {
-    scheduledCallbacks.push(callback);
-    return scheduledCallbacks.length;
+  let requestedUrl;
+  dom.window.fetch = async url => {
+    requestedUrl = url;
+    return { ok: true, text: async () => roomCardFragment() };
   };
-  dom.window.clearTimeout = () => {};
   try {
     loadScript(dom, stompSource);
     loadScript(dom, roomListSource);
@@ -212,22 +230,66 @@ test('room list schedules a refresh when a live room is not in the current cards
       { destination: '/topic/rooms/presence' },
       JSON.stringify({ roomId: 99, currentPlayers: 1 })
     ));
+    await new Promise(resolve => setTimeout(resolve, 0));
 
-    assert.equal(scheduledCallbacks.length, 1);
+    const card = dom.window.document.querySelector('[data-room-id="99"]');
+    assert.equal(requestedUrl, '/rooms/99/card');
+    assert.ok(card);
+    assert.equal(card.querySelector('[data-room-player-count]').textContent, '1');
+    assert.equal(dom.window.document.querySelector('#roomCount').textContent, '3');
+    assert.deepEqual(
+      [...dom.window.document.querySelectorAll('#roomList .room-card')]
+        .map(room => room.dataset.roomId),
+      ['1', '99', '2']
+    );
   } finally {
     dom.window.close();
   }
 });
 
-test('room list cancels a pending refresh when the page starts navigating away', () => {
+test('room list applies the active search and status filter to a newly inserted card', async () => {
   const dom = createDom(roomListMarkup());
-  const scheduledCallbacks = [];
-  const clearedTimers = [];
-  dom.window.setTimeout = callback => {
-    scheduledCallbacks.push(callback);
-    return scheduledCallbacks.length;
-  };
-  dom.window.clearTimeout = timerId => clearedTimers.push(timerId);
+  dom.window.fetch = async () => ({ ok: true, text: async () => roomCardFragment() });
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+
+    dom.window.document.querySelector('#roomSearch').value = 'new';
+    dom.window.document.querySelector('#roomSearch').dispatchEvent(new dom.window.Event('input'));
+    const filter = dom.window.document.querySelector('#roomFilter');
+    filter.value = 'WAITING';
+    filter.dispatchEvent(new dom.window.Event('change'));
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify({ roomId: 99, currentPlayers: 1 })
+    ));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const card = dom.window.document.querySelector('[data-room-id="99"]');
+    assert.ok(card);
+    assert.equal(card.hidden, false);
+    assert.equal(dom.window.document.querySelector('[data-room-id="1"]').hidden, true);
+    assert.equal(dom.window.document.querySelector('[data-room-id="2"]').hidden, true);
+    assert.equal(dom.window.document.querySelector('#emptyState').hidden, true);
+    assert.equal(card.querySelector('.room-number').textContent, '02');
+    assert.equal(dom.window.document.querySelector('#roomCount').textContent, '3');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('room list discards a fetched card when its live count reaches zero first', async () => {
+  const dom = createDom(roomListMarkup());
+  let resolveFetch;
+  dom.window.fetch = () => new Promise(resolve => {
+    resolveFetch = resolve;
+  });
   try {
     loadScript(dom, stompSource);
     loadScript(dom, roomListSource);
@@ -241,25 +303,56 @@ test('room list cancels a pending refresh when the page starts navigating away',
       { destination: '/topic/rooms/presence' },
       JSON.stringify({ roomId: 99, currentPlayers: 1 })
     ));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify({ roomId: 99, currentPlayers: 0 })
+    ));
+    resolveFetch({ ok: true, text: async () => roomCardFragment() });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
+    assert.equal(dom.window.document.querySelector('[data-room-id="99"]'), null);
+    assert.equal(dom.window.document.querySelector('#roomCount').textContent, '2');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('room list ignores a missing room response after navigation starts', async () => {
+  const dom = createDom(roomListMarkup());
+  let resolveFetch;
+  dom.window.fetch = () => new Promise(resolve => {
+    resolveFetch = resolve;
+  });
+  try {
+    loadScript(dom, stompSource);
+    loadScript(dom, roomListSource);
+    const socket = FakeWebSocket.instances[0];
+    const { createFrame } = dom.window.MafiaStomp;
+
+    socket.open();
+    socket.receive(createFrame('CONNECTED', { 'heart-beat': '0,0' }));
+    socket.receive(createFrame(
+      'MESSAGE',
+      { destination: '/topic/rooms/presence' },
+      JSON.stringify({ roomId: 99, currentPlayers: 1 })
+    ));
     dom.window.dispatchEvent(new dom.window.Event('beforeunload'));
+    resolveFetch({ ok: true, text: async () => roomCardFragment() });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
-    assert.deepEqual(clearedTimers.filter(timerId => timerId !== undefined), [1]);
-    assert.equal(scheduledCallbacks.length, 1);
+    assert.equal(dom.window.document.querySelector('[data-room-id="99"]'), null);
   } finally {
     dom.window.close();
   }
 });
 
-test('room list cancels a pending refresh when an internal link starts navigation', () => {
+test('room list ignores a missing room response after an internal link starts navigation', async () => {
   const dom = createDom(roomListMarkup());
-  const scheduledCallbacks = [];
-  const clearedTimers = [];
-  dom.window.setTimeout = callback => {
-    scheduledCallbacks.push(callback);
-    return scheduledCallbacks.length;
-  };
-  dom.window.clearTimeout = timerId => clearedTimers.push(timerId);
+  let resolveFetch;
+  dom.window.fetch = () => new Promise(resolve => {
+    resolveFetch = resolve;
+  });
   dom.window.document.body.insertAdjacentHTML(
     'beforeend',
     '<a class="join" href="/rooms/99">입장</a>'
@@ -280,16 +373,16 @@ test('room list cancels a pending refresh when an internal link starts navigatio
       { destination: '/topic/rooms/presence' },
       JSON.stringify({ roomId: 99, currentPlayers: 1 })
     ));
-
     const link = dom.window.document.querySelector('a.join');
     link.dispatchEvent(new dom.window.MouseEvent('pointerdown', {
       bubbles: true,
       cancelable: true,
       button: 0
     }));
+    resolveFetch({ ok: true, text: async () => roomCardFragment() });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
-    assert.deepEqual(clearedTimers.filter(timerId => timerId !== undefined), [1]);
-    assert.equal(scheduledCallbacks.length, 1);
+    assert.equal(dom.window.document.querySelector('[data-room-id="99"]'), null);
   } finally {
     dom.window.close();
   }

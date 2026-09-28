@@ -11,7 +11,7 @@ Execute the project tests and validate the implementation against the MVP requir
 Change only the values in this section before each run. Keep the rest of this document unchanged so that it can be reused for future QA runs.
 
 ```powershell
-$projectPath = 'C:\workspace\mafiaweb'
+$projectPath = 'C:\workspace-sts-5.3.0\mafiagame'
 $e2eEnabled = $true
 $e2eProfile = $null
 $playerCounts = $null
@@ -54,31 +54,27 @@ if ([string]::IsNullOrWhiteSpace($e2eProfile)) {
     Write-Host ''
     Write-Host 'Select the QA scenario to run:' -ForegroundColor Cyan
     Write-Host '  1) Smoke      - Java/JS tests, one 4-player core flow, and one room-layout/profile UI flow.'
-    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and rating-derived level.'
+    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and experience-based level (new accounts: Lv. 1, 1000 XP).'
     Write-Host '                    Uses short server phases; skips replay, resilience, and chat-scroll.'
     Write-Host '                    Estimated time: about 5-10 minutes; best for a quick daily check.'
     Write-Host '  2) Regression - 4/6/8-player core flows, replay for 4 players, room-layout/profile, and chat-scroll.'
-    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and rating-derived level.'
+    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and experience-based level (new accounts: Lv. 1, 1000 XP).'
     Write-Host '                    Uses short server phases and 30 browser messages; skips 6-player resilience.'
     Write-Host '                    Estimated time: about 15-25 minutes; recommended before a normal merge.'
     Write-Host '  3) Full       - 4/5/6/7/8-player flows, replay for every count, resilience/deadline cases,'
     Write-Host '                    room-layout/profile checks, 210-message chat-scroll, production timing, and all evidence.'
     Write-Host '                    Estimated time: 60 minutes or more; use for release or timing validation.'
-    Write-Host '  4) DuckDNS    - systemd/updater contract checks and a mocked update; no database or game server.'
-    Write-Host '                    Live DNS and external access are not part of this profile.'
-    Write-Host '                    Estimated time: about 1 minute; updater runtime checks require POSIX Bash.'
     Write-Host ''
-    Write-Host 'No default profile is selected. Enter 1, 2, 3, or 4 to continue.' -ForegroundColor Yellow
+    Write-Host 'No default profile is selected. Enter 1, 2, or 3 to continue.' -ForegroundColor Yellow
 
     do {
-        $profileChoice = (Read-Host 'Enter 1, 2, 3, or 4').Trim()
-    } while ($profileChoice -notin @('1', '2', '3', '4'))
+        $profileChoice = (Read-Host 'Enter 1, 2, or 3').Trim()
+    } while ($profileChoice -notin @('1', '2', '3'))
 
     $e2eProfile = @{
         '1' = 'smoke'
         '2' = 'regression'
         '3' = 'full'
-        '4' = 'duckdns'
     }[$profileChoice]
 }
 
@@ -88,29 +84,20 @@ $profileDefaults = @{
     full = @{ playerCounts = '4,5,6,7,8'; uiCapacity = 8; phaseProfile = 'production' }
 }
 
-if ($e2eProfile -eq 'duckdns') {
-    $e2eEnabled = $false
-    $playerCounts = $null
-    $uiCapacity = $null
-    $phaseProfile = $null
-    Write-Host 'Selected QA profile: duckdns' -ForegroundColor Green
-    Write-Host 'Scope: isolated DuckDNS tests only; no MariaDB, Gradle, game server, or Playwright.'
-} else {
-    if (-not $profileDefaults.ContainsKey($e2eProfile)) {
-        throw "Unsupported QA profile: $e2eProfile. Use smoke, regression, full, or duckdns."
-    }
-
-    if ([string]::IsNullOrWhiteSpace($playerCounts)) {
-        $playerCounts = $profileDefaults[$e2eProfile].playerCounts
-    }
-    if ($null -eq $uiCapacity) {
-        $uiCapacity = $profileDefaults[$e2eProfile].uiCapacity
-    }
-    $phaseProfile = $profileDefaults[$e2eProfile].phaseProfile
-
-    Write-Host "Selected QA profile: $e2eProfile" -ForegroundColor Green
-    Write-Host "Player counts: $playerCounts; UI capacity: $uiCapacity; server phase profile: $phaseProfile"
+if (-not $profileDefaults.ContainsKey($e2eProfile)) {
+    throw "Unsupported QA profile: $e2eProfile. Use smoke, regression, or full."
 }
+
+if ([string]::IsNullOrWhiteSpace($playerCounts)) {
+    $playerCounts = $profileDefaults[$e2eProfile].playerCounts
+}
+if ($null -eq $uiCapacity) {
+    $uiCapacity = $profileDefaults[$e2eProfile].uiCapacity
+}
+$phaseProfile = $profileDefaults[$e2eProfile].phaseProfile
+
+Write-Host "Selected QA profile: $e2eProfile" -ForegroundColor Green
+Write-Host "Player counts: $playerCounts; UI capacity: $uiCapacity; server phase profile: $phaseProfile"
 if ((Read-Host 'Start this QA scenario now? Enter Y to continue') -notmatch '(?i)^y$') {
     throw 'QA run cancelled before execution.'
 }
@@ -118,10 +105,9 @@ if ((Read-Host 'Start this QA scenario now? Enter Y to continue') -notmatch '(?i
 
 Configuration rules:
 
-- Set `$e2eEnabled` to `$true` or `$false` before execution. Profile 4 sets it to `$false` automatically.
+- Set `$e2eEnabled` to `$true` or `$false` before execution.
 - If `$e2eEnabled = $false`, skip all Playwright commands and report E2E as `NOT RUN`.
-- `$e2eProfile` is `smoke`, `regression`, or `full` for game QA; `duckdns` selects the standalone DuckDNS profile. Leaving it blank invokes the blocking selection prompt above.
-- When `$e2eProfile` is `duckdns`, run only the DuckDNS-only section below. Do not run the shared MariaDB, Gradle, server, Playwright, or account-cleanup sections.
+- `$e2eProfile` is `smoke`, `regression`, or `full`. Leaving it blank invokes the blocking selection prompt above.
 - The Playwright configuration also rejects a missing `E2E_PROFILE`; running Playwright directly is not a way to skip profile selection.
 - Reset `$e2eProfile` to `$null` for every new QA request unless the user explicitly named the profile in that request; never carry a profile forward from an earlier QA run.
 - A previous PASS, FAIL, BLOCKED, or cancelled QA result does not satisfy profile selection for the next request.
@@ -131,7 +117,6 @@ Configuration rules:
 - Use the profile defaults for `$playerCounts` and `$uiCapacity` unless a narrower explicit override is required for a targeted investigation. `PLAYER_COUNTS` may contain only counts in the selected profile; a complete Full QA run requires all five counts.
 - Leave `$onlineBaseline = $null` unless the existing online-user count is known and intentionally fixed. The first core scenario measures the baseline before its other test accounts sign in; set an explicit non-negative integer only when a shared-server count is externally verified.
 - Smoke and Regression set `MAFIAGAME_PHASE_PROFILE=short` (3 seconds per non-terminal phase). Full sets `MAFIAGAME_PHASE_PROFILE=production` and is the only profile that judges 15/60/20/20/20/35-second timings.
-- DuckDNS runs the isolated `npm.cmd run qa:duckdns` command. It verifies local systemd/updater contracts and runs a mocked updater integration only when POSIX Bash is available; it never performs a live DuckDNS update or DNS lookup.
 - Playwright uses `trace: retain-on-failure` for Smoke/Regression and `trace: on` for Full. Core and UI invocations use separate `core/` and `ui/` output folders under `output/test_output/YYYY-MM-DD/playwright-<E2E_RUN_ID>/` so the UI run cannot erase core traces.
 - Use a new `E2E_RUN_ID` for every execution.
 - Use the same `E2E_RUN_ID` for the core and UI regression suites so their accounts and rooms can be cleaned up together.
@@ -141,7 +126,7 @@ Configuration rules:
 - Frontend design checks must use the actual game-room detail route `/rooms/{roomId}` and its server-rendered template. The lobby route `/rooms` is not sufficient evidence for room UI changes.
 - For the current room UI, verify the fixed `게임 목록으로` button remains visible in both normal and `body.night-phase` backgrounds without switching its own colors by phase.
 - Verify `PUBLIC`, `MAFIA`, and `DEAD` message bubbles have distinct channel classes and visible visual treatment. Verify that the page-only `NIGHT` background is gray, transitions through `background-color`, and returns to the normal light background after `DAY_DISCUSSION` or `FINISHED`.
-- Verify the room host sees `방 설정` after the `친구 초대` and help buttons, while non-host participants do not see the control. Verify the settings modal exposes only 4–8 player capacities, password enable/change/remove controls, and preserves host access after a reload. After each successful save, the modal stays open and shows `방 설정이 저장되었습니다.` in its lower-left footer.
+- Verify the removed friend-invite control is absent. The room host sees `방 설정` after the help button, while non-host participants do not see the control. Verify the settings modal exposes only 4–8 player capacities, password enable/change/remove controls, and preserves host access after a reload. After each successful save, the modal stays open and shows `방 설정이 저장되었습니다.` in its lower-left footer.
 - Verify a capacity below the live participant count is disabled in the browser, shows the capacity warning, disables save, and is rejected again by the server if a stale or forged request is submitted. Verify a presence update that changes capacity or lock state reaches every participant screen.
 - Verify `FINISHED` forces the selector to `PUBLIC`, hides and disables `MAFIA` and `DEAD`, and routes a public message sent by a dead participant to the public room topic.
 - Verify police results render `마피아팀`/`시민팀` as the faction first, while Spy/Medium exact-role results render the role separately as `직업: <역할>`.
@@ -159,22 +144,48 @@ is profile-aware:
 - Smoke keeps Playwright traces only on failure and does not record routine browser videos or screenshots.
 - Regression keeps traces only on failure and captures screenshots for the UI/core regression cases, but does not record routine videos.
 - Full keeps traces, screenshots, and videos for every executed browser scenario and is the required profile for release evidence and production timing.
-- DuckDNS stores its Node test output and Korean report in its own run-specific directory; it creates no Playwright artifacts.
 - If a required artifact for the selected profile is missing, report that affected item as `BLOCKED`; do not require Full-only video evidence from Smoke.
-- Java/JavaScript console output and reports remain mandatory for Smoke, Regression, and Full. Full requires a continuous desktop progress video covering preflight through final result and cleanup; initialize and validate the recorder below before any test command. Smoke/Regression record MVP item 41 as `NOT REQUIRED` and do not block on a desktop video. DuckDNS-only records item 41 as `NOT APPLICABLE`; it captures only its isolated Node test output and report.
+- Java/JavaScript console output and reports remain mandatory for all profiles. Full requires a continuous desktop progress video covering preflight through final result and cleanup; initialize and validate the recorder below before any test command. Smoke/Regression record MVP item 41 as `NOT REQUIRED` and do not block on a desktop video.
 - Store screenshots, videos, traces, logs, and other test evidence in `output/test_output/YYYY-MM-DD/<test-name>/`, using a run-specific test name keyed by `E2E_RUN_ID`; never overwrite evidence from an earlier run.
 - Record the exact generated paths in the QA report. Screenshots and videos supplement, but never replace, console output, logs, JUnit XML, Gradle reports, Playwright traces, and assertions.
 - Ensure credentials, tokens, personal data, and unrelated desktop content are not visible in captured evidence.
 - Use `$dbHost` and `$dbPort` from the application datasource configuration. If MariaDB is not reachable, stop before starting the application and mark the run `BLOCKED`/`NOT RUN`; do not install or start a database service automatically.
 - Save the final QA report under `$projectPath\$qaReportDirectory`.
-- Use a unique report filename containing the execution date and `E2E_RUN_ID` for Smoke, Regression, and Full. DuckDNS profile 4 uses its qa-duckdns timestamp run identifier instead.
+- Use a unique report filename containing the execution date and `E2E_RUN_ID` for every profile.
 - Do not modify source code unless `$sourceModificationAllowed = $true` in a separate request.
+
+#### Permission boundary handling
+
+Treat permission errors from the Codex execution sandbox as a process-capability
+issue. Do not change Windows ACLs, persistent PowerShell execution policy, Windows
+privacy settings, or run the shell as Administrator to work around them.
+
+- **PowerShell script blocked by policy:** start a new local PowerShell process with
+  the process-scoped `RemoteSigned` argument described below. Do not use
+  `Set-ExecutionPolicy` or `Bypass`.
+- **Node `child_process.fork` returns `EPERM`:** retry the same worker probe and,
+  only if it succeeds, run the selected Playwright lifecycle through Codex
+  `exec_command` with `sandbox_permissions: "require_escalated"`. The E2E worker
+  permission does not carry over to a separate ordinary-sandbox invocation.
+- **Full-profile FFmpeg `gdigrab` reports Win32 error 5 / `Access is denied`:**
+  before the MariaDB probe or any test command, rerun the short desktop-capture
+  startup probe through Codex `exec_command` with
+  `sandbox_permissions: "require_escalated"`. Keep that recorder process alive
+  for the complete Full run. Continue only after it remains running and has
+  produced a nonempty MP4 after the startup check. Do not change machine-level
+  desktop-capture permissions. If the escalated probe is unavailable, denied, or
+  still fails, save the preflight report and mark Full `BLOCKED` with every test
+  scope `NOT RUN`.
+
+Smoke and Regression do not use desktop capture. They need escalation only when
+the shared Node worker probe returns `EPERM`; a missing Full-only recorder is not
+a reason to block those profiles.
 
 ### Full QA progress recording (required)
 
-For Smoke and Regression, set the progress evidence state to `NOT REQUIRED`. For
-DuckDNS-only, report `NOT APPLICABLE`. Full must start a continuous desktop recording
-after the user confirms the selected profile and before file inspection, DB/dependency
+For Smoke and Regression, set the progress evidence state to `NOT REQUIRED`. Full
+must start a continuous desktop recording after the user confirms the selected profile
+and before file inspection, DB/dependency
 preflight, Java, JavaScript, server startup, or Playwright. This catches missing
 screen-capture permissions before a long QA run can finish without the required file.
 
@@ -185,38 +196,80 @@ automatically during QA. If `ffmpeg.exe`/`ffprobe.exe` is missing or desktop cap
 cannot start, stop before running tests, report Full as `BLOCKED`, and include the
 preflight error and `NOT RUN` test scopes in the Korean report.
 
-After interactive profile selection and confirmation, run this block for game QA
-profiles before `## Initial Inspection` and `## 0. Environment Preflight`. Do not run
-it for DuckDNS-only; that profile has its own run ID and artifact directory.
+#### PowerShell startup gate
+
+Windows PowerShell 5.1 can default to `Restricted` even when another PowerShell host
+reports a different policy. A `.ps1` launched with `-File` then exits before its first
+line, so no test or QA report code inside that file can run. Start the dedicated local
+QA process with a process-scoped policy before invoking a `.ps1` file:
 
 ```powershell
-if ($e2eProfile -ne 'duckdns') {
-    $env:E2E_RUN_ID = 'qa-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
-    $testOutputDate = Get-Date -Format 'yyyy-MM-dd'
-    $testResultPath = Join-Path $projectPath (Join-Path 'output\test_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
-    if (Test-Path -LiteralPath $testResultPath) {
-        throw "QA output already exists; refusing to overwrite: $testResultPath"
-    }
-    New-Item -ItemType Directory -Force -Path $testResultPath | Out-Null
+$qaPowerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$qaWindow = Start-Process `
+    -FilePath $qaPowerShellPath `
+    -ArgumentList @('-NoProfile', '-NoExit', '-ExecutionPolicy', 'RemoteSigned') `
+    -WindowStyle Maximized `
+    -PassThru
 
-    $progressRecordingState = 'NOT REQUIRED'
-    $progressRecorderProcess = $null
-    $progressRecorderErrorTask = $null
-    if ($e2eProfile -eq 'full') {
-        $progressVideoPath = Join-Path $testResultPath 'qa-progress-full.mp4'
-        $progressStartScreenshotPath = Join-Path $testResultPath 'qa-progress-start.png'
-        $progressFinalScreenshotPath = Join-Path $testResultPath 'qa-progress-final.png'
-        $progressRecorderLogPath = Join-Path $testResultPath 'qa-progress-recorder.log'
-        function Save-QAProgressPreflightBlockedReport {
-            param([Parameter(Mandatory)][string]$Reason)
+Start-Sleep -Seconds 1
+$qaWindow.Refresh()
+if ($qaWindow.HasExited -or $qaWindow.MainWindowHandle -eq 0) {
+    throw 'QA startup BLOCKED: the dedicated interactive PowerShell window did not open.'
+}
+```
 
-            $reportDirectoryPath = Join-Path $projectPath $qaReportDirectory
-            New-Item -ItemType Directory -Force -Path $reportDirectoryPath | Out-Null
-            $reportPath = Join-Path $reportDirectoryPath ("MAFIAGAME_QA_REPORT_{0}_{1}.md" -f $testOutputDate, $env:E2E_RUN_ID)
-            if (Test-Path -LiteralPath $reportPath) {
-                throw "Refusing to overwrite an existing QA report: $reportPath"
-            }
-            $report = @"
+`RemoteSigned` applies only to this new PowerShell process and permits local workspace
+scripts while retaining the signature requirement for scripts marked as downloaded.
+Do not use `Set-ExecutionPolicy`, change a persistent scope, or use `Bypass`. Run the
+runbook commands in this new interactive prompt. If an actual local `.ps1` runner is
+launched instead, add `'-File', $qaScriptPath` to the argument array after validating
+that the path resolves to a file inside the workspace. Put `'-ExecutionPolicy',
+'RemoteSigned'` before `'-File'`. Do not call `Get-ExecutionPolicy` as a startup gate;
+some PowerShell 5.1 installations fail while importing its security module. The
+process launch argument is the process-only setting, and the Full recorder verifies
+that the script is running in a visible window with the expected run-specific title.
+
+Do not depend on `$Host.UI.RawUI.WindowState`; some noninteractive PowerShell hosts do
+not expose that property. The parent uses `-WindowStyle Maximized`. The recorder setup
+must set a run-specific `WindowTitle`, refresh `Get-Process -Id $PID`, and verify the
+visible console handle and title. If either check fails, save the preflight-blocked
+report and stop before DB checks or test commands.
+
+If PowerShell code containing Korean report text is saved as a `.ps1` file, save that
+file as UTF-8 with BOM for Windows PowerShell 5.1. UTF-8 without BOM may be decoded as
+the local ANSI code page and corrupt the Korean report before it is written.
+
+After interactive profile selection and confirmation, run this block for all profiles
+before `## Initial Inspection` and `## 0. Environment Preflight`.
+
+```powershell
+$env:E2E_RUN_ID = 'qa-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+$testOutputDate = Get-Date -Format 'yyyy-MM-dd'
+$testResultPath = Join-Path $projectPath (Join-Path 'output\test_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
+if (Test-Path -LiteralPath $testResultPath) {
+    throw "QA output already exists; refusing to overwrite: $testResultPath"
+}
+New-Item -ItemType Directory -Force -Path $testResultPath | Out-Null
+
+$progressRecordingState = 'NOT REQUIRED'
+$progressRecorderProcess = $null
+$progressRecorderErrorTask = $null
+$ffmpegBin = $env:FFMPEG_BIN
+if ($e2eProfile -eq 'full') {
+    $progressVideoPath = Join-Path $testResultPath 'qa-progress-full.mp4'
+    $progressStartScreenshotPath = Join-Path $testResultPath 'qa-progress-start.png'
+    $progressFinalScreenshotPath = Join-Path $testResultPath 'qa-progress-final.png'
+    $progressRecorderLogPath = Join-Path $testResultPath 'qa-progress-recorder.log'
+    function Save-QAProgressPreflightBlockedReport {
+        param([Parameter(Mandatory)][string]$Reason)
+
+        $reportDirectoryPath = Join-Path $projectPath $qaReportDirectory
+        New-Item -ItemType Directory -Force -Path $reportDirectoryPath | Out-Null
+        $reportPath = Join-Path $reportDirectoryPath ("MAFIAGAME_QA_REPORT_{0}_{1}.md" -f $testOutputDate, $env:E2E_RUN_ID)
+        if (Test-Path -LiteralPath $reportPath) {
+            throw "Refusing to overwrite an existing QA report: $reportPath"
+        }
+        $report = @"
 # MAFIAGAME Full QA 보고서
 
 - 실행 날짜: $testOutputDate
@@ -236,64 +289,97 @@ if ($e2eProfile -ne 'duckdns') {
 
 진행 화면 증거 준비가 끝나지 않아 어떤 테스트 명령도 실행하지 않았다. 이 보고서는 사전 점검 결과를 기록하며, 미실행 테스트는 PASS로 간주하지 않는다.
 "@
-            Set-Content -LiteralPath $reportPath -Encoding utf8 -Value $report
-            Write-Host "[QA_PROGRESS] Preflight BLOCKED report: $reportPath" -ForegroundColor Yellow
-        }
-        $ffmpegCommand = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
-        $ffprobeCommand = Get-Command ffprobe.exe -ErrorAction SilentlyContinue
-        if (-not $ffmpegCommand -or -not $ffprobeCommand) {
-            $progressRecordingState = 'BLOCKED'
-            $qaFinalVerdict = 'BLOCKED'
-            $qaFinalVerdictReason = 'Full QA progress capture tools are unavailable; test execution did not start.'
-            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value 'ffmpeg.exe and/or ffprobe.exe was not found on PATH.'
-            Save-QAProgressPreflightBlockedReport -Reason 'ffmpeg.exe and/or ffprobe.exe was not found on PATH.'
-            throw 'Full QA progress recording is BLOCKED: ffmpeg.exe and ffprobe.exe must be installed and available on PATH before QA starts.'
-        }
-
-        $ffmpegStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-        $ffmpegStartInfo.FileName = $ffmpegCommand.Source
-        $ffmpegStartInfo.Arguments = '-hide_banner -loglevel error -nostats -y -f gdigrab -framerate 2 -draw_mouse 1 -i desktop -vf scale=1280:-2 -an -c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p -movflags +faststart -f mp4 "' + $progressVideoPath + '"'
-        $ffmpegStartInfo.UseShellExecute = $false
-        $ffmpegStartInfo.CreateNoWindow = $true
-        $ffmpegStartInfo.RedirectStandardInput = $true
-        $ffmpegStartInfo.RedirectStandardError = $true
-        $progressRecorderProcess = [System.Diagnostics.Process]::new()
-        $progressRecorderProcess.StartInfo = $ffmpegStartInfo
-        try {
-            $recorderStarted = $progressRecorderProcess.Start()
-        } catch {
-            $progressRecordingState = 'BLOCKED'
-            $qaFinalVerdict = 'BLOCKED'
-            $qaFinalVerdictReason = $_.Exception.Message
-            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $_.Exception.ToString()
-            Save-QAProgressPreflightBlockedReport -Reason $_.Exception.ToString()
-            throw "Full QA progress recording is BLOCKED: ffmpeg could not start. $($_.Exception.Message)"
-        }
-        if (-not $recorderStarted) {
-            $progressRecordingState = 'BLOCKED'
-            $qaFinalVerdict = 'BLOCKED'
-            $qaFinalVerdictReason = 'FFmpeg failed to start; tests did not run.'
-            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value 'Process.Start returned false.'
-            Save-QAProgressPreflightBlockedReport -Reason 'Process.Start returned false.'
-            throw 'Full QA progress recording is BLOCKED: ffmpeg did not start.'
-        }
-        $progressRecorderErrorTask = $progressRecorderProcess.StandardError.ReadToEndAsync()
-        $progressRecordingStartedAt = Get-Date
-        Start-Sleep -Seconds 2
-        if ($progressRecorderProcess.HasExited) {
-            $recorderError = $progressRecorderErrorTask.Result
-            $progressRecordingState = 'BLOCKED'
-            $qaFinalVerdict = 'BLOCKED'
-            $qaFinalVerdictReason = 'FFmpeg exited before environment preflight; tests did not run.'
-            Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $recorderError
-            Save-QAProgressPreflightBlockedReport -Reason $recorderError
-            throw "Full QA progress recording is BLOCKED: ffmpeg exited during startup. $recorderError"
-        }
-
-        $progressRecordingState = 'RECORDING'
-        Write-Host "[QA_PROGRESS] Recording started before preflight: $progressVideoPath" -ForegroundColor Green
-        Write-Host "[QA_PROGRESS] Start screenshot: $progressStartScreenshotPath" -ForegroundColor Green
+        Set-Content -LiteralPath $reportPath -Encoding utf8 -Value $report
+        Write-Host "[QA_PROGRESS] Preflight BLOCKED report: $reportPath" -ForegroundColor Yellow
     }
+    try {
+        $qaConsole = Get-Process -Id $PID -ErrorAction Stop
+        $Host.UI.RawUI.WindowTitle = "MAFIAGAME Full QA - $env:E2E_RUN_ID"
+        $qaConsole.Refresh()
+        if ($qaConsole.MainWindowHandle -eq 0 -or $qaConsole.MainWindowTitle -notlike "*${env:E2E_RUN_ID}*") {
+            throw "The current PowerShell process does not expose the expected visible QA window. PID=$PID; title='$($qaConsole.MainWindowTitle)'; handle=$($qaConsole.MainWindowHandle)."
+        }
+    } catch {
+        $progressRecordingState = 'BLOCKED'
+        $qaFinalVerdict = 'BLOCKED'
+        $qaFinalVerdictReason = $_.Exception.Message
+        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $_.Exception.ToString()
+        Save-QAProgressPreflightBlockedReport -Reason $_.Exception.ToString()
+        throw "Full QA PowerShell startup is BLOCKED before DB/tests: $($_.Exception.Message)"
+    }
+    $ffmpegCommand = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+    $ffprobeCommand = Get-Command ffprobe.exe -ErrorAction SilentlyContinue
+    if (-not $ffmpegCommand -and $ffmpegBin) {
+        $ffmpegCandidate = Join-Path $ffmpegBin 'ffmpeg.exe'
+        if (Test-Path -LiteralPath $ffmpegCandidate -PathType Leaf) {
+            $ffmpegCommand = [pscustomobject]@{ Source = (Get-Item -LiteralPath $ffmpegCandidate).FullName }
+        }
+    }
+    if (-not $ffprobeCommand -and $ffmpegBin) {
+        $ffprobeCandidate = Join-Path $ffmpegBin 'ffprobe.exe'
+        if (Test-Path -LiteralPath $ffprobeCandidate -PathType Leaf) {
+            $ffprobeCommand = [pscustomobject]@{ Source = (Get-Item -LiteralPath $ffprobeCandidate).FullName }
+        }
+    }
+    if (-not $ffmpegCommand -or -not $ffprobeCommand) {
+        $progressRecordingState = 'BLOCKED'
+        $qaFinalVerdict = 'BLOCKED'
+        $qaFinalVerdictReason = 'Full QA progress capture tools are unavailable; test execution did not start.'
+        $toolLookupFailure = "ffmpeg.exe and/or ffprobe.exe was not found on PATH or FFMPEG_BIN='$ffmpegBin'."
+        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $toolLookupFailure
+        Save-QAProgressPreflightBlockedReport -Reason $toolLookupFailure
+        throw 'Full QA progress recording is BLOCKED: provide existing ffmpeg.exe and ffprobe.exe on PATH or set FFMPEG_BIN to their existing folder before QA starts. Do not install tools during QA.'
+    }
+
+    $ffmpegStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $ffmpegStartInfo.FileName = $ffmpegCommand.Source
+    $ffmpegStartInfo.Arguments = '-hide_banner -loglevel error -nostats -y -f gdigrab -framerate 2 -draw_mouse 1 -i desktop -vf scale=1280:-2 -an -c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p -movflags +faststart -f mp4 "' + $progressVideoPath + '"'
+    $ffmpegStartInfo.UseShellExecute = $false
+    $ffmpegStartInfo.CreateNoWindow = $true
+    $ffmpegStartInfo.RedirectStandardInput = $true
+    $ffmpegStartInfo.RedirectStandardError = $true
+    $progressRecorderProcess = [System.Diagnostics.Process]::new()
+    $progressRecorderProcess.StartInfo = $ffmpegStartInfo
+    try {
+        $recorderStarted = $progressRecorderProcess.Start()
+    } catch {
+        $progressRecordingState = 'BLOCKED'
+        $qaFinalVerdict = 'BLOCKED'
+        $qaFinalVerdictReason = $_.Exception.Message
+        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $_.Exception.ToString()
+        Save-QAProgressPreflightBlockedReport -Reason $_.Exception.ToString()
+        throw "Full QA progress recording is BLOCKED: ffmpeg could not start. $($_.Exception.Message)"
+    }
+    if (-not $recorderStarted) {
+        $progressRecordingState = 'BLOCKED'
+        $qaFinalVerdict = 'BLOCKED'
+        $qaFinalVerdictReason = 'FFmpeg failed to start; tests did not run.'
+        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value 'Process.Start returned false.'
+        Save-QAProgressPreflightBlockedReport -Reason 'Process.Start returned false.'
+        throw 'Full QA progress recording is BLOCKED: ffmpeg did not start.'
+    }
+    $progressRecorderErrorTask = $progressRecorderProcess.StandardError.ReadToEndAsync()
+    $progressRecordingStartedAt = Get-Date
+    Start-Sleep -Seconds 2
+    $recordingFileReady = (Test-Path -LiteralPath $progressVideoPath) -and (Get-Item -LiteralPath $progressVideoPath).Length -gt 0
+    if ($progressRecorderProcess.HasExited -or -not $recordingFileReady) {
+        $recorderError = $progressRecorderErrorTask.Result
+        if (-not $progressRecorderProcess.HasExited) {
+            $progressRecorderProcess.StandardInput.WriteLine('q')
+            $progressRecorderProcess.StandardInput.Close()
+            $progressRecorderProcess.WaitForExit(10000)
+        }
+        $progressRecordingState = 'BLOCKED'
+        $qaFinalVerdict = 'BLOCKED'
+        $qaFinalVerdictReason = 'FFmpeg exited or did not create nonempty video output before environment preflight; tests did not run.'
+        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $recorderError
+        Save-QAProgressPreflightBlockedReport -Reason "Recorder startup/output check failed. $recorderError"
+        throw "Full QA progress recording is BLOCKED: FFmpeg did not produce a usable recording at startup. $recorderError"
+    }
+
+    $progressRecordingState = 'RECORDING'
+    Write-Host "[QA_PROGRESS] Recording started before preflight: $progressVideoPath" -ForegroundColor Green
+    Write-Host "[QA_PROGRESS] Start screenshot: $progressStartScreenshotPath" -ForegroundColor Green
 }
 ```
 
@@ -372,104 +458,11 @@ partial artifacts, set MVP 41 and the Full verdict to `BLOCKED`, and include the
 exact stderr/ffprobe/decode output. Do not relabel missing or corrupt recording as
 `NOT RUN` or `PASS`. The report must list the video, start/end screenshot, and
 recorder-log paths plus the measured duration. Smoke/Regression use `NOT REQUIRED`;
-DuckDNS uses `NOT APPLICABLE`.
 
 When the startup gate throws before tests, still save a Korean preflight report with
 the selected profile, `BLOCKED` verdict, exact recorder error and log path, MVP 41
 `BLOCKED`, Java/JavaScript/Playwright/server/account-cleanup scopes as `NOT RUN`, and
 the created run-specific artifact path. Do not proceed to test sections in that run.
-
-## DuckDNS-only profile
-
-Run this branch only when the selected profile is duckdns. It ends before the normal environment preflight. The qa:duckdns npm script invokes only test/js/duckdns.test.js to check the local DuckDNS timer/service/updater contract and mocked updater behavior. It does not need MariaDB, Gradle, a running MAFIAGAME server, test accounts, or Playwright, and it does not use a real DuckDNS token or send a live provider request.
-
-Run this block instead of sections 0–3.5 and the game MVP checks:
-
-```powershell
-if ($e2eProfile -ne 'duckdns') {
-    throw 'Select the DuckDNS-only QA profile before running this section.'
-}
-
-$duckdnsDate = Get-Date -Format 'yyyy-MM-dd'
-$duckdnsRunId = 'qa-duckdns-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
-$duckdnsArtifactDirectory = Join-Path $projectPath ("output\test_output\{0}\{1}" -f $duckdnsDate, $duckdnsRunId)
-$duckdnsReportDirectory = Join-Path $projectPath $qaReportDirectory
-$duckdnsLogPath = Join-Path $duckdnsArtifactDirectory 'duckdns-test.log'
-$duckdnsReportPath = Join-Path $duckdnsReportDirectory ("MAFIAGAME_QA_REPORT_{0}_{1}.md" -f $duckdnsDate, $duckdnsRunId)
-
-if ((Test-Path -LiteralPath $duckdnsArtifactDirectory) -or (Test-Path -LiteralPath $duckdnsReportPath)) {
-    throw "DuckDNS QA output already exists; refusing to overwrite: $duckdnsRunId"
-}
-New-Item -ItemType Directory -Force -Path $duckdnsArtifactDirectory | Out-Null
-New-Item -ItemType Directory -Force -Path $duckdnsReportDirectory | Out-Null
-
-$duckdnsTestExitCode = $null
-$duckdnsSkipRuntime = $false
-$duckdnsTestOutput = ''
-$duckdnsBlockReason = ''
-$nodeCommand = Get-Command node -ErrorAction SilentlyContinue
-$npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if (-not $nodeCommand -or -not $npmCommand) {
-    $duckdnsBlockReason = 'Node.js 또는 npm.cmd를 찾을 수 없어 테스트를 실행하지 못했습니다.'
-    Set-Content -LiteralPath $duckdnsLogPath -Encoding utf8 -Value $duckdnsBlockReason
-} else {
-    $outputLines = & npm.cmd run qa:duckdns 2>&1
-    $duckdnsTestExitCode = $LASTEXITCODE
-    $outputLines | Tee-Object -FilePath $duckdnsLogPath
-    $duckdnsTestOutput = Get-Content -LiteralPath $duckdnsLogPath -Raw -Encoding utf8
-    $duckdnsSkipRuntime = $duckdnsTestOutput -match 'Updater integration requires a POSIX shell'
-}
-
-if ($duckdnsBlockReason) {
-    $duckdnsFinalStatus = 'BLOCKED'
-    $duckdnsSuiteStatus = 'NOT RUN'
-    $duckdnsRuntimeStatus = 'NOT RUN'
-} elseif ($duckdnsTestExitCode -ne 0) {
-    $duckdnsFinalStatus = 'FAIL'
-    $duckdnsSuiteStatus = 'FAIL'
-    $duckdnsRuntimeStatus = if ($duckdnsSkipRuntime) { 'BLOCKED' } else { 'FAIL' }
-} elseif ($duckdnsSkipRuntime) {
-    $duckdnsFinalStatus = 'BLOCKED'
-    $duckdnsSuiteStatus = 'PASS'
-    $duckdnsRuntimeStatus = 'BLOCKED'
-    $duckdnsBlockReason = '이 환경에 POSIX Bash가 없어 모의 updater 실행이 건너뛰어졌습니다.'
-} else {
-    $duckdnsFinalStatus = 'PASS'
-    $duckdnsSuiteStatus = 'PASS'
-    $duckdnsRuntimeStatus = 'PASS'
-}
-
-$duckdnsReport = @"
-# MAFIAGAME DuckDNS QA 보고서
-
-- 실행 날짜: $duckdnsDate
-- 실행 ID: $duckdnsRunId
-- 프로필: DuckDNS-only
-- 최종 판정: $duckdnsFinalStatus
-- 실행 명령: npm.cmd run qa:duckdns
-- 게임 서버/E2E 검사: NOT RUN (프로필 4는 DuckDNS 전용)
-- 게임 MVP 항목 1–54: NOT RUN (DuckDNS-only 범위에 포함되지 않음)
-- MVP 항목 55 DuckDNS 검증: $duckdnsFinalStatus
-- DuckDNS 설정 및 updater 테스트 모음: $duckdnsSuiteStatus
-- 모의 updater 성공·거부 응답 및 토큰 비노출 검사: $duckdnsRuntimeStatus
-- 실제 DuckDNS 갱신, DNS A 레코드, 외부 접속 검사: NOT RUN
-- 차단 또는 실패 사유: $(if ($duckdnsBlockReason) { $duckdnsBlockReason } else { '해당 없음' })
-- 테스트 로그: $duckdnsLogPath
-
-이 프로필은 로컬 설정과 모의 updater 동작만 확인합니다. 실제 DuckDNS 계정이나 운영 토큰을 읽거나 사용하지 않으며, MariaDB·Gradle·MAFIAGAME 서버·Playwright를 실행하지 않았습니다. 실제 DNS 및 외부 접속 확인은 별도의 격리된 QA 도메인과 외부 증거가 필요한 작업입니다.
-"@
-Set-Content -LiteralPath $duckdnsReportPath -Encoding utf8 -Value $duckdnsReport
-$duckdnsColor = if ($duckdnsFinalStatus -eq 'PASS') { 'Green' } elseif ($duckdnsFinalStatus -eq 'FAIL') { 'Red' } else { 'Yellow' }
-Write-Host "DuckDNS QA result: $duckdnsFinalStatus" -ForegroundColor $duckdnsColor
-Write-Host "QA report: $duckdnsReportPath"
-Write-Host "Test log: $duckdnsLogPath"
-
-if ($duckdnsFinalStatus -ne 'PASS') {
-    throw "DuckDNS QA finished with $duckdnsFinalStatus. Review the Korean QA report and test log."
-}
-```
-
-If Node.js or npm.cmd is unavailable, record BLOCKED without installing dependencies. If the static contract test passes but the mocked updater subtest is skipped because POSIX Bash is unavailable, the overall profile is BLOCKED and the runtime result is not PASS. Live DNS and external access are always NOT RUN in this isolated profile.
 
 ## Project Information
 
@@ -634,6 +627,8 @@ Collect and report:
 - Total test count
 - Passed, failed, and errored test counts
 - Failed test class, method, file, and line number
+- Optimization regressions: `RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries`, `RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock`, `RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes`, `RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock`, `RoomPresenceServiceTest.lobbyCountBroadcastsOnlyWhenParticipantCountChanges`, `RoomPresenceServiceTest.lobbySnapshotStillSynchronizesCurrentCountsAfterIncrementalBroadcasts`, `RoomPresenceServiceTest.staleRoomCountBroadcastDoesNotOverwriteTheLatestPresenceCount`, `RoomPresenceServiceTest.lobbySnapshotIsDeliveredBeforeAnyNewerIncrementalRoomCount`, `RoomPresenceServiceTest.stalledLobbySnapshotDoesNotBlockPresenceWrites`, and `RoomPresenceServiceTest.lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked`
+- Mapper query behavior: `MapperIntegrationTest.roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom` confirms `findAll`/`findById` do not aggregate `room_members`; `RoomControllerTest.roomListOverlaysDatabaseCountWithLivePresenceCount` and `RoomControllerTest.roomCardReturnsOneFragmentWithTheLatestLiveCount` confirm the live in-memory count is applied by the web layer
 - Role-confirmation and final-defense phase results, including timer and permission assertions
 - Restart recovery: `MapperIntegrationTest.interruptedGameRecoveryResetsOnlyRoomsThatArePlaying` and `RoomPresenceServiceTest.resetsInterruptedPlayingRoomsWhenApplicationBecomesReady`; report that persisted `PLAYING` rooms reset while `WAITING` rooms remain unchanged
 - Mafia parity termination: `RoomGameServiceTest.endsOneMafiaOneDoctorGameAtParityBeforeTheNightCanRepeat`
@@ -641,7 +636,7 @@ Collect and report:
 - Spy parity: `RoomGameRulesTest.uncontactedLivingSpyDoesNotTurnMafiaMinorityIntoParityVictory`, `RoomGameRulesTest.contactedLivingSpyCountsTowardMafiaParityVictory`, and `RoomGameServiceTest.countsOnlyAContactedSpyTowardTheMafiaParityThreshold`.
 - Settings-save feedback: `RoomControllerTest.savingRoomSettingsFlashesTheSuccessMessageForTheModal` and `test/e2e/room-layout.spec.js` verify modal feedback after password set, change, and removal.
 - Reconnect grace: `RoomPresenceServiceTest.cancelsGameDepartureWhenThePlayerReconnectsWithinTheGracePeriod`, `RoomGameServiceTest.removesAQueuedNightActionWhenAPlayerLeavesAfterReconnectGrace`, and the Full-profile browser deadline/reconnect scenario cover reconnect, expiry, and pending-action handling.
-- Completed-game statistics: `RoomGameServiceTest.recordsOneOutcomeForEveryParticipantWhenTheGameFinishes`, `RoomGameServiceTest.doesNotRecordStatisticsBeforeACompletedGame`, `MapperIntegrationTest.completedGameUpdatesEachAccountOnceEvenWhenTheResultIsReplayed`, and the profile E2E verify first completion and replay.
+- Completed-game statistics and XP: `RoomGameServiceTest.recordsOneOutcomeForEveryParticipantWhenTheGameFinishes`, `RoomGameServiceTest.doesNotRecordStatisticsBeforeACompletedGame`, `MapperIntegrationTest.completedGameUpdatesEachAccountOnceEvenWhenTheResultIsReplayed`, and the profile E2E verify totals, +500 win XP, +100 loss XP, and replay.
 - Anonymous lobby access and bounded count broadcasts: `WebSocketAuthorizationInterceptorTest.allowsAnonymousLobbyPresenceRequests`, `RoomPresenceServiceTest.throttlesRepeatedLobbyCountRequestsFromOneSession`, and `RoomPresenceServiceTest.coalescesLobbyCountRequestsAcrossSessionsAtTheGlobalLimit`
 - Game-start delegation, ordering, and rollback: `ControllerDelegationTest.presenceControllerDelegatesGameStartToPresenceService`, `RoomPresenceServiceTest.usesTheCurrentFivePlayersWhenTheSixthLeavesBeforeStart`, `RoomPresenceServiceTest.restoresWaitingStatusWhenCreatingTheGameInstanceFails`, and `RoomGameServiceTest.removesPartiallyStartedGameWhenPublishingTheInitialStateFails`
 - Relevant console output
@@ -666,7 +661,7 @@ $javaScriptTestExitCode = $LASTEXITCODE
 Write-Host "[QA_PROGRESS] JavaScript test suite exited with code $javaScriptTestExitCode." -ForegroundColor Cyan
 ```
 
-This is the same four-file test set declared by `package.json`'s `test:js` script and used by Smoke, Regression, and Full. DuckDNS is excluded from these three profiles and runs only through the standalone DuckDNS profile 4.
+This is the same four-file test set declared by `package.json`'s `test:js` script and used by all three QA profiles. The Java and JavaScript optimization regression checks are common gates in Smoke, Regression, and Full; only the Playwright scope and phase timing differ by profile.
 `--test-isolation=none` keeps the Node test runner in one process, which is required
 in restricted Windows environments where the default per-file child-process spawn can
 return `EPERM`. Do not run `npm install` or download test browsers as part of QA.
@@ -678,9 +673,10 @@ Verify and report:
 - QA profile defaults, scenario/replay scope, timing/evidence flags, and rejection of invalid or out-of-profile player counts
 - STOMP communication
 - Lobby and participant synchronization
+- Optimized lobby room-card flow: a missing live room is fetched from `/rooms/{roomId}/card`, inserted with its latest count, kept consistent with the active search/filter/order, and discarded if its count reaches zero or navigation begins before the response arrives
 - Room settings visibility, modal controls, capacity validation, password protection, host reconnect, and live capacity/lock synchronization
-- Room-layout/profile UI: removed settings strip, friend-invite/help/room-settings ordering, 300px waiting and started game panels, equal desktop columns, mobile stacking, `user_stats` profile totals, and the default rating-derived `Lv. 1`
-- Rating-derived level boundaries and default rating fallback in the shared Java test suite
+- Room-layout/profile UI: removed settings strip and friend-invite control, help/host-only room-settings ordering, 300px waiting and started game panels, equal desktop columns, mobile stacking, `user_stats` profile totals, and the default experience-based `Lv. 1` with `1000 XP`
+- Experience-based level boundaries and default experience fallback in the shared Java test suite
 - Patch-note modal opens on the first lobby visit and exposes the `오늘 하루 그만보기` checkbox and `닫기` button
 - Patch-note modal exposes a `상세보기` button whose archive displays the README patch notes in descending version order: `0.3.0-alpha`, `0.2.0-alpha`, `0.1.1-alpha`, `0.1.0-alpha`
 - Same-day patch-note suppression works only when the stored patch-note content is unchanged
@@ -1040,9 +1036,9 @@ Verify:
 - A nominee departure during `FINAL_DEFENSE` skips execution and advances to `NIGHT`
 - Unique account creation
 - Unique room creation
-- Host-only room settings button follows the friend-invite and help buttons; non-host browsers do not render it
-- The room-layout UI case runs in Smoke, Regression, and Full. Verify the waiting-room settings strip is absent, the friend-invite/help/room-settings buttons appear in that order, the game-info panel is 300px tall, and the participant/game column and chat column have matching top and bottom edges. Verify the started game panel keeps the 300px height; on mobile, verify the game panel remains at least 300px tall and the chat stacks below it.
-- Verify a newly registered account uses `user_stats.rating` to render `Lv. 1` in the user menu; the profile page renders `total_games`, `wins`, and `losses`. Java tests cover rating boundaries at 1,000/1,999 (level 1), 2,000/2,999 (level 2), and 3,000 (level 3), plus the default rating when a stats row is absent; the 2,000-rating case must produce level 2 even when `user.user_level` is 1. These checks run in every profile through the shared Java suite and room-layout UI case.
+- The host-only room settings button follows help; the removed friend-invite control is absent, and non-host browsers do not render room settings
+- The room-layout UI case runs in Smoke, Regression, and Full. Verify the waiting-room settings strip and friend-invite control are absent, the help/room-settings buttons appear in that order, the game-info panel is 300px tall, and the participant/game column and chat column have matching top and bottom edges. Verify the started game panel keeps the 300px height; on mobile, verify the game panel remains at least 300px tall and the chat stacks below it.
+- Verify a newly registered account starts with `1000 XP` and `Lv. 1` in the user menu and profile; the profile shows `total_games`, `wins`, `losses`, and XP. Java tests cover experience boundaries at 1,000/1,999 (level 1), 2,000/2,999 (level 2), and 3,000 (level 3), plus the default experience when a stats row is absent. The completed-game Java test verifies a win adds 500 XP, a loss adds 100 XP, and duplicate completion does not award XP twice; core E2E verifies the updated profile after a completed game and replay. These checks run in every profile through the shared Java suite and selected core/UI E2E cases.
 - Room settings modal exposes capacities 4–8 and password enable/change/remove controls; successful create/change/remove saves reopen the modal with the exact success message in its footer
 - A capacity lower than the live participant count is disabled, shows a warning, and disables save; a forged/stale server request is rejected
 - Room setting changes synchronize the participant count, capacity, lock indicator, and password-protected host reconnect across browsers
@@ -1152,7 +1148,7 @@ Full QA's UI regression inventory must also map to these executable cases:
 | Case | Playwright test | Required result |
 |---|---|---|
 | Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
-| 8-player room layout, profile stats/level, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1` and zero initial totals; successful password set/change/remove saves keep the settings modal open with the success message in its footer; friend-invite, help, and host-only room settings buttons appear in order, while guests do not see settings; settings strip absent; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
+| 8-player room layout, profile stats/level, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1`, `1000 XP`, and zero initial totals; successful password set/change/remove saves keep the settings modal open with the success message in its footer; the friend-invite control is absent, help and host-only room settings buttons appear in order, and guests do not see settings; settings strip absent; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
 
 The normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 registered only when both the Full profile and player count `6` are active. Their
@@ -1393,9 +1389,9 @@ Require `remaining_test_accounts = 0` for cleanup `PASS`. If the transaction fai
 
 Use `docs/MAFIAGAME_MVP.md`, section `5. 최소 게임 규칙`, as the validation baseline.
 
-This game MVP scope applies to Smoke, Regression, and Full. DuckDNS profile 4
-does not execute game MVP items 1–54 and reports them as `NOT RUN`; its only MVP
-feature item is 55.
+This game MVP scope applies to Smoke, Regression, and Full. Validate the items
+included in the selected profile and report cases outside that profile as `NOT RUN`.
+There is no separate DuckDNS profile in the current game QA scope.
 
 Exclude the additional feature in section `5.3 낮 건너뛰기 투표`.
 
@@ -1448,8 +1444,8 @@ Validate the following:
 38. System phase-message type, public delivery, one-message-per-transition behavior, and phase-specific guidance
 39. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
 40. Server-rendered game-room screenshots and a normal→night→normal browser video
-41. Full profile: start/end screenshots and a continuous, decodable desktop video covering preflight through final result, test-account cleanup, server cleanup, and port release. Smoke/Regression: `NOT REQUIRED`; DuckDNS-only: `NOT APPLICABLE`
-42. Host-only room settings UI after friend-invite and help, with 4–8 capacity choices and password set/change/remove behavior
+41. Full profile: start/end screenshots and a continuous, decodable desktop video covering preflight through final result, test-account cleanup, server cleanup, and port release. Smoke/Regression: `NOT REQUIRED`
+42. The removed friend-invite control is absent; host-only room settings follows help and supports 4–8 capacity choices plus password set/change/remove behavior
 43. Capacity reduction below the live participant count is blocked in the UI and rejected by the server; updated capacity and lock state synchronize to every participant
 44. After `FINISHED`, only the public channel remains available and public messages from dead participants are delivered to the public topic
 45. Investigation results show `마피아팀`/`시민팀` as the faction and show Spy/Medium exact roles separately as `직업: <역할>`
@@ -1463,8 +1459,8 @@ Validate the following:
 52. Saving room settings reopens the settings modal and shows `방 설정이 저장되었습니다.` in its footer; password set, change, and removal each retain the feedback
 53. An uncontacted living Spy is excluded from Mafia parity, while a successfully contacted Spy is included; contact also grants access to Mafia chat
 54. The 30-second playing-game reconnect grace preserves state and pending night actions; expiry removes the departed player and re-evaluates victory
-55. DuckDNS validation belongs only to QA profile 4: `npm.cmd run qa:duckdns` checks timer/service/updater settings and, when POSIX Bash is available, mocked success/rejection behavior and token non-disclosure. For Smoke, Regression, and Full, record this item as `NOT RUN` because those profiles do not execute DuckDNS tests. Real DNS A-record and external access checks are outside profile 4 and require separate isolated-domain evidence.
-56. A completed game updates each participant's statistics once for its completion id; replay increments totals again, while an unfinished game leaves totals unchanged
+55. A completed game updates each participant's statistics once for its completion id; replay increments totals again, while an unfinished game leaves totals unchanged
+56. A win adds 500 XP and a loss adds 100 XP, profile XP and level reflect the persisted amount, and a repeated completion id does not award XP again
 
 ### 4.1 Extended Boundary and Resilience Checks
 
@@ -1487,7 +1483,6 @@ The following checks are required when the QA request includes boundary, disconn
 15. The measured opening order is approximately 15 seconds for role confirmation, 35 seconds for the first night, then 60 seconds for day discussion. Later cycles use 60/20/20/20/35 seconds for day, nomination, final defense, execution, and night; a client-side countdown alone is insufficient evidence.
 16. A successful room-settings POST reopens the settings modal and displays `방 설정이 저장되었습니다.` in its lower-left footer; password set, change, and remove each preserve that behavior.
 17. `GameResultStatsService` records every participant's win/loss and total once per completed game id; replay increments the totals again and an unfinished game does not update them.
-18. DuckDNS updater runtime checks run only in QA profile 4. They verify that the token stays out of process arguments, output, and state, that `OK` is recorded, and that `KO` retains the previous success timestamp; the systemd timer runs after boot and every five minutes. If POSIX Bash is unavailable, report mocked runtime checks as `BLOCKED`/`NOT RUN`. Profiles 1–3 record this item as `NOT RUN`. DNS A-record/external access evidence is separate and requires an isolated QA domain or external probe.
 
 For each extended check, record the evidence source (`Java service test`, `JavaScript test`, `Playwright E2E`, external verification, or `source inspection`) and classify it as `PASS`, `FAIL`, `BLOCKED`, or `NOT RUN`. Source inspection alone cannot be reported as an executed test `PASS`.
 
@@ -1508,13 +1503,40 @@ Use this evidence split when producing the report:
   departure expiry, and a near-deadline request attempt. `RoomGameServiceTest` supplies
   Java evidence that expiry removes a queued night action and re-evaluates victory. The
   exact after-`phaseEndsAt` acceptance rule still requires the Java server-time test.
-- `test/js/duckdns.test.js` supplies JavaScript evidence only for standalone QA profile 4; it is not part of `test:js` or the Smoke/Regression/Full run. It verifies timer settings on every platform and mocked updater behavior when POSIX Bash is available. DNS propagation and public access require separate external evidence.
 - A true simultaneous two-Mafia network attack is not proven by sequential service
   submissions or by the nomination race. Keep that item `NOT RUN` unless the executed
   output contains a dedicated concurrent night-action test; this applies only to the
   7- and 8-player role sets because the 6-player set has one Mafia and one Spy.
 
 ### 4.2 Implementation Contracts to Verify
+
+The Java and JavaScript optimization checks below run in every selected profile because their suites execute before the profile-specific Playwright branches. Record their actual test results separately from the profile-specific browser scenarios.
+
+#### Optimized room and lobby paths
+
+- `RoomPresenceService.snapshot` builds state from in-memory participants, status, and cached room settings; after a room is joined, ready-state changes and `currentState` must not call `RoomService.getRoom` again.
+- `RoomPresenceService.join` reads room metadata before taking the shared write lock. A blocked metadata lookup must not block `currentCounts`; if a room deletion starts while a lookup is in flight, its deletion generation must force a fresh lookup so stale data cannot recreate the deleted room.
+- `RoomPresenceService.cleanupRoomIfStillEmpty` performs the database deletion outside the shared write lock. A blocked delete must not block presence reads for another room.
+- The two maintenance workers and the dedicated lobby-count worker use independent execution capacity. A delayed lobby snapshot must still be delivered while both maintenance workers are occupied by blocked room deletions.
+- Incremental lobby room-count and online-player messages are sent only when their values change. A ready-state-only update must continue reaching the room topic without producing duplicate lobby count messages, while an explicit lobby snapshot still sends the current full counts to a new subscriber.
+- `RoomMapper.findAll` and `RoomMapper.findById` return room metadata without aggregating `room_members`; the lobby and new-card controller paths overlay the live count from `RoomPresenceService`.
+- The new `/rooms/{roomId}/card` route returns one Thymeleaf room-card fragment with the current live count and a 404 if the room disappears before the fetch completes. `room-list.js` must insert only a still-active room and rerun list numbering, search, and filtering.
+
+Automated evidence for these checks:
+
+- `RoomPresenceServiceTest.roomSnapshotsUseCachedSettingsWithoutFurtherDatabaseQueries`
+- `RoomPresenceServiceTest.databaseRoomLookupDoesNotHoldThePresenceWriteLock`
+- `RoomPresenceServiceTest.staleRoomLookupCannotRejoinAfterEmptyRoomDeletionCompletes`
+- `RoomPresenceServiceTest.emptyRoomDatabaseDeleteDoesNotHoldThePresenceWriteLock`
+- `RoomPresenceServiceTest.lobbyCountBroadcastsOnlyWhenParticipantCountChanges`
+- `RoomPresenceServiceTest.lobbySnapshotStillSynchronizesCurrentCountsAfterIncrementalBroadcasts`
+- `RoomPresenceServiceTest.staleRoomCountBroadcastDoesNotOverwriteTheLatestPresenceCount`
+- `RoomPresenceServiceTest.lobbySnapshotIsDeliveredBeforeAnyNewerIncrementalRoomCount`
+- `RoomPresenceServiceTest.stalledLobbySnapshotDoesNotBlockPresenceWrites`
+- `RoomPresenceServiceTest.lobbyCountWorkerContinuesWhileBothMaintenanceWorkersAreBlocked`
+- `MapperIntegrationTest.roomMapperReturnsRoomMetadataWithoutCountingMembersAndStillListsTransfersAndDeletesRoom`
+- `RoomControllerTest.roomCardReturnsOneFragmentWithTheLatestLiveCount` and `RoomControllerTest.roomCardReturnsNotFoundWhenTheRoomWasDeletedBeforeItWasFetched`
+- `test/js/room-list.test.js` covers insertion, active filtering/search, and a zero-count response arriving before the fetched card.
 
 When source inspection is used to explain a result, inspect these contracts directly and include the file and line number in the report:
 
@@ -1528,6 +1550,9 @@ When source inspection is used to explain a result, inspect these contracts dire
 - Game startup: `RoomPresenceController.startGame` delegates with the WebSocket session ID to `RoomPresenceService.startGame`; the service transitions the room before creating the in-memory game, restores `WAITING` if creation fails, and `RoomGameService.startGame` removes a partially created game if its initial state publication fails.
 - `RoomGameService.handlePlayerDeparture`: after the reconnect grace period, a player whose last room session disconnects becomes non-alive, pending actions are removed, and victory is re-evaluated.
 - `RoomPresenceService`: the last session retains a playing participant for 30 seconds, reconnect cancels the departure, expiry removes the participant and notifies the game service, a departed dead player may rejoin as a spectator without revival, and game start accepts only 4–8 current participants.
+- Room-presence snapshots use cached settings/status, room metadata reads and empty-room database deletion stay outside the shared write lock, and deletion-generation checks reject stale in-flight lookups.
+- Room-count broadcasts are suppressed when participant/online counts are unchanged; lobby snapshots retain their initial synchronization role, and the dedicated lobby worker can progress while maintenance workers are blocked.
+- Room summary SQL does not join/aggregate `room_members`; list and card routes overlay the current in-memory count, and a late room-card response is inserted only while the room still has a positive live count.
 - `RoomService.updateRoomSettings`/`RoomPresenceService.updateRoomSettings`: only a waiting-room host may update settings; capacities stay within 4–8 and cannot drop below live participants; password changes are normalized, encoded, removable, and broadcast with the updated capacity/lock state.
 - `RoomController.updateRoomSettings` and `rooms/detail.html`: successful saves flash `방 설정이 저장되었습니다.`, reopen the modal after redirect, and render the message in the modal footer; the host bypasses the room password on reconnect, while non-host access requires the session password grant.
 - `chat.js`: the host start button is disabled below four participants, and the current presence snapshot drives the displayed participant count and readiness state.
@@ -1541,9 +1566,8 @@ When source inspection is used to explain a result, inspect these contracts dire
 - `src/main/resources/static/js/chat.js`: live presence updates revalidate the selected room capacity, disable invalid options, show the warning, disable save, synchronize the lock indicator, and force `FINISHED` users back to the public channel.
 - `GameFaction.investigationLabel` and `RoomGameService.buildInvestigationDeliveries`: investigation payloads use `마피아팀`/`시민팀` for faction labels and keep exact Spy/Medium role labels separate.
 - `src/main/resources/static/css/app.css`: `.channel-system` and `.chat-message.system` provide the distinct system-guidance visual treatment.
-- `GameResultStatsService.recordCompletedGame`/`MapperIntegrationTest`: a unique game-completion id and account updates share one transaction; repeated completion ids do not double-count. The profile E2E checks one completed game and the second replay.
-- `ops/duckdns`: `update-duckdns.sh` sends its token through curl's standard-input configuration, records only timestamps/status, and the systemd timer runs after boot and every five minutes. Only QA profile 4 runs `test/js/duckdns.test.js`. It checks timer settings on all platforms and token-free arguments/output/state by running a mocked updater when POSIX Bash is available. If that subtest is skipped, report runtime token handling as `NOT RUN` or `BLOCKED`. Profiles 1–3 do not run DuckDNS tests. Real DNS and external access checks require an isolated QA domain and provider-side public-IP evidence.
-- `test/e2e/mafia-mvp.spec.js`: five count-driven cases verify the updated role compositions, the first `ROLE_ASSIGNMENT → NIGHT → DAY_DISCUSSION` sequence, final defense, result stats, and replay; the two conditional six-player resilience cases are discovered before execution.
+- `GameResultStatsService.recordCompletedGame`/`MapperIntegrationTest`: a unique game-completion id and account updates share one transaction; wins add 500 XP, losses add 100 XP, and repeated completion ids do not double-count. The profile E2E checks totals and XP after the first completion and replay.
+- `test/e2e/mafia-mvp.spec.js`: five count-driven cases verify the updated role compositions, the first `ROLE_ASSIGNMENT → NIGHT → DAY_DISCUSSION` sequence, final defense, result stats and XP in the profile, and replay; the two conditional six-player resilience cases are discovered before execution.
 
 Do not infer a runtime result from these contracts. Use them only to identify implementation evidence, expected behavior, or the root cause of a failed or unexecuted test.
 
@@ -1582,8 +1606,7 @@ Automated evidence for these checks:
 
 ## 6. Required Report Format
 
-The report order below applies to Smoke, Regression, and Full. DuckDNS profile 4
-uses the standalone Korean report generated in the DuckDNS-only section and records
+The report order below applies to Smoke, Regression, and Full.
 its isolated test result, runtime skip state, artifacts, and all game-server/MVP
 checks as `NOT RUN`.
 
@@ -1622,7 +1645,7 @@ Before saving:
 4. If E2E is disabled, include `E2E: NOT RUN` and the reason in the report.
 5. If a test is blocked or not executed, do not mark it as `PASS`.
 6. Report the absolute saved file path in the final response.
-7. For Full, include the run-specific start/end progress screenshot and continuous-video paths, expected and measured duration, recorder exit code, and `ffprobe`/full-decode result. Missing, truncated, or unreadable evidence makes MVP 41 and the overall Full result `BLOCKED`. For Smoke/Regression explicitly report MVP 41 `NOT REQUIRED`; for DuckDNS-only report it `NOT APPLICABLE`, so those profiles are not blocked by a Full-only desktop video.
+7. For Full, include the run-specific start/end progress screenshot and continuous-video paths, expected and measured duration, recorder exit code, and `ffprobe`/full-decode result. Missing, truncated, or unreadable evidence makes MVP 41 and the overall Full result `BLOCKED`. For Smoke/Regression explicitly report MVP 41 `NOT REQUIRED`, so those profiles are not blocked by a Full-only desktop video.
 
 The PowerShell setup for the report path is:
 
@@ -1671,6 +1694,7 @@ The MVP validation table and the per-scenario results must explicitly report:
 - `FINAL_DEFENSE`: a unique nominee enters the 20-second phase, only the nominee can use public chat, non-nominees are rejected, and a nominee departure skips execution and advances to night.
 - Measured server-side phase durations: approximately 15 seconds for role assignment, 60 seconds for day discussion, 20 seconds for nomination, 20 seconds for final defense, 20 seconds for execution, and 35 seconds for night.
 - Restart recovery, Mafia parity, anonymous lobby throttling/coalescing, game-start ordering/rollback, and the F-18–F-24 feature checks: report validation items 46–56 with their Java, Playwright, JavaScript, or external evidence, and distinguish the `MapperIntegrationTest` database result from service and controller unit tests.
+- Optimization regressions: report the ten `RoomPresenceServiceTest` methods, mapper metadata behavior, controller card route/404 behavior, and room-list insertion/filter/race checks as shared Java/JavaScript evidence for the selected profile; never infer that the separate performance-benchmark numbers were rerun from these functional regressions.
 
 For every result, include:
 
@@ -1680,7 +1704,7 @@ For every result, include:
 - Related source files and line numbers
 - JUnit XML paths
 - Gradle HTML report path
-- Full-profile start/end progress screenshot and continuous-video paths; for Smoke/Regression report `NOT REQUIRED`, and for DuckDNS-only report `NOT APPLICABLE`
+- Full-profile start/end progress screenshot and continuous-video paths; for Smoke/Regression report `NOT REQUIRED`
 - For Full, progress capture start/end timestamps, expected/measured duration, FFmpeg exit code, `ffprobe` result, full MP4 decode result, and recorder log; for other profiles, the profile-aware `NOT REQUIRED`/`NOT APPLICABLE` status
 - Playwright trace, screenshot, and video paths
 - Playwright core discovery output and the seven required scenario names

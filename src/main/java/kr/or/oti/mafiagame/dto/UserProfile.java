@@ -1,6 +1,6 @@
 package kr.or.oti.mafiagame.dto;
 
-import java.util.List;
+import kr.or.oti.mafiagame.domain.UserStats;
 
 /**
  * 사용자 프로필 화면에 전달하는 모델이다.
@@ -12,31 +12,34 @@ public record UserProfile(
         int totalGames,
         int wins,
         int losses,
-        Integer mafiaGames,
-        Integer mafiaWins,
-        String joinedAt,
-        List<GameRecord> recentGames) {
-
-    public UserProfile {
-        recentGames = List.copyOf(recentGames);
-    }
+        int experience,
+        String joinedAt) {
 
     public int winRate() {
         return totalGames == 0 ? 0 : Math.round((float) wins / totalGames * 100);
     }
 
-    public int mafiaWinRate() {
-        return mafiaGames == null || mafiaWins == null || mafiaGames == 0
-                ? 0
-                : Math.round((float) mafiaWins / mafiaGames * 100);
+    public int getLevel() {
+        return UserStats.levelForExperience(experience);
     }
 
-    /** 사용자 최근 게임 이력 화면 모델이다. */
-    public record GameRecord(
-            String roomTitle,
-            String role,
-            String result,
-            String status,
-            String playedAt) {
+    public int getExperience() {
+        return experience;
+    }
+
+    public int getExperiencePerLevel() {
+        return UserStats.EXPERIENCE_PER_LEVEL;
+    }
+
+    public int getLevelProgress() {
+        return UserStats.experienceProgressInLevel(experience);
+    }
+
+    public int getLevelProgressPercent() {
+        return Math.min(100, getLevelProgress() * 100 / getExperiencePerLevel());
+    }
+
+    public int getExperienceToNextLevel() {
+        return Math.max(0, UserStats.nextLevelExperience(experience) - experience);
     }
 }

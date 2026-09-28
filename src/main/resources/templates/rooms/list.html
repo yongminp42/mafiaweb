@@ -68,7 +68,8 @@
       <article class="room-card list-group-item d-flex align-items-center gap-3 px-0 py-3"
                th:each="room, roomStat : ${rooms}"
                th:data-room-id="${room.roomId}" th:data-status="${room.status}" th:data-title="${room.title}">
-        <div class="room-number" th:text="${'0' + (roomStat.index + 1)}">01</div>
+        <div class="room-number"
+             th:text="${#numbers.formatInteger(roomStat.index + 1, 2)}">01</div>
         <div class="room-main flex-grow-1">
           <div class="d-flex align-items-center gap-2">
             <span class="lock" th:if="${room.locked}">▣</span>
@@ -98,44 +99,31 @@
       <div class="modal-header patch-notes-header border-0">
         <div>
           <p class="eyebrow text-white-50 mb-1">PATCH NOTES</p>
-          <h2 class="modal-title h4 mb-0" id="patchNotesTitle">v0.4.0-alpha 업데이트</h2>
+          <h2 class="modal-title h4 mb-0" id="patchNotesTitle">v0.5.0-alpha 업데이트</h2>
         </div>
       </div>
       <div class="modal-body p-4 patch-notes-content">
-        <p class="text-secondary mb-4">인원별 역할 구성을 정리하고 게임 전적·첫 밤 진행·재접속 복구를 개선했습니다.</p>
+        <p class="text-secondary mb-4">프로필 경험치와 상단 레벨을 갱신하고 로비 목록을 최적화했으며, 게임 중 사망자 채널 표시 버그를 수정했습니다.</p>
 
         <div class="patch-note-item">
-          <strong>역할 구성·첫 밤 진행</strong>
-          <p class="text-secondary small mb-0 mt-1">5명·7명 역할표를 조정하고 역할 확인 뒤 첫 밤부터 게임을 시작합니다.</p>
+          <strong>경험치·레벨</strong>
+          <p class="text-secondary small mb-0 mt-1">승리 500 XP·패배 100 XP를 얻고, 게임 종료 뒤 상단 메뉴와 사용자 메뉴의 레벨이 함께 갱신됩니다.</p>
         </div>
         <div class="patch-note-item">
-          <strong>게임 전적·재접속</strong>
-          <p class="text-secondary small mb-0 mt-1">완료 게임의 승패를 프로필에 누적하고 게임 중 재접속 유예를 30초로 늘렸습니다.</p>
+          <strong>로비 목록 최적화</strong>
+          <p class="text-secondary small mb-0 mt-1">새 방은 카드만 불러오며, 참가 인원이 바뀌지 않은 준비 상태 알림은 보내지 않습니다.</p>
         </div>
         <div class="patch-note-item">
-          <strong>승리 판정·방 설정</strong>
-          <p class="text-secondary small mb-0 mt-1">미접선 스파이의 동수 승리 판정을 바로잡고 설정 저장 결과를 모달 안에서 확인할 수 있습니다.</p>
-        </div>
-
-        <div class="patch-note-item">
-          <strong>게임 규칙·역할 도움말</strong>
-          <p class="text-secondary small mb-0 mt-1">게임방에서 승리 규칙, 페이즈별 진행 시간과 역할 행동을 바로 확인할 수 있습니다.</p>
+          <strong>버그 수정: 채널 표시</strong>
+          <p class="text-secondary small mb-0 mt-1">게임 중 사망자에게 전체 채널이 보이던 오류를 수정했습니다. 종료 뒤에는 모두 전체 채널만 이용합니다.</p>
         </div>
         <div class="patch-note-item">
-          <strong>프로필 통계·레벨</strong>
-          <p class="text-secondary small mb-0 mt-1">프로필에 총 게임·승리·패배 수를 표시하고 레이팅에 따라 레벨을 계산합니다.</p>
-        </div>
-        <div class="patch-note-item">
-          <strong>게임방 레이아웃</strong>
-          <p class="text-secondary small mb-0 mt-1">게임 진행 영역과 참가자·채팅 배치를 데스크톱 및 모바일 화면에 맞게 다듬었습니다.</p>
-        </div>
-        <div class="patch-note-item">
-          <strong>버전별 패치노트 보기</strong>
-          <p class="text-secondary small mb-0 mt-1">상세보기에서 이전 버전의 변경 내역도 최신 버전순으로 확인할 수 있습니다.</p>
+          <strong>프로필·방 화면 정리</strong>
+          <p class="text-secondary small mb-0 mt-1">저장되는 게임 통계와 XP 진행률을 표시하고, 동작하지 않던 임시 초대·친구·샘플 전적 UI를 걷어냈습니다.</p>
         </div>
         <div class="patch-note-item">
           <strong>안정성과 QA</strong>
-          <p class="text-secondary small mb-0 mt-1">QA 보고서를 복구해 최신순 통합본과 날짜별 문서로 정리했습니다.</p>
+          <p class="text-secondary small mb-0 mt-1">비공개 채팅 전달, 실시간 방 상태 처리와 세 가지 QA 프로필을 정비했습니다.</p>
         </div>
       </div>
       <div class="modal-footer patch-notes-footer border-0">
@@ -164,198 +152,157 @@
         <button class="btn-close btn-close-white" type="button" data-bs-dismiss="modal" aria-label="닫기"></button>
       </div>
       <div class="modal-body p-4 patch-notes-detail-content">
+        <article class="patch-note-version" data-patch-note-version="0.5.0-alpha">
+          <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h3 class="h5 mb-0">0.5.0-alpha</h3>
+          <span class="small text-secondary">경험치·로비 동기화·채널 버그 수정</span>
+          </div>
+          <p class="text-secondary small">프로필 XP와 상단 레벨을 갱신하고 로비 실시간 카드 경로를 최적화했으며, 게임 중 사망자 채널 표시 버그를 수정했습니다.</p>
+          <h4 class="h6 mt-4 mb-2">경험치와 레벨</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>승리 시 500 XP, 패배 시 100 XP를 기록하며 완료 게임 ID로 중복 반영을 막습니다. 1,000 XP마다 레벨이 오릅니다.</li>
+            <li>프로필에 총 게임·승리·패배·레벨/XP를 표시하고 경험치 진행 막대와 다음 레벨까지 필요한 XP를 안내합니다. 새 계정은 1,000 XP, Lv. 1에서 시작합니다.</li>
+            <li>게임 종료, 공통 헤더가 있는 화면의 진입, 브라우저 화면 복원 때 최신 레벨을 다시 읽습니다. 상단 메뉴와 사용자 메뉴가 함께 바뀌며 조회 실패 시 기존 값은 유지합니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">로비 목록 최적화</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>방 목록 SQL에서 참가자별 COUNT 집계를 제거하고, 방 메타데이터와 메모리의 실시간 인원 정보를 결합합니다.</li>
+            <li>인원·온라인 수가 바뀐 경우에만 로비 인원 메시지를 보냅니다. 최초 스냅샷은 유지해 새 구독자의 화면을 동기화합니다.</li>
+            <li>목록에 없는 새 방은 전체 페이지 대신 Thymeleaf 카드 한 장을 요청해 삽입합니다. 검색·필터·번호를 다시 계산하며, 삭제되었거나 빈 방의 오래된 카드는 버립니다.</li>
+            <li>DB 입장 조회·빈 방 삭제를 공용 쓰기 잠금 밖으로 옮기고 재검증 경계를 추가했습니다. 유지보수 작업자 2개와 로비 전송 전용 작업자 1개로 대기열을 분리했습니다.</li>
+            <li>방 생성·설정 변경의 최대 인원 및 비밀번호 검증을 공통 함수로 모았습니다. 이 정리와 작업자 분리의 개별 속도 효과는 따로 측정하지 않았습니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">측정 결과와 주의점</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>준비 상태 변경 320건에서 인원이 유지된 구간의 로비 구독자 알림은 640건·121,456B에서 0건·0B로 줄었습니다.</li>
+            <li>4명 동시 준비 변경 묶음은 p50 3.6131ms→1.1050ms, p95 6.0234ms→2.0567ms로 측정됐습니다. 처리량은 899.5→2,340.8건/초였습니다. 여러 실시간 경로 변경을 함께 반영한 1회 로컬 측정입니다.</li>
+            <li>전체 방 목록 HTML은 1,027,013B에서 1,025,151B(0.18% 감소)였습니다. 새 방 이벤트의 카드 한 장 응답은 906B입니다. 요청 범위가 달라 동일 작업의 전후 응답 크기 비교는 아닙니다.</li>
+            <li>전체 목록 응답 지연이 모든 측정에서 개선된 것은 아닙니다. 동시성 8의 p50/p95는 134.62/159.69ms에서 141.17/167.37ms로 측정됐습니다. 수치는 2026-09-28, 방 1,000개·참가 기록 4,000개를 둔 로컬 환경에 한정합니다.</li>
+          </ul>
+          <h4 class="h6 mt-4 mb-2">버그 수정: 채널 표시·화면 정리·QA</h4>
+          <ul class="patch-note-detail-list text-secondary small mb-0">
+            <li>게임 중 사망자에게 전체 채널이 표시되고 실제 권한과 화면 선택이 어긋나던 버그를 수정했습니다. 사망자 채널만 보이고 선택되며, 게임 종료 뒤에는 생존 여부와 관계없이 모두 전체 채널만 이용합니다.</li>
+            <li>마피아·사망자 채팅의 공통 발송 경로와 수신자 선택을 정리했습니다. 연결되지 않은 초대·친구 버튼과 샘플 최근 게임·배지 영역은 화면에서 제거했습니다.</li>
+            <li>Smoke·Regression·Full QA의 범위, XP·방 카드 회귀 검증, Full 화면 녹화 및 권한 사전 점검을 갱신했습니다. 사용하지 않는 DuckDNS updater와 전용 QA 프로필도 제거했습니다.</li>
+            <li>Gradle 프로젝트 버전을 0.4.0-alpha에서 0.5.0-alpha로 변경했습니다.</li>
+          </ul>
+        </article>
+
         <article class="patch-note-version" data-patch-note-version="0.4.0-alpha">
           <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
             <h3 class="h5 mb-0">0.4.0-alpha</h3>
-            <span class="small text-secondary">게임 규칙·전적·재접속 안정성 개선</span>
+            <span class="small text-secondary">역할 밸런스·첫 밤·완료 전적</span>
           </div>
-          <p class="text-secondary small">인원별 역할 구성을 정리하고 첫 밤부터 게임을 시작하며, 완료 전적과 재접속 복구 및 DuckDNS 운영 구성을 추가했습니다.</p>
-          <h4 class="h6 mt-4 mb-2">게임 규칙·전적</h4>
+          <p class="text-secondary small">5명·7명 역할표를 조정하고 첫 밤 진행과 계정 전적 저장을 추가했습니다.</p>
+          <h4 class="h6 mt-4 mb-2">인원수별 역할 밸런스</h4>
           <ul class="patch-note-detail-list text-secondary small">
-            <li>5명 구성에서 스파이를 시민으로 바꾸고, 7명 구성에서 스파이 대신 영매사를 배정합니다.</li>
-            <li>역할 확인 뒤 첫 밤을 진행합니다. 접선하지 않은 스파이는 마피아 승리 동수 판정에서 제외하고 마피아 전멸 시 시민 승리를 우선합니다.</li>
-            <li>정상 완료된 게임의 승리·패배와 총 게임 수를 계정에 중복 없이 반영해 프로필에 표시합니다.</li>
+            <li>4명: 마피아 1, 경찰 1, 의사 1, 시민 1 (변경 없음)</li>
+            <li>5명: 마피아 1, 경찰 1, 의사 1, 시민 2. 기존 스파이를 시민 한 명으로 교체했습니다.</li>
+            <li>6명: 마피아 1, 스파이 1, 경찰 1, 의사 1, 군인 1, 시민 1 (변경 없음)</li>
+            <li>7명: 마피아 2, 경찰 1, 의사 1, 군인 1, 영매사 1, 시민 1. 기존 스파이를 영매사로 교체했습니다.</li>
+            <li>8명: 마피아 2, 스파이 1, 경찰 1, 의사 1, 군인 1, 영매사 1, 시민 1 (변경 없음)</li>
+            <li>접선하지 않은 스파이는 마피아 승리 동수 판정에서 제외합니다. 마피아팀이 모두 사망하면 시민팀이 승리합니다.</li>
           </ul>
-          <h4 class="h6 mt-4 mb-2">재접속·운영·QA</h4>
+          <h4 class="h6 mt-4 mb-2">게임 진행·전적·재접속</h4>
+          <ul class="patch-note-detail-list text-secondary small">
+            <li>역할 확인이 끝나면 첫 밤으로 진행하고 밤 결과 뒤 낮 토론을 시작합니다.</li>
+            <li>게임 종료 시 승리·패배와 총 게임 수를 계정에 한 번 기록하도록 완료 게임 테이블과 Flyway 마이그레이션을 추가했습니다. 이 버전에는 개별 경기 상세 이력 화면이 포함되지 않습니다.</li>
+            <li>게임 중 마지막 연결이 끊긴 참가자에게 30초 재접속 유예를 적용했습니다. 방 설정 저장 결과도 설정 모달에서 확인할 수 있습니다.</li>
+          </ul>
           <ul class="patch-note-detail-list text-secondary small mb-0">
-            <li>게임 중 연결이 끊긴 참가자의 재접속 유예를 30초로 늘리고 방장 변경 유예를 별도로 관리합니다.</li>
-            <li>방 설정 저장 성공·오류 안내를 설정 모달 안에 표시합니다.</li>
-            <li>완료 게임 마이그레이션과 Linux용 DuckDNS systemd 설치·진단 파일을 추가했습니다. 실제 DNS 갱신은 운영 설정이 필요합니다.</li>
-            <li>깨진 한글 QA 기록을 복구하고 최신순 통합본과 날짜별 보고서로 정리했습니다.</li>
-            <li>QA 프로필 범위와 Playwright 실행 권한 사전 점검을 보강하고 Gradle 프로젝트 버전을 <code>0.3.2-alpha</code>에서 <code>0.4.0-alpha</code>로 변경했습니다.</li>
+            <li>QA 인원·재플레이·재접속·페이즈 시간 범위와 한국어 보고서 기록을 갱신했습니다.</li>
+            <li>Gradle 프로젝트 버전을 0.3.2-alpha에서 0.4.0-alpha로 변경했습니다.</li>
+          </ul>
+        </article>
+
+        <article class="patch-note-version" data-patch-note-version="0.3.2-alpha">
+          <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h3 class="h5 mb-0">0.3.2-alpha</h3>
+            <span class="small text-secondary">동수 승리 판정·실시간 상태 안정화</span>
+          </div>
+          <p class="text-secondary small">마피아팀·시민팀 동수 판정과 방 상태의 동시 변경 경계를 보강했습니다.</p>
+          <ul class="patch-note-detail-list text-secondary small mb-0">
+            <li>마피아팀 생존자 수가 시민팀과 같아지면 마피아팀 승리로 판정하되, 마피아팀 생존자가 0명이면 시민팀 승리를 우선합니다.</li>
+            <li>방 입장·퇴장·빈 방 정리·방장 이전이 함께 진행될 때 상태가 엇갈리지 않도록 presence 처리와 예약 작업을 보강했습니다.</li>
+            <li>WebSocket 채팅 오류와 방 접근 예외 처리를 정리하고 관련 자동 검증을 보강했습니다.</li>
+            <li>Gradle 프로젝트 버전을 0.3.1-alpha에서 0.3.2-alpha로 변경했습니다.</li>
           </ul>
         </article>
 
         <article class="patch-note-version" data-patch-note-version="0.3.1-alpha">
           <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
             <h3 class="h5 mb-0">0.3.1-alpha</h3>
-            <span class="small text-secondary">게임 도움말·프로필·방 화면 개선</span>
+            <span class="small text-secondary">도움말·프로필 통계·화면 정리</span>
           </div>
-          <p class="text-secondary small">게임 규칙을 방 안에서 확인할 수 있도록 안내를 추가하고 프로필 통계와 레벨 표시 및 게임방 레이아웃을 개선했습니다.</p>
-          <h4 class="h6 mt-4 mb-2">게임 규칙과 역할 안내</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>게임방 참가자 패널에 <code>도움말</code> 버튼을 추가했습니다. 기본 승리 규칙, 페이즈 순서와 시간, 진영 및 역할별 행동을 모달에서 확인할 수 있습니다.</li>
-            <li>현재 진행 시간 기준으로 역할 확인 15초, 낮 토론 60초, 지목·최종 변론·처형 투표 각 20초, 밤 행동 35초를 안내합니다. 모든 참가자가 역할을 확인하면 역할 확인 단계는 조기에 끝날 수 있습니다.</li>
-            <li>기존 역할 구성과 게임 규칙은 유지하고 게임 중 필요한 안내를 방에서 바로 열 수 있도록 했습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">프로필과 레벨 표시</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>프로필 통계를 승률·마피아 승률에서 총 게임 수·승리 수·패배 수로 변경했습니다.</li>
-            <li>사용자 메뉴 레벨은 레이팅 기준으로 계산합니다. 레이팅 1,000점부터 Lv. 1이며 1,000점 단위로 레벨이 올라갑니다. 통계가 없는 사용자는 기본 레이팅 1,000점을 적용합니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">게임방 레이아웃·QA</h4>
           <ul class="patch-note-detail-list text-secondary small mb-0">
-            <li>게임 진행 패널 높이를 300px로 조정하고 참가자·채팅 영역을 데스크톱과 모바일 화면에 맞게 정렬했습니다.</li>
-            <li>대기방 상단의 중복 기본 설정 표시를 정리하고, 방 설정은 기존 방장 전용 버튼에서 관리하도록 했습니다.</li>
-            <li>QA 검증 항목과 한글 QA 보고서 기준을 변경된 게임 안내와 화면에 맞췄습니다.</li>
-            <li>Gradle 프로젝트 버전을 <code>0.3.0-alpha</code>에서 <code>0.3.1-alpha</code>로 변경했습니다.</li>
+            <li>게임방 도움말에 승리 규칙, 페이즈 순서·시간, 역할과 진영 설명을 추가했습니다.</li>
+            <li>프로필 통계를 승률·마피아 승률에서 총 게임·승리·패배 수로 바꾸고, 당시 레이팅 기반 레벨을 표시했습니다. 현재는 XP 기반으로 대체됐습니다.</li>
+            <li>게임 진행 패널, 참가자·채팅 영역과 대기방 설정 UI를 데스크톱·모바일 화면에 맞게 정리했습니다.</li>
+            <li>화면 변경에 맞춰 QA 스크립트와 한글 보고서 기준을 갱신하고 버전을 0.3.1-alpha로 올렸습니다.</li>
           </ul>
         </article>
 
         <article class="patch-note-version" data-patch-note-version="0.3.0-alpha">
           <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
             <h3 class="h5 mb-0">0.3.0-alpha</h3>
-            <span class="small text-secondary">게임방 설정·채널 안정화·QA 개선</span>
+            <span class="small text-secondary">대기방 설정·종료 채널·패치노트</span>
           </div>
-          <p class="text-secondary small">버그 리포트의 종료 채널·진영 표시 문제를 수정하고 대기 중인 게임방의 방 설정을 지원합니다.</p>
-          <h4 class="h6 mt-4 mb-2">게임방 설정</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>대기 중인 방에서 친구 초대 버튼 옆에 방장만 볼 수 있는 <code>방 설정</code> 버튼을 추가했습니다. 게임이 시작되면 버튼을 숨기고 서버에서도 설정 변경을 거부합니다.</li>
-            <li>대기 중인 방의 최대 인원을 4~8명으로 변경할 수 있도록 했습니다.</li>
-            <li>현재 입장 인원보다 작은 최대 인원은 선택할 수 없고, 경고문과 저장 버튼 비활성화로 잘못된 변경을 즉시 안내합니다.</li>
-            <li>참가 인원이 실시간으로 변해도 최대 인원 검증을 다시 수행하며, 서버에서도 같은 조건을 검증해 우회 요청을 차단합니다.</li>
-            <li>방 비밀번호를 설정·변경·해제할 수 있고, 설정 변경 후 참가자 화면의 정원·잠금 상태를 동기화합니다.</li>
-            <li>비밀번호가 설정된 방도 방장은 재접속 후 방장 권한과 설정 접근을 유지할 수 있습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">버그 수정: 게임 종료 채널과 조사 결과</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li><code>FINISHED</code> 상태에서는 서버와 화면 모두 <code>PUBLIC</code>(전체) 채널만 허용합니다.</li>
-            <li>게임 종료 시 마피아·사망자 채널을 숨기고 현재 채널을 전체 채널로 전환합니다.</li>
-            <li>사망한 참가자가 종료 후 보내는 공개 메시지도 전체 채널로 전달되도록 수정했습니다.</li>
-            <li>경찰 조사 결과에는 대상의 진영(<code>마피아팀</code> 또는 <code>시민팀</code>)만 표시합니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">패치노트·QA 업데이트</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>메인 화면 패치노트에 <code>상세보기</code> 버튼을 추가해 README의 모든 패치노트를 최신 버전순으로 확인할 수 있도록 했습니다.</li>
-            <li>패치노트 내용이 변경되면 기존의 오늘 하루 숨김 설정이 자동으로 무효화되는 동작을 유지했습니다.</li>
-            <li>게임방 설정, 종료 채널, 경찰 조사 진영 표시, 재접속 및 실시간 동기화에 대한 JavaScript·Java·Playwright QA 검증 항목을 갱신했습니다.</li>
-            <li>Smoke·Regression·Full 프로필의 인원수, 재플레이, UI 시나리오, 페이즈 시간과 증거 정책을 실행 코드와 QA 문서에 맞췄습니다. 프로필을 지정하지 않거나 해당 프로필 범위 밖의 인원수를 요청하면 E2E 실행을 시작하지 않습니다.</li>
-            <li>프로필별 기본 설정이 코드와 일치하는지 확인하는 JavaScript 테스트를 추가했습니다.</li>
-            <li>테스트 산출물은 <code>output/test_output/YYYY-MM-DD/&lt;테스트명&gt;/</code> 규칙으로 보관하도록 QA 문서와 실행 설정을 정리했습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">릴리스 버전</h4>
           <ul class="patch-note-detail-list text-secondary small mb-0">
-            <li>Gradle 프로젝트 버전을 <code>0.2.0-alpha</code>에서 <code>0.3.0-alpha</code>로 변경했습니다.</li>
-            <li>기존 게임 규칙은 유지하면서 방 관리, 종료 상태의 채널 권한, 경찰 조사 결과 안내와 QA 추적성을 강화한 알파 업데이트입니다.</li>
+            <li>방장이 대기 중인 방의 정원 4~8명과 비밀번호를 설정·변경·해제할 수 있고 서버도 같은 조건을 검증합니다.</li>
+            <li>게임 종료 시 모두 전체 채널만 보거나 이용하도록 하고, 사망자의 종료 후 공개 메시지를 전체 채널로 전달합니다.</li>
+            <li>경찰 조사 결과에는 상세 직업 대신 마피아팀·시민팀 진영을 표시합니다.</li>
+            <li>메인 화면에 버전별 패치노트 상세 보기를 추가하고 Smoke·Regression·Full QA 범위 및 산출물 기준을 정리했습니다.</li>
+            <li>Gradle 프로젝트 버전을 0.2.0-alpha에서 0.3.0-alpha로 변경했습니다.</li>
           </ul>
         </article>
 
         <article class="patch-note-version" data-patch-note-version="0.2.0-alpha">
           <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
             <h3 class="h5 mb-0">0.2.0-alpha</h3>
-            <span class="small text-secondary">역할 확장·채널 권한·게임 진행 고도화</span>
+            <span class="small text-secondary">역할 확장·채널 권한·페이즈 안내</span>
           </div>
-          <p class="text-secondary small">4~8명 마피아 게임의 역할 구성을 확장하고 역할 능력과 채널 권한을 서버 기준으로 검증합니다.</p>
-          <h4 class="h6 mt-4 mb-2">인원수별 역할 구성</h4>
+          <h4 class="h6 mt-4 mb-2">당시 역할 구성</h4>
           <ul class="patch-note-detail-list text-secondary small">
-            <li>4명: 마피아 1명, 경찰 1명, 의사 1명, 시민 1명</li>
-            <li>5명: 마피아 1명, 스파이 1명, 경찰 1명, 의사 1명, 시민 1명</li>
-            <li>6명: 마피아 1명, 스파이 1명, 경찰 1명, 의사 1명, 군인 1명, 시민 1명</li>
-            <li>7명: 마피아 2명, 스파이 1명, 경찰 1명, 의사 1명, 군인 1명, 시민 1명</li>
-            <li>8명: 마피아 2명, 스파이 1명, 경찰 1명, 의사 1명, 군인 1명, 영매사 1명, 시민 1명</li>
+            <li>4명: 마피아 1, 경찰 1, 의사 1, 시민 1</li>
+            <li>5명: 마피아 1, 스파이 1, 경찰 1, 의사 1, 시민 1</li>
+            <li>6명: 마피아 1, 스파이 1, 경찰 1, 의사 1, 군인 1, 시민 1</li>
+            <li>7명: 마피아 2, 스파이 1, 경찰 1, 의사 1, 군인 1, 시민 1</li>
+            <li>8명: 마피아 2, 스파이 1, 경찰 1, 의사 1, 군인 1, 영매사 1, 시민 1</li>
+            <li>5명·7명 역할표는 0.4.0-alpha에서 변경됐습니다.</li>
           </ul>
-          <h4 class="h6 mt-4 mb-2">신규 역할과 게임 규칙</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>스파이를 마피아팀으로 추가했습니다. 밤에 상대 직업을 조사할 수 있으며, 조사 대상이 마피아인 경우 모든 마피아를 확인하고 마피아 채널에 접선합니다.</li>
-            <li>스파이가 마피아를 찾지 못한 경우 마피아 채널을 사용할 수 없으며, 스파이에게는 다른 플레이어를 살해하는 능력을 부여하지 않았습니다.</li>
-            <li>마피아와 스파이의 생존 인원을 함께 마피아팀으로 계산해 승패를 판정합니다.</li>
-            <li>군인은 마피아에게 살해될 때 한 번만 무적이 되고, 해당 게임에서 무적을 다시 사용할 수 없습니다. 무적으로 생존하면 시스템 메시지와 게임 진행 화면에 군인 직업을 공개합니다.</li>
-            <li>영매사는 생존 중에도 사망자 채널을 사용할 수 있고, 밤에 사망자를 선택해 직업을 조사할 수 있습니다.</li>
-            <li>스파이가 마피아와 접선하면 생존 마피아들에게 접선 사실을 시스템 메시지로 안내합니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">게임 진행과 채널 권한</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>역할 확인 10초, 낮 토론 60초, 지목 투표 15초, 최종 변론 15초, 처형 투표 15초, 밤 행동 30초의 서버 기준 페이즈를 적용했습니다.</li>
-            <li>모든 페이즈 시작과 결과 전환에 마피아 게임에 맞는 시스템 안내 메시지를 표시합니다.</li>
-            <li>마피아 채널은 생존 마피아와 접선에 성공한 스파이에게만 허용하고, 사망자 채널은 사망자와 영매사에게만 허용합니다.</li>
-            <li>역할별 밤 행동, 투표 가능 여부, 채널 송수신 대상을 서버에서 검증하도록 보강했습니다.</li>
-            <li>게임 결과와 재플레이 상태 전환, 새로고침·재접속 흐름을 안정화했습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">안정성·문서·QA</h4>
+          <h4 class="h6 mt-4 mb-2">역할·진행 규칙</h4>
           <ul class="patch-note-detail-list text-secondary small mb-0">
-            <li>WebSocket과 게임 서비스의 null 타입 안정성 경고를 정리했습니다.</li>
-            <li>채팅 UI에 역할·채널·시스템 메시지 상태를 반영하고, 패치노트 모달의 버전별 재노출 처리를 유지했습니다.</li>
-            <li>기능 구현 리스트를 MVP 문서와 분리하고, QA 실행 스크립트·Java/JavaScript 테스트·Playwright 시나리오·QA 보고서를 갱신했습니다.</li>
-            <li>Gradle 버전을 <code>0.2.0-alpha</code>로 변경하고 <code>build/libs</code> 폴더의 빌드 산출물을 추적하도록 설정했습니다.</li>
+            <li>스파이는 밤에 직업을 조사해 마피아를 찾으면 접선하고 마피아 채널을 이용합니다. 직접 살해 행동은 하지 않습니다.</li>
+            <li>군인은 마피아의 밤 공격을 한 번 막고, 영매사는 생존 중 사망자 채널을 이용하며 사망자의 직업을 조사할 수 있습니다.</li>
+            <li>역할 확인 10초, 낮 토론 60초, 각 투표·최종 변론 15초, 밤 행동 30초를 적용했습니다.</li>
+            <li>역할 행동·투표·마피아 및 사망자 채널 권한을 서버에서 확인하고 페이즈 안내, 재플레이·재접속 흐름과 QA를 보강했습니다.</li>
           </ul>
         </article>
 
         <article class="patch-note-version" data-patch-note-version="0.1.1-alpha">
           <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
             <h3 class="h5 mb-0">0.1.1-alpha</h3>
-            <span class="small text-secondary">페이즈 안내·안정성·QA 강화</span>
+            <span class="small text-secondary">시스템 안내·채팅 표시·기초 QA</span>
           </div>
-          <p class="text-secondary small">기존 MVP 흐름에 게임 진행 안내, null 타입 안정성, 채팅 UI와 검증 체계를 보강했습니다.</p>
-          <h4 class="h6 mt-4 mb-2">게임 진행 안내 시스템 메시지</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li><code>ChatMessage.system()</code>을 추가하여 <code>SYSTEM</code> 타입, <code>PUBLIC</code> 채널, <code>게임 안내</code> 발신자를 사용하는 시스템 메시지를 만들 수 있게 했습니다.</li>
-            <li>게임 시작 및 실제 페이즈 전환 시 게임방 공개 토픽(<code>/topic/rooms/{roomId}/chat</code>)으로 안내 메시지를 한 번씩 발행합니다.</li>
-            <li>상태 동기화, 재접속, 중복 액션, 타이머 갱신 때문에 동일 페이즈 안내가 중복 발행되지 않도록 했습니다.</li>
-            <li>다음 페이즈별 안내를 추가했습니다: <code>ROLE_ASSIGNMENT</code>(개인 역할 확인), <code>DAY_DISCUSSION</code>(밤 결과·토론), <code>NOMINATION_VOTE</code>(지목 규칙), <code>FINAL_DEFENSE</code>(최종 변론), <code>EXECUTION_VOTE</code>(처형 찬반), <code>NIGHT</code>(밤 행동), <code>FINISHED</code>(게임 종료).</li>
-            <li>밤 사망·보호 결과, 처형 결과, 승리 문구 등 서버가 계산한 전환 결과도 해당 페이즈 안내에 함께 표시합니다.</li>
-            <li>역할, 경찰 조사 대상과 결과 같은 비공개 정보는 공개 시스템 메시지에 포함하지 않습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">채팅 화면 개선</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>클라이언트가 <code>CHAT</code>뿐 아니라 <code>SYSTEM</code> WebSocket 메시지도 처리하도록 했습니다.</li>
-            <li>시스템 메시지에 <code>.chat-message.system</code>, <code>.channel-system</code> 클래스를 부여하여 일반·마피아·사망자 채팅과 구분했습니다.</li>
-            <li>시스템 메시지는 <code>게임 안내</code> 발신자와 안내 아이콘으로 표시하고, HTML이 아닌 text content로만 렌더링합니다.</li>
-            <li>공개·마피아·사망자·시스템 채널의 메시지 클래스를 명확히 정규화해 채널별 스타일 적용을 안정화했습니다.</li>
-            <li>시스템 안내용 배경, 테두리, 아이콘, 안내 문구 스타일을 추가했습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">null 타입 안정성과 서버 코드 정리</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li><code>ChannelInterceptor</code>, WebSocket 설정, 채팅 서비스의 Spring <code>@NonNull</code> 계약을 명시했습니다.</li>
-            <li>WebSocket 인가 인터셉터의 메시지·채널·STOMP accessor·예외 생성 경로에 non-null 계약을 적용했습니다.</li>
-            <li><code>RoomController</code>, <code>RoomGameRules</code>의 함수형 컬렉션 처리에서 발생하던 <code>ToIntFunction</code>·<code>Function&lt;Map.Entry&lt;...&gt;&gt;</code> null 타입 경고를 정리했습니다.</li>
-            <li><code>RoomPresenceService</code>에서 참가자 맵이 비어 있거나 null일 때의 조회·정리 경로를 안전하게 처리했습니다.</li>
-            <li>목적지 문자열 생성과 결과 반환 타입을 명시해 IDE null 분석이 실제 계약과 일치하도록 했습니다.</li>
-            <li>테스트에서 리플렉션으로 사용하는 페이즈 진행 메서드에는 용도를 명시하여 불필요 사용 경고를 정리했습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">테스트·QA 업데이트</h4>
-          <ul class="patch-note-detail-list text-secondary small">
-            <li>WebSocket 인가 테스트에 null principal, 공개/마피아 채널, 방 입장과 구독 권한 검증을 보강했습니다.</li>
-            <li><code>RoomGameServiceTest</code>에 게임 시작과 페이즈 전환 시 <code>SYSTEM</code> 메시지가 공개 발행되는지 검증하는 테스트를 추가했습니다.</li>
-            <li>JavaScript 테스트에 시스템 메시지의 채널 클래스·발신자·text-only 렌더링을 추가했습니다.</li>
-            <li>패치노트 팝업의 최초 표시, 같은 날 숨김, 내용 변경 시 숨김 설정 무효화 테스트를 추가했습니다.</li>
-            <li>Playwright 추적에 시스템 메시지를 수집하고 역할 배정부터 게임 종료까지 각 페이즈 안내를 확인하도록 했습니다.</li>
-            <li>재사용 QA 문서에 MVP 검증 항목을 40번까지 정리하고, 4.3절에 페이즈 시스템 메시지의 공개 범위·중복 방지·문구·DOM 검증 기준을 추가했습니다.</li>
-            <li>실제 QA 실행 결과 Java 테스트 성공, JavaScript 29/29 통과, 핵심 E2E 6/6 통과, UI 회귀 2/2 통과를 확인했습니다.</li>
-          </ul>
-          <h4 class="h6 mt-4 mb-2">릴리스 버전</h4>
           <ul class="patch-note-detail-list text-secondary small mb-0">
-            <li>Gradle 프로젝트 버전을 <code>0.1.0-alpha</code>에서 <code>0.1.1-alpha</code>로 변경했습니다.</li>
-            <li>기존 게임 규칙과 데이터 구조를 유지하면서 사용자 안내와 안정성, 자동 검증을 강화하는 알파 업데이트입니다.</li>
+            <li>게임 시작과 페이즈 전환에 공개 시스템 안내를 추가하고, 상태 복원 때문에 같은 안내가 반복되지 않도록 했습니다.</li>
+            <li>역할·조사 결과 같은 비공개 정보는 공개 안내에서 제외합니다.</li>
+            <li>브라우저는 SYSTEM 메시지를 일반 채팅과 구분하고 내용은 텍스트로 표시합니다.</li>
+            <li>WebSocket 권한·null 안정성, Java·JavaScript·Playwright 검증과 재사용 QA 문서를 보강했습니다.</li>
+            <li>Gradle 프로젝트 버전을 0.1.0-alpha에서 0.1.1-alpha로 변경했습니다.</li>
           </ul>
         </article>
 
         <article class="patch-note-version" data-patch-note-version="0.1.0-alpha">
           <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
             <h3 class="h5 mb-0">0.1.0-alpha</h3>
-            <span class="small text-secondary">초기 MVP 기준 버전</span>
+            <span class="small text-secondary">초기 실시간 게임 MVP</span>
           </div>
-          <p class="text-secondary small">실시간 웹 마피아 게임의 기본 플레이와 방 관리 기반을 구성했습니다.</p>
           <ul class="patch-note-detail-list text-secondary small mb-0">
-            <li>회원가입, 로그인, 로그아웃과 보호된 게임방 접근을 구현했습니다.</li>
-            <li>게임 로비에서 방 목록을 확인하고 방을 검색·생성·입장할 수 있도록 했습니다.</li>
-            <li>4~8명 정원, 방장 권한, 참가자 목록, Ready 상태를 구현했습니다.</li>
-            <li>Spring WebSocket/STOMP 기반으로 참가자·방 상태·채팅을 실시간 동기화했습니다.</li>
-            <li>마피아·경찰·의사·시민 역할과 역할별 비공개 정보를 구현했습니다.</li>
-            <li>낮 토론, 지목 투표, 최종 변론, 처형 투표, 밤 행동, 승패 판정의 기본 게임 루프를 구현했습니다.</li>
-            <li>마피아 제거, 의사 보호, 경찰 조사와 시민·마피아 승리 조건을 서버에서 판정하도록 했습니다.</li>
-            <li>게임 결과를 표시한 뒤 Ready 상태를 초기화하고 같은 방에서 다시 플레이할 수 있도록 했습니다.</li>
-            <li>새로고침과 재접속 시 서버의 현재 게임 상태를 복구하도록 했습니다.</li>
-            <li>Java 단위 테스트와 브라우저 기반 JavaScript 테스트를 마련하고, 4~8인 다중 세션 E2E 흐름을 구성했습니다.</li>
+            <li>회원가입·로그인, 로비 방 검색·생성·입장, 4~8명 대기방과 방장·Ready 기능을 구현했습니다.</li>
+            <li>Spring WebSocket/STOMP로 방 상태와 채팅을 실시간 동기화합니다.</li>
+            <li>마피아·경찰·의사·시민, 토론·투표·밤 행동, 서버 승패 판정과 역할 비공개 전달을 구성했습니다.</li>
+            <li>게임 결과 후 재플레이와 새로고침·재접속 상태 복원을 지원하고 Java·JavaScript·다중 세션 E2E 기반을 마련했습니다.</li>
           </ul>
         </article>
       </div>
@@ -370,39 +317,8 @@
      role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script th:src="@{/js/user-level.js}"></script>
 <script th:src="@{/js/stomp-client.js}"></script>
-<script>
-  const search = document.querySelector('#roomSearch');
-  const filter = document.querySelector('#roomFilter');
-  let cards = [...document.querySelectorAll('.room-card')];
-  const empty = document.querySelector('#emptyState');
-  const roomCount = document.querySelector('#roomCount');
-  function updateRooms() {
-    const query = search.value.trim().toLowerCase();
-    let visible = 0;
-    cards.forEach(card => {
-      const show = (filter.value === 'all' || card.dataset.status === filter.value)
-        && card.dataset.title.toLowerCase().includes(query);
-      card.hidden = !show;
-      if (show) visible++;
-    });
-    empty.hidden = visible !== 0;
-  }
-  search.addEventListener('input', updateRooms);
-  filter.addEventListener('change', updateRooms);
-  document.addEventListener('room:removed', event => {
-    const roomId = Number(event.detail?.roomId);
-    cards = cards.filter(card => Number(card.dataset.roomId) !== roomId);
-    roomCount.textContent = cards.length;
-    updateRooms();
-  });
-  const toast = document.querySelector('#toast');
-  document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => {
-    toast.textContent = '게임 입장을 준비하고 있어요.';
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 2200);
-  }));
-</script>
 <script th:src="@{/js/room-list.js}"></script>
 </body>
 </html>

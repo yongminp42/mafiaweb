@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<article th:fragment="roomCard(room, roomIndex)"
+         class="room-card list-group-item d-flex align-items-center gap-3 px-0 py-3"
+         th:id="${'room-' + room.roomId}"
+         th:data-room-id="${room.roomId}"
+         th:data-status="${room.status}"
+         th:data-title="${room.title}">
+  <div class="room-number"
+       th:text="${roomIndex < 0 ? '--' : #numbers.formatInteger(roomIndex + 1, 2)}">01</div>
+  <div class="room-main flex-grow-1">
+    <div class="d-flex align-items-center gap-2">
+      <span class="lock" th:if="${room.locked}">▣</span>
+      <h3 class="room-title h6 mb-0" th:text="${room.title}">달빛 아래의 마피아</h3>
+      <span class="badge rounded-pill bg-success-subtle text-success-emphasis"
+            th:classappend="${room.status == 'PLAYING'} ? ' bg-secondary-subtle text-secondary-emphasis' : ''"
+            th:text="${room.status == 'PLAYING'} ? '게임 중' : '대기 중'">대기 중</span>
+    </div>
+    <p class="text-secondary small mb-0 mt-1"><span th:text="${room.hostName}">방장</span>님의 게임</p>
+  </div>
+  <div class="players text-secondary small text-nowrap">
+    <span>♟</span> <strong class="text-dark" data-room-player-count th:text="${room.currentPlayers}">6</strong>
+    <em class="fst-normal text-body-tertiary">/</em> <span th:text="${room.maxPlayers}">8</span>
+  </div>
+  <a class="join btn btn-sm btn-outline-secondary" th:href="@{/rooms/{id}(id=${room.roomId})}">입장하기</a>
+</article>
+</body>
+</html>

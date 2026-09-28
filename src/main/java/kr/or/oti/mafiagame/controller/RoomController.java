@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import jakarta.servlet.http.HttpSession;
@@ -51,6 +53,18 @@ public class RoomController {
                 roomPlayerCount);
         model.addAttribute("onlinePlayerCount", onlinePlayerCount);
         return "rooms/list";
+    }
+
+    @GetMapping("/rooms/{roomId}/card")
+    public String roomCard(@PathVariable("roomId") long roomId, Model model) {
+        RoomView room = roomService.getRoomView(roomId);
+        if (room == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        int currentPlayers = roomPresenceService.currentCounts().getOrDefault(roomId, 0);
+        model.addAttribute("room", room.withPlayerCount(currentPlayers));
+        model.addAttribute("roomIndex", -1);
+        return "rooms/room-card-fragment";
     }
 
     @GetMapping("/rooms/new")
@@ -96,6 +110,7 @@ public class RoomController {
         if (room == null) {
             return "redirect:/rooms";
         }
+        room = room.withPlayerCount(roomPresenceService.currentCounts().getOrDefault(roomId, 0));
         boolean isHost = user != null && room.hostUserId() == user.getUserId();
         if (room.locked() && !isHost && !RoomAccess.isGranted(session, roomId)) {
             model.addAttribute("room", room);

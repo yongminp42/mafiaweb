@@ -43,7 +43,7 @@ class SignupServiceTest {
         });
         when(userMapper.insertStats(15L)).thenReturn(1);
 
-        signupService.signup("  player  ", " USER@Example.COM ", "password123", "password123", true);
+        signupService.signup("  player  ", " USER@Example.COM ", "password123", "password123");
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userMapper).insert(userCaptor.capture());
@@ -55,19 +55,17 @@ class SignupServiceTest {
 
     @Test
     void rejectsInvalidInputsAndDuplicateEmail() {
-        assertThatThrownBy(() -> signupService.signup("x", "user@example.com", "password123", "password123", true))
+        assertThatThrownBy(() -> signupService.signup("x", "user@example.com", "password123", "password123"))
                 .isInstanceOf(SignupException.class);
-        assertThatThrownBy(() -> signupService.signup("player", "invalid", "password123", "password123", true))
+        assertThatThrownBy(() -> signupService.signup("player", "invalid", "password123", "password123"))
                 .isInstanceOf(SignupException.class);
-        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "short", "short", true))
+        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "short", "short"))
                 .isInstanceOf(SignupException.class);
-        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "password123", "different", true))
-                .isInstanceOf(SignupException.class);
-        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "password123", "password123", false))
+        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "password123", "different"))
                 .isInstanceOf(SignupException.class);
 
         when(userMapper.existsByEmail("user@example.com")).thenReturn(true);
-        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "password123", "password123", true))
+        assertThatThrownBy(() -> signupService.signup("player", "user@example.com", "password123", "password123"))
                 .isInstanceOf(SignupException.class);
     }
 
@@ -78,7 +76,7 @@ class SignupServiceTest {
         when(userMapper.insert(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
 
         assertThatThrownBy(() -> signupService.signup(
-                "player", "user@example.com", "password123", "password123", true))
+                "player", "user@example.com", "password123", "password123"))
                 .isInstanceOf(SignupException.class);
     }
 
@@ -89,7 +87,7 @@ class SignupServiceTest {
         when(userMapper.insert(any(User.class))).thenReturn(0);
 
         assertThatThrownBy(() -> signupService.signup(
-                "player", "user@example.com", "password123", "password123", true))
+                "player", "user@example.com", "password123", "password123"))
                 .isInstanceOf(SignupException.class);
     }
 }
