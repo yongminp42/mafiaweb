@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 test('E2E scopes and the three QA profiles are isolated', async () => {
   const previousProfile = process.env.E2E_PROFILE;
+  const previousRoomLayoutMode = process.env.ROOM_LAYOUT_MODE;
+  const previousRunId = process.env.E2E_RUN_ID;
   const runbook = await readFile(
     new URL('../../docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md', import.meta.url),
     'utf8'
@@ -71,6 +73,9 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
   assert.match(profileConfiguration, /outside the \$e2eProfile profile/);
   assert.match(profileConfiguration, /A complete Full QA run requires PLAYER_COUNTS/);
   assert.match(profileConfiguration, /E2E_CAPACITY must be an integer from 4 through 8/);
+  assert.match(profileConfiguration, /\$maxE2ERunIdLength = 22/);
+  assert.match(profileConfiguration, /E2E_RUN_ID must be at most \$maxE2ERunIdLength characters/);
+  assert.match(runbook, /Resolve-Path -LiteralPath \$qaJavaTempPath/);
   assert.ok(profileDefaultsStart < profileConfirmationIndex,
     'Profile values must be validated before the user confirms the run.');
   assert.ok(profileConfirmationIndex < runbook.indexOf('## 0. Environment Preflight'),
@@ -175,10 +180,13 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
   assert.match(chatScrollSpec, /test\.skip\(!PROFILE_CONFIG\.runChatScroll/);
   assert.match(chatScrollSpec, /index <= PROFILE_CONFIG\.chatMessageCount/);
   assert.match(roomLayoutSpec, /parseConfiguredUiCapacity\(\)/);
+  assert.match(coreSpec, /assertE2ENickname/);
+  assert.match(chatScrollSpec, /assertE2ENickname/);
+  assert.match(roomLayoutSpec, /assertE2ENickname/);
   for (const scopeRow of [
-    '| Smoke | 4 players; no replay; no resilience; confirms the solo-Mafia notice | room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level',
-    '| Regression | 4/6/8 players; replay only 4; 8-player case confirms private Mafia teammate names | chat-scroll at 30 messages and room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level',
-    '| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases; private teammate checks at 7/8 | chat-scroll at 210 messages and room-layout/profile at 8 players; duplicate-nickname rejection; maximum-capacity role-help counts; 300px game panel and user stats/level'
+    '| Smoke | 4 players; no replay; no resilience; confirms the solo-Mafia notice | room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; centered action row, 300px game panel, and user stats/level',
+    '| Regression | 4/6/8 players; replay only 4; 8-player case confirms private Mafia teammate names | chat-scroll at 30 messages and room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; centered action row, 300px game panel, and user stats/level',
+    '| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases; private teammate checks at 7/8 | chat-scroll at 210 messages and room-layout/profile at 8 players; duplicate-nickname rejection; maximum-capacity role-help counts; centered action row, 300px game panel, and user stats/level'
   ]) {
     assert.ok(runbook.includes(scopeRow), `QA profile scope must include: ${scopeRow}`);
   }
@@ -188,32 +196,34 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       name: 'smoke', counts: [4], replay: [], capacity: 5,
       short: true, chatScroll: false, messages: 30,
       screenshots: false, video: false, extended: false,
-      trace: 'retain-on-failure', coreTimeoutMs: 5 * 60 * 1000
+      trace: 'retain-on-failure', coreTimeoutMs: 5 * 60 * 1000, maxRunIdLength: 22
     },
     {
       name: 'regression', counts: [4, 6, 8], replay: [4], capacity: 5,
       short: true, chatScroll: true, messages: 30,
       screenshots: true, video: false, extended: false,
-      trace: 'retain-on-failure', coreTimeoutMs: 12 * 60 * 1000
+      trace: 'retain-on-failure', coreTimeoutMs: 12 * 60 * 1000, maxRunIdLength: 22
     },
     {
       name: 'full', counts: [4, 5, 6, 7, 8], replay: [4, 5, 6, 7, 8], capacity: 8,
       short: false, chatScroll: true, messages: 210,
       screenshots: true, video: true, extended: true,
-      trace: 'on', coreTimeoutMs: 20 * 60 * 1000
+      trace: 'on', coreTimeoutMs: 20 * 60 * 1000, maxRunIdLength: 22
     }
   ];
 
   try {
     for (const expected of profiles) {
       const phaseProfile = expected.short ? 'short' : 'production';
-      const defaultLine = `${expected.name} = @{ playerCounts = '${expected.counts.join(',')}'; uiCapacity = ${expected.capacity}; phaseProfile = '${phaseProfile}' }`;
+      const defaultLine = `${expected.name} = @{ playerCounts = '${expected.counts.join(',')}'; uiCapacity = ${expected.capacity}; phaseProfile = '${phaseProfile}'; roomLayoutMode = 'centered' }`;
       assert.ok(
         powershellDefaults.includes(defaultLine),
         `QA script defaults for ${expected.name} must match the E2E profile.`
       );
 
       process.env.E2E_PROFILE = expected.name;
+      delete process.env.ROOM_LAYOUT_MODE;
+      delete process.env.E2E_RUN_ID;
       const profile = await import(`../e2e/e2e-profile.js?qa-profile=${expected.name}`);
       assert.equal(profile.E2E_PROFILE, expected.name);
       assert.deepEqual(profile.parseConfiguredPlayerCounts(), expected.counts);
@@ -221,6 +231,36 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       assert.equal(profile.PROFILE_CONFIG.uiCapacity, expected.capacity);
       assert.equal(profile.PROFILE_CONFIG.coreTimeoutMs, expected.coreTimeoutMs);
       assert.equal(profile.PROFILE_CONFIG.phaseProfile, expected.short ? 'short' : 'production');
+      assert.equal(profile.PROFILE_CONFIG.roomLayoutMode, 'centered');
+      assert.equal(profile.PROFILE_CONFIG.maxRunIdLength, expected.maxRunIdLength);
+      assert.equal(profile.E2E_RUN_ID_MAX_LENGTH, expected.maxRunIdLength);
+      assert.ok(profile.E2E_RUN_ID.length <= expected.maxRunIdLength);
+      assert.equal(profile.resolveE2ERunId('r2609291735'), 'r2609291735');
+      assert.equal(
+        profile.resolveE2ERunId('x'.repeat(expected.maxRunIdLength)).length,
+        expected.maxRunIdLength
+      );
+      assert.equal(profile.assertE2ENickname('PW-safe-1'), 'PW-safe-1');
+      const maximumScenarioNickname = `PWth6-${'x'.repeat(expected.maxRunIdLength)}-1`;
+      assert.equal(profile.assertE2ENickname(maximumScenarioNickname).length, 30);
+      assert.throws(
+        () => profile.assertE2ENickname(`PWth6-${'x'.repeat(expected.maxRunIdLength + 1)}-1`),
+        /1-30 characters/
+      );
+      assert.throws(
+        () => profile.resolveE2ERunId('qa-regression-20260929-172913'),
+        /at most 22 characters/
+      );
+      assert.throws(
+        () => profile.resolveE2ERunId('bad run id'),
+        /start with a letter or digit/
+      );
+      assert.throws(
+        () => profile.assertE2ENickname('x'.repeat(31)),
+        /1-30 characters/
+      );
+      assert.equal(profile.ROOM_LAYOUT_MODE, 'centered');
+      assert.equal(profile.usesCenteredRoomLayout(), true);
       assert.equal(profile.FULL_TIMING_ASSERTIONS, !expected.short);
       assert.equal(profile.PROFILE_CONFIG.runChatScroll, expected.chatScroll);
       assert.equal(profile.PROFILE_CONFIG.chatMessageCount, expected.messages);
@@ -255,6 +295,16 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       delete process.env.E2E_PROFILE;
     } else {
       process.env.E2E_PROFILE = previousProfile;
+    }
+    if (previousRoomLayoutMode === undefined) {
+      delete process.env.ROOM_LAYOUT_MODE;
+    } else {
+      process.env.ROOM_LAYOUT_MODE = previousRoomLayoutMode;
+    }
+    if (previousRunId === undefined) {
+      delete process.env.E2E_RUN_ID;
+    } else {
+      process.env.E2E_RUN_ID = previousRunId;
     }
   }
 });

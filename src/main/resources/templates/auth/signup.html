@@ -62,12 +62,18 @@
                    placeholder="비밀번호를 한 번 더 입력하세요" minlength="8" maxlength="72"
                    autocomplete="new-password" required>
           </div>
-          <div class="form-check small text-secondary">
-            <input class="form-check-input" id="agreement" type="checkbox" required>
-            <label class="form-check-label" for="agreement">
-              <a class="text-coral fw-semibold" href="#">이용약관</a> 및
-              <a class="text-coral fw-semibold" href="#">개인정보 처리방침</a>에 동의합니다.
-            </label>
+          <div class="small text-secondary">
+            <div class="form-check">
+              <input class="form-check-input" id="agreement" name="agreement" type="checkbox"
+                     value="true" th:checked="${agreement}" aria-labelledby="agreementText" required>
+              <span class="form-check-label" id="agreementText">
+                <a class="text-coral fw-semibold text-decoration-underline" href="#termsModal"
+                   data-bs-toggle="modal" aria-haspopup="dialog">이용약관</a>
+                및
+                <a class="text-coral fw-semibold text-decoration-underline" href="#privacyModal"
+                   data-bs-toggle="modal" aria-haspopup="dialog">개인정보 처리방침</a>에 동의합니다.
+              </span>
+            </div>
           </div>
           <button class="btn btn-coral w-100 py-2 fw-bold" type="submit">회원가입</button>
         </form>
@@ -80,6 +86,79 @@
     </section>
   </div>
 </main>
+
+<div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="termsModalLabel">MAFIAGAME 이용약관</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary">MAFIAGAME 회원 가입 및 이용 시 적용되는 주요 내용을 안내합니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">1. 서비스 이용</h3>
+        <p>MAFIAGAME은 회원이 계정을 만들고 게임방을 생성하거나 참가하여, 다른 이용자와 마피아 게임을 진행하는 웹 서비스입니다. 서비스에는 실시간 대화, 역할 확인과 능력 사용, 투표와 게임 결과 확인, 프로필 및 전적 조회 기능이 포함될 수 있습니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">2. 계정과 회원 정보</h3>
+        <p>회원은 가입 시 사용할 수 있는 닉네임과 이메일 주소를 입력하고 본인의 계정 정보를 안전하게 관리해야 합니다. 비밀번호는 로그인 확인을 위해 암호화된 해시 형태로 처리됩니다. 다른 사람의 계정을 사용하거나 계정 접근 정보를 타인과 공유하지 마세요.</p>
+
+        <h3 class="h6 fw-bold mt-4">3. 게임 진행과 정보 공개</h3>
+        <p>역할 배정, 게임 단계, 투표 집계, 능력 처리와 승패는 서비스의 게임 규칙에 따라 진행됩니다. 닉네임, 채팅, 투표와 게임 중 행동은 현재 게임방의 채널 권한과 게임 단계에 따라 참가자에게 표시될 수 있습니다. 역할이나 비공개 행동 정보는 게임 진행 중 해당 정보를 볼 권한이 있는 이용자에게 제공되며, 게임 종료 후에는 결과 확인을 위해 공개될 수 있습니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">4. 이용자 준수사항</h3>
+        <p>회원은 다른 이용자의 정상적인 게임 참여를 존중해야 합니다. 괴롭힘·위협·차별 표현, 타인의 개인정보 공개, 반복적인 도배, 게임 결과 조작 시도, 버그나 취약점을 이용한 부당한 이득 취득, 서비스 운영을 방해하는 행위를 해서는 안 됩니다. 게임방의 비밀번호나 초대 정보도 허가받지 않은 사람에게 공유하지 마세요.</p>
+
+        <h3 class="h6 fw-bold mt-4">5. 서비스 운영</h3>
+        <p>서비스는 점검, 보안 대응, 장애 복구, 기능 개선 또는 운영상 필요한 경우 일부 기능을 변경하거나 일시적으로 중단할 수 있습니다. 중요한 변경이 있으면 서비스 화면이나 공지 등 이용자가 확인할 수 있는 방법으로 안내합니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">6. 약관 위반과 책임</h3>
+        <p class="mb-0">회원이 약관이나 관계 법령을 위반하여 다른 이용자 또는 서비스에 피해를 주는 경우, 관련 법령과 서비스 운영 기준에 따라 이용 제한 등 필요한 조치가 이루어질 수 있습니다. 회원은 본인의 귀책 사유로 발생한 손해에 대해 관계 법령에 따른 책임을 부담합니다.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-dark" data-bs-dismiss="modal">확인</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="privacyModal" tabindex="-1" aria-labelledby="privacyModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="privacyModalLabel">개인정보 처리방침 안내</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary">MAFIAGAME에서 실제로 처리하는 회원정보와 게임 이용 정보의 주요 내용을 안내합니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">1. 처리하는 정보와 이용 목적</h3>
+        <ul>
+          <li><strong>회원 가입:</strong> 닉네임, 이메일 주소, 비밀번호를 처리하여 계정을 만들고 로그인과 회원 식별에 사용합니다. 이메일은 형식과 중복 여부를 확인합니다.</li>
+          <li><strong>계정·프로필 관리:</strong> 회원 식별값, 가입 시각, 레벨, 회원이 입력한 프로필 소개를 계정 관리와 프로필 제공에 사용합니다.</li>
+          <li><strong>게임 및 전적 관리:</strong> 게임 완료 식별 정보, 게임방 식별 정보, 승리 진영과 회원별 누적 게임 수·승리·패배·점수 정보를 게임 결과 처리, 전적 및 통계 제공에 사용합니다.</li>
+          <li><strong>실시간 게임 진행:</strong> 게임 중 닉네임, 역할 배정, 채팅, 투표와 능력 사용 정보는 실시간 게임 진행 및 권한별 결과 표시를 위해 처리됩니다. 이 안내는 해당 실시간 정보가 모두 장기 보관된다는 뜻은 아닙니다.</li>
+        </ul>
+
+        <h3 class="h6 fw-bold mt-4">2. 비밀번호와 동의 정보</h3>
+        <p>비밀번호는 원문 그대로 저장하지 않고 해시 처리하여 저장합니다. 가입 시 이용약관 및 개인정보 처리방침 동의 여부는 필수 입력값으로 확인하지만, 동의 사실이나 동의 시각을 별도 항목으로 데이터베이스에 저장하지 않습니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">3. 다른 이용자에게 표시되는 정보</h3>
+        <p>닉네임, 프로필 소개, 레벨과 전적은 프로필·게임방 기능에서 다른 이용자에게 표시될 수 있습니다. 이메일 주소와 비밀번호는 게임 참가자에게 공개되지 않습니다. 게임 채팅, 역할 및 행동 정보는 게임의 공개·비공개 채널과 진행 단계에 맞는 참가자에게 표시되며, 게임 종료 뒤에는 결과 화면에서 역할 등 결과 정보가 공개될 수 있습니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">4. 보유와 파기</h3>
+        <p>회원 계정 정보는 계정 관리와 서비스 제공에, 전적 정보는 프로필과 게임 통계 제공에 필요한 범위에서 처리됩니다. 개인정보가 더 이상 필요하지 않게 되면 관계 법령에 따라 지체 없이 파기하며, 법령상 보존 의무가 있는 정보는 해당 근거와 기간에 따릅니다. 구체적인 보유기간과 회원 탈퇴·삭제 요청 절차는 운영 정책으로 확정해 별도 안내해야 합니다.</p>
+
+        <h3 class="h6 fw-bold mt-4">5. 회원의 요청과 안내 범위</h3>
+        <p class="mb-0">회원은 관계 법령에 따라 본인 정보의 열람·정정·삭제·처리정지 등을 요청할 수 있습니다. 다만 이 화면은 가입 시 확인하는 핵심 안내이며, 개인정보 보호책임자 및 문의처, 처리 위탁·제공 여부, 상세한 보유기간과 권리 행사 절차는 서비스 운영 정보가 확정된 개인정보 처리방침에 구체적으로 공개해야 합니다.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-dark" data-bs-dismiss="modal">확인</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/webjars/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

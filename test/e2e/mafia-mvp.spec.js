@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  E2E_RUN_ID,
   E2E_PROFILE,
   FULL_TIMING_ASSERTIONS,
   PROFILE_CONFIG,
+  assertE2ENickname,
   parseConfiguredPlayerCounts,
   representativeItems,
   shouldCaptureVideo,
@@ -32,7 +34,7 @@ import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const PASSWORD = process.env.E2E_PASSWORD || 'MafiaTest2026!';
-const RUN_ID = process.env.E2E_RUN_ID || Date.now().toString(36);
+const RUN_ID = E2E_RUN_ID;
 const ARTIFACT_ROOT = resolveTestOutputDirectory(`mafia-mvp-test-${E2E_PROFILE}`, RUN_ID);
 const configuredOnlineBaseline = process.env.ONLINE_BASELINE?.trim();
 const ONLINE_BASELINE = configuredOnlineBaseline
@@ -231,7 +233,7 @@ async function waitForGameState(trace, phase, occurrence = 0, timeout = 20_000) 
 }
 
 async function signUpAndLogin(page, playerIndex, scenarioId) {
-  const nickname = 'PW' + scenarioId + '-' + (playerIndex + 1);
+  const nickname = assertE2ENickname('PW' + scenarioId + '-' + (playerIndex + 1));
   const email =
     'playwright.' + RUN_ID + '.' + scenarioId + '.' + (playerIndex + 1) + '@example.com';
 
@@ -912,7 +914,7 @@ for (const playerCount of PLAYER_COUNTS) {
             page: pages[index],
             userId: userIds[index],
             index,
-            nickname: 'PW' + scenarioId + '-' + (index + 1)
+            nickname: assertE2ENickname('PW' + scenarioId + '-' + (index + 1))
           });
         }
         assertRoleAssignments(roleLabels, playerCount);

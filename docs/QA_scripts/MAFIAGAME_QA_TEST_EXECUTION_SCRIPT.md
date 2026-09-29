@@ -14,8 +14,10 @@ Change only the values in this section before each run. Keep the rest of this do
 $projectPath = 'C:\workspace-sts-5.3.0\mafiagame'
 $e2eEnabled = $true
 $e2eProfile = $null
+$e2eRunId = $null
 $playerCounts = $null
 $uiCapacity = $null
+$roomLayoutMode = $null
 $onlineBaseline = $null
 $workerCount = 1
 $baseUrl = 'http://127.0.0.1:8080'
@@ -55,11 +57,11 @@ if ([string]::IsNullOrWhiteSpace($e2eProfile)) {
     Write-Host ''
     Write-Host 'Select the QA scenario to run:' -ForegroundColor Cyan
     Write-Host '  1) Smoke      - Java/JS tests, one 4-player core flow, and one room-layout/profile UI flow.'
-    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and experience-based level (new accounts: Lv. 1, 1000 XP).'
+    Write-Host '                    Checks the centered room layout, reachable action row, 300px game area, equal columns, and user statistics/level.'
     Write-Host '                    Uses short server phases; skips replay, resilience, and chat-scroll.'
     Write-Host '                    Estimated time: about 5-10 minutes; best for a quick daily check.'
     Write-Host '  2) Regression - 4/6/8-player core flows, replay for 4 players, room-layout/profile, and chat-scroll.'
-    Write-Host '                    Checks the 300px game area, equal columns, user statistics, and experience-based level (new accounts: Lv. 1, 1000 XP).'
+    Write-Host '                    Checks the centered room layout, reachable action row, 300px game area, equal columns, and user statistics/level.'
     Write-Host '                    Uses short server phases and 30 browser messages; skips 6-player resilience.'
     Write-Host '                    Estimated time: about 15-25 minutes; recommended before a normal merge.'
     Write-Host '  3) Full       - 4/5/6/7/8-player flows, replay for every count, resilience/deadline cases,'
@@ -80,9 +82,9 @@ if ([string]::IsNullOrWhiteSpace($e2eProfile)) {
 }
 
 $profileDefaults = @{
-    smoke = @{ playerCounts = '4'; uiCapacity = 5; phaseProfile = 'short' }
-    regression = @{ playerCounts = '4,6,8'; uiCapacity = 5; phaseProfile = 'short' }
-    full = @{ playerCounts = '4,5,6,7,8'; uiCapacity = 8; phaseProfile = 'production' }
+    smoke = @{ playerCounts = '4'; uiCapacity = 5; phaseProfile = 'short'; roomLayoutMode = 'centered' }
+    regression = @{ playerCounts = '4,6,8'; uiCapacity = 5; phaseProfile = 'short'; roomLayoutMode = 'centered' }
+    full = @{ playerCounts = '4,5,6,7,8'; uiCapacity = 8; phaseProfile = 'production'; roomLayoutMode = 'centered' }
 }
 
 if (-not $profileDefaults.ContainsKey($e2eProfile)) {
@@ -96,6 +98,24 @@ if ($null -eq $uiCapacity) {
     $uiCapacity = $profileDefaults[$e2eProfile].uiCapacity
 }
 $phaseProfile = $profileDefaults[$e2eProfile].phaseProfile
+$roomLayoutMode = $profileDefaults[$e2eProfile].roomLayoutMode
+
+if ($roomLayoutMode -ne 'centered') {
+    throw "Unsupported room layout mode: $roomLayoutMode. The current UI requires centered. No DB check or test has started."
+}
+
+$maxE2ERunIdLength = 22
+if ([string]::IsNullOrWhiteSpace($e2eRunId)) {
+    $e2eRunId = 'qa-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+} else {
+    $e2eRunId = $e2eRunId.Trim()
+}
+if ($e2eRunId -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') {
+    throw "E2E_RUN_ID must start with a letter or digit and contain only letters, digits, underscores, or hyphens. Current value: '$e2eRunId'. No DB check or test has started."
+}
+if ($e2eRunId.Length -gt $maxE2ERunIdLength) {
+    throw "E2E_RUN_ID must be at most $maxE2ERunIdLength characters so generated signup nicknames stay within 30 characters. Current length: $($e2eRunId.Length). No DB check or test has started."
+}
 
 if ($e2eEnabled) {
     $allowedPlayerCounts = @(
@@ -131,7 +151,7 @@ if ($e2eEnabled) {
 }
 
 Write-Host "Selected QA profile: $e2eProfile" -ForegroundColor Green
-Write-Host "Player counts: $playerCounts; UI capacity: $uiCapacity; server phase profile: $phaseProfile"
+Write-Host "Player counts: $playerCounts; UI capacity: $uiCapacity; server phase profile: $phaseProfile; room layout: $roomLayoutMode; E2E run ID: $e2eRunId"
 if ((Read-Host 'Start this QA scenario now? Enter Y to continue') -notmatch '(?i)^y$') {
     throw 'QA run cancelled before execution.'
 }
@@ -145,12 +165,14 @@ Configuration rules:
 - The Playwright configuration also rejects a missing `E2E_PROFILE`; running Playwright directly is not a way to skip profile selection.
 - Reset `$e2eProfile` to `$null` for every new QA request unless the user explicitly named the profile in that request; never carry a profile forward from an earlier QA run.
 - A previous PASS, FAIL, BLOCKED, or cancelled QA result does not satisfy profile selection for the next request.
-- Smoke runs `PLAYER_COUNTS=4`, skips replay and the two six-player resilience cases, and skips chat-scroll. Its shared tests cover nickname uniqueness and role composition for all supported capacities; its 4-player browser run verifies the solo-Mafia notice.
-- Regression runs `PLAYER_COUNTS=4,6,8`, replays only the 4-player room, and runs chat-scroll with 30 messages. Its shared tests cover the same nickname and role-composition rules; the 8-player browser run verifies that Mafia teammates are disclosed privately.
-- Full runs `PLAYER_COUNTS=4,5,6,7,8`, replays every room, includes both six-player resilience cases, and preserves production phase timing. Its shared tests cover the same rules, with browser checks across every role-count boundary and the 8-player help panel.
-- Use the profile defaults for `$playerCounts` and `$uiCapacity` unless a narrower explicit override is required for a targeted investigation. Before the confirmation prompt, the script rejects empty, repeated, malformed, or out-of-profile player counts and rejects UI capacities outside 4–8; a complete Full QA run requires all five counts. These checks happen before the database probe, build, or server startup.
+- Smoke runs `PLAYER_COUNTS=4`, skips replay and the two six-player resilience cases, and skips chat-scroll. Its shared tests cover nickname uniqueness and role composition for all supported capacities; its 4-player browser run verifies the solo-Mafia notice. The room UI uses the `centered` layout mode.
+- Regression runs `PLAYER_COUNTS=4,6,8`, replays only the 4-player room, and runs chat-scroll with 30 messages. Its shared tests cover the same nickname and role-composition rules; the 8-player browser run verifies that Mafia teammates are disclosed privately. The room UI uses the `centered` layout mode.
+- Full runs `PLAYER_COUNTS=4,5,6,7,8`, replays every room, includes both six-player resilience cases, and preserves production phase timing. Its shared tests cover the same rules, with browser checks across every role-count boundary and the 8-player help panel. The room UI uses the `centered` layout mode.
+- Use the profile defaults for `$playerCounts`, `$uiCapacity`, and `$roomLayoutMode` unless a narrower explicit override is required for a targeted investigation. Before the confirmation prompt, the script rejects empty, repeated, malformed, or out-of-profile player counts, rejects UI capacities outside 4–8, and requires the current `centered` room layout; a complete Full QA run requires all five counts. These checks happen before the database probe, build, or server startup.
+- `$e2eRunId` is generated as `qa-yyyyMMdd-HHmmss-fff` when omitted. Explicit IDs must start with a letter or digit, contain only letters/digits/`_`/`-`, and be at most 22 characters. This leaves room for the longest Full-profile `th6-`/`gr6-` scenario prefix and keeps every generated signup nickname within the 30-character application limit. Invalid IDs are rejected before the confirmation prompt, DB probe, build, or server startup.
 - Leave `$onlineBaseline = $null` unless the existing online-user count is known and intentionally fixed. The first core scenario measures the baseline before its other test accounts sign in; set an explicit non-negative integer only when a shared-server count is externally verified.
 - Smoke and Regression set `MAFIAGAME_PHASE_PROFILE=short` (3 seconds per non-terminal phase). Full sets `MAFIAGAME_PHASE_PROFILE=production` and is the only profile that judges 15/60/20/20/20/35-second timings.
+- Every profile sets `ROOM_LAYOUT_MODE=centered`. The room-layout test checks that the ready/start action row stays within the full left column and can be scrolled into view when the compact participant card overflows; it does not require the action row to fit inside the participant card boundary.
 - Playwright uses `trace: retain-on-failure` for Smoke/Regression and `trace: on` for Full. Core and UI invocations use separate `core/` and `ui/` output folders under `output/test_output/YYYY-MM-DD/playwright-<E2E_RUN_ID>/` so the UI run cannot erase core traces.
 - Use a new `E2E_RUN_ID` for every execution.
 - Use the same `E2E_RUN_ID` for the core and UI regression suites so their accounts and rooms can be cleaned up together.
@@ -278,7 +300,7 @@ After interactive profile selection and confirmation, run this block for all pro
 before `## Initial Inspection` and `## 0. Environment Preflight`.
 
 ```powershell
-$env:E2E_RUN_ID = 'qa-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+$env:E2E_RUN_ID = $e2eRunId
 $testOutputDate = Get-Date -Format 'yyyy-MM-dd'
 $testResultPath = Join-Path $projectPath (Join-Path 'output\test_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
 if (Test-Path -LiteralPath $testResultPath) {
@@ -810,7 +832,7 @@ Verify and report:
 - Lobby and participant synchronization
 - Optimized lobby room-card flow: a missing live room is fetched from `/rooms/{roomId}/card`, inserted with its latest count, kept consistent with the active search/filter/order, and discarded if its count reaches zero or navigation begins before the response arrives
 - Room settings visibility, modal controls, capacity validation, password protection, host reconnect, and live capacity/lock synchronization
-- Room-layout/profile UI: removed settings strip and friend-invite control, help/host-only room-settings ordering, 300px waiting and started game panels, equal desktop columns, mobile stacking, `user_stats` profile totals, and the default experience-based `Lv. 1` with `1000 XP`
+- Room-layout/profile UI: removed settings strip and friend-invite control, help/host-only room-settings ordering, centered room layout with a reachable action row, 300px waiting and started game panels, equal desktop columns, mobile stacking, `user_stats` profile totals, and the default experience-based `Lv. 1` with `1000 XP`
 - Experience-based level boundaries and default experience fallback in the shared Java test suite
 - Patch-note modal opens on the first lobby visit and exposes the `오늘 하루 그만보기` checkbox and `닫기` button
 - Patch-note modal exposes a `상세보기` button whose archive displays the README patch notes in descending version order: `0.3.0-alpha`, `0.2.0-alpha`, `0.1.1-alpha`, `0.1.0-alpha`
@@ -947,9 +969,9 @@ health checks, or any other operation that can throw.
 
 | Profile | Profile-specific settings | Server startup/finalizer |
 |---|---|---|
-| Smoke | 4-player core, capacity 5, short phases | Shared sections 3.1–3.4 |
-| Regression | 4/6/8-player core, capacity 5, short phases | Shared sections 3.1–3.4 |
-| Full | 4/5/6/7/8-player core, capacity 8, production phases | Shared sections 3.1–3.4 |
+| Smoke | 4-player core, capacity 5, short phases, centered room layout | Shared sections 3.1–3.4 |
+| Regression | 4/6/8-player core, capacity 5, short phases, centered room layout | Shared sections 3.1–3.4 |
+| Full | 4/5/6/7/8-player core, capacity 8, production phases, centered room layout | Shared sections 3.1–3.4 |
 
 Start a fresh application instance built from the current workspace. Do not stop or
 reuse the user's existing server. This block is the first body of the shared outer
@@ -964,9 +986,11 @@ $env:GRADLE_USER_HOME = "$projectPath\.gradle-test"
 $env:SERVER_PORT = "$serverPort"
 $env:E2E_PROFILE = $e2eProfile
 $env:MAFIAGAME_PHASE_PROFILE = $phaseProfile
+$env:ROOM_LAYOUT_MODE = $roomLayoutMode
 
 $qaJavaTempPath = Join-Path $testResultPath 'java-tmp'
 New-Item -ItemType Directory -Path $qaJavaTempPath -Force | Out-Null
+$qaJavaTempPath = (Resolve-Path -LiteralPath $qaJavaTempPath).Path
 $previousTemp = $env:TEMP
 $previousTmp = $env:TMP
 try {
@@ -1078,6 +1102,7 @@ $env:PLAYER_COUNTS = $playerCounts
 $env:BASE_URL = $baseUrl
 $env:E2E_PROFILE = $e2eProfile
 $env:E2E_CAPACITY = [string]$uiCapacity
+$env:ROOM_LAYOUT_MODE = $roomLayoutMode
 if ($null -ne $onlineBaseline) {
     $env:ONLINE_BASELINE = [string]$onlineBaseline
 } else {
@@ -1175,6 +1200,7 @@ Remove-Item Env:E2E_CAPACITY -ErrorAction SilentlyContinue
 Remove-Item Env:E2E_PROFILE -ErrorAction SilentlyContinue
 Remove-Item Env:PLAYWRIGHT_OUTPUT_STAGE -ErrorAction SilentlyContinue
 Remove-Item Env:MAFIAGAME_PHASE_PROFILE -ErrorAction SilentlyContinue
+Remove-Item Env:ROOM_LAYOUT_MODE -ErrorAction SilentlyContinue
 Remove-Item Env:ONLINE_BASELINE -ErrorAction SilentlyContinue
 ```
 
@@ -1186,7 +1212,8 @@ The effective inventory depends on the selected profile. Smoke has one core case
 one room-layout/profile UI case. Regression has 4/6/8 core cases, a 4-player replay,
 chat-scroll, and room-layout/profile. Full has five core cases, two six-player resilience
 cases, chat-scroll, and the 8-player room-layout/profile case. Each profile runs the same
-300px panel, column-alignment, profile-stat, and default user-level assertions. A case outside the selected profile is intentionally
+centered room layout, reachable action-row, 300px panel, column-alignment, profile-stat,
+and default user-level assertions. A case outside the selected profile is intentionally
 `NOT RUN`, not a failure.
 
 If the test suite is later split into independent files, parallel workers may be
@@ -1211,7 +1238,7 @@ Verify:
 - Unique account creation
 - Unique room creation
 - The host-only room settings button follows help; the removed friend-invite control is absent, and non-host browsers do not render room settings
-- The room-layout UI case runs in Smoke, Regression, and Full. Verify the waiting-room settings strip and friend-invite control are absent, the help/room-settings buttons appear in that order, the game-info panel is 300px tall, and the participant/game column and chat column have matching top and bottom edges. Verify the started game panel keeps the 300px height; on mobile, verify the game panel remains at least 300px tall and the chat stacks below it.
+- The room-layout UI case runs in Smoke, Regression, and Full. Verify the waiting-room settings strip and friend-invite control are absent, the help/room-settings buttons appear in that order, the centered room layout keeps the action row aligned and within the full left-column bounds, and the action row can be scrolled into view when the compact participant card overflows. Do not require the action row bottom to be inside the participant-card boundary. Verify the game-info panel is 300px tall, the participant/game column and chat column have matching top and bottom edges, and the started game panel keeps the 300px height; on mobile, verify the game panel remains at least 300px tall and the chat stacks below it.
 - Verify a newly registered account starts with `1000 XP` and `Lv. 1` in the user menu and profile; the profile shows `total_games`, `wins`, `losses`, and XP. Java tests cover experience boundaries at 1,000/1,999 (level 1), 2,000/2,999 (level 2), and 3,000 (level 3), plus the default experience when a stats row is absent. The completed-game Java test verifies a win adds 500 XP, a loss adds 100 XP, and duplicate completion does not award XP twice; core E2E verifies the updated profile after a completed game and replay. These checks run in every profile through the shared Java suite and selected core/UI E2E cases.
 - Room settings modal exposes capacities 4–8 and password enable/change/remove controls; successful create/change/remove saves reopen the modal with the exact success message in its footer
 - A capacity lower than the live participant count is disabled, shows a warning, and disables save; a forged/stale server request is rejected
@@ -1303,9 +1330,9 @@ core-game Mafia teammate checks follow the listed player counts.
 
 | Profile | Core E2E | UI E2E | Timing/evidence policy |
 |---|---|---|---|
-| Smoke | 4 players; no replay; no resilience; confirms the solo-Mafia notice | room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level | short phases; retain trace on failure; no routine video/screenshots |
-| Regression | 4/6/8 players; replay only 4; 8-player case confirms private Mafia teammate names | chat-scroll at 30 messages and room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; 300px game panel and user stats/level | short phases; retain trace on failure; screenshots enabled, video off |
-| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases; private teammate checks at 7/8 | chat-scroll at 210 messages and room-layout/profile at 8 players; duplicate-nickname rejection; maximum-capacity role-help counts; 300px game panel and user stats/level | production phases; full trace/video/screenshot evidence |
+| Smoke | 4 players; no replay; no resilience; confirms the solo-Mafia notice | room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; centered action row, 300px game panel, and user stats/level | short phases; retain trace on failure; no routine video/screenshots |
+| Regression | 4/6/8 players; replay only 4; 8-player case confirms private Mafia teammate names | chat-scroll at 30 messages and room-layout/profile at 5 players; duplicate-nickname rejection; 5→6 capacity synchronization and role-help counts; centered action row, 300px game panel, and user stats/level | short phases; retain trace on failure; screenshots enabled, video off |
+| Full | 4/5/6/7/8 players; replay every count; both six-player resilience cases; private teammate checks at 7/8 | chat-scroll at 210 messages and room-layout/profile at 8 players; duplicate-nickname rejection; maximum-capacity role-help counts; centered action row, 300px game panel, and user stats/level | production phases; full trace/video/screenshot evidence |
 
 Full QA must map to the following executable cases:
 
@@ -1324,7 +1351,7 @@ Full QA's UI regression inventory must also map to these executable cases:
 | Case | Playwright test | Required result |
 |---|---|---|
 | Chat input and overflow | `role slot is visible before game and chat scrolls without growing the page` | Input height is at least 40px; 210 submissions render only the latest 200 messages; the message list scrolls internally; document height stays stable; screenshot and video are saved under the current `E2E_RUN_ID` |
-| 8-player room layout, profile stats/level, signup uniqueness, help composition, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1`, `1000 XP`, and zero initial totals; signup rejects a nickname already used by another account even when the email is new; help shows the exact 8-player role counts; successful password set/change/remove saves keep the settings modal open with the success message in its footer; the friend-invite control is absent, help and host-only room settings buttons appear in order, and guests do not see settings; settings strip absent; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
+| 8-player room layout, profile stats/level, signup uniqueness, help composition, room settings, and room visual states | `waiting and started room layout (8 players)` | Eight participants render; new accounts show `Lv. 1`, `1000 XP`, and zero initial totals; signup rejects a nickname already used by another account even when the email is new; help shows the exact 8-player role counts; successful password set/change/remove saves keep the settings modal open with the success message in its footer; the friend-invite control is absent, help and host-only room settings buttons appear in order, and guests do not see settings; settings strip absent; centered ready/start action row stays within the left-column bounds and can be scrolled into view when the participant card overflows; waiting and started game panels are 300px tall; desktop participant/game and chat columns share top and bottom edges; mobile retains a 300px game panel with chat below; capacity and password controls stay functional; existing role-panel alignment and normal/night/restored backgrounds remain correct; normal/night/restored screenshots and transition video are saved under the current `E2E_RUN_ID` |
 
 The normal cases are generated from `PLAYER_COUNTS`. The two extended cases are
 registered only when both the Full profile and player count `6` are active. Their

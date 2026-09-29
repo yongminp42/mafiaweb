@@ -2,18 +2,21 @@ import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  E2E_RUN_ID,
+  assertE2ENickname,
   parseConfiguredUiCapacity,
   shouldCaptureScreenshots,
-  shouldCaptureVideo
+  shouldCaptureVideo,
+  usesCenteredRoomLayout
 } from './e2e-profile.js';
 import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const baseURL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const password = process.env.E2E_PASSWORD || 'MafiaTest2026!';
 const capacity = parseConfiguredUiCapacity();
-const runId = process.env.E2E_RUN_ID || `local-${Date.now().toString(36)}-${process.pid}`;
+const runId = E2E_RUN_ID;
 const nicknameRunKey = runId.replace(/[^a-zA-Z0-9]/g, '').slice(-24) || 'qa';
-const roomLayoutNickname = index => `L-${nicknameRunKey}-${index}`;
+const roomLayoutNickname = index => assertE2ENickname(`L-${nicknameRunKey}-${index}`);
 const artifactDirectory = resolveTestOutputDirectory(`room-layout-test-${capacity}`, runId);
 const roleCompositionByCapacity = {
   4: [['마피아', 1], ['경찰', 1], ['의사', 1], ['시민', 1]],
@@ -276,15 +279,22 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
       const ready = document.querySelector('#ready').getBoundingClientRect();
       const start = document.querySelector('#startGame').getBoundingClientRect();
       const participants = document.querySelector('.participant-panel').getBoundingClientRect();
+      const left = document.querySelector('.room-left-column').getBoundingClientRect();
       return {
         readyY: ready.y,
         startY: start.y,
         readyBottom: ready.bottom,
-        participantsBottom: participants.bottom
+        participantsBottom: participants.bottom,
+        leftBottom: left.bottom
       };
     });
-    expect(hostButtonPositions.readyY).toBe(hostButtonPositions.startY);
-    expect(hostButtonPositions.readyBottom).toBeLessThanOrEqual(hostButtonPositions.participantsBottom);
+    expect(Math.abs(hostButtonPositions.readyY - hostButtonPositions.startY)).toBeLessThanOrEqual(1);
+    // The centered layout keeps the action row inside the full left column. The
+    // participant card may scroll independently when its compact height is full.
+    const waitingActionBoundary = usesCenteredRoomLayout()
+      ? hostButtonPositions.leftBottom
+      : hostButtonPositions.participantsBottom;
+    expect(hostButtonPositions.readyBottom).toBeLessThanOrEqual(waitingActionBoundary + 1);
     const waitingPositions = await host.evaluate(() => {
       const participants = document.querySelector('.participant-panel').getBoundingClientRect();
       const placeholder = document.querySelector('#gamePanelPlaceholder').getBoundingClientRect();
@@ -321,8 +331,11 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     await host.setViewportSize({ width: 1440, height: 1000 });
 
     await Promise.all(pages.map(async page => {
-      await expect(page.locator('#ready')).toBeEnabled();
-      await page.locator('#ready').click();
+      const ready = page.locator('#ready');
+      await ready.scrollIntoViewIfNeeded();
+      await expect(ready).toBeVisible();
+      await expect(ready).toBeEnabled();
+      await ready.click();
     }));
     await expect(host.locator('#startGame')).toBeEnabled();
     await host.locator('#startGame').click();
@@ -360,8 +373,11 @@ test(`waiting and started room layout (${capacity} players)`, async ({ browser }
     expect(Math.abs(positions.game.height - 300)).toBeLessThanOrEqual(1);
     expect(Math.abs(positions.game.y + positions.game.height
       - (positions.rightColumn.y + positions.rightColumn.height))).toBeLessThanOrEqual(1);
+    const startedActionBoundary = usesCenteredRoomLayout()
+      ? positions.leftColumn.y + positions.leftColumn.height
+      : positions.participants.y + positions.participants.height;
     expect(positions.ready.y + positions.ready.height).toBeLessThanOrEqual(
-      positions.participants.y + positions.participants.height
+      startedActionBoundary + 1
     );
     expect(positions.game.x).toBe(positions.participants.x);
     expect(positions.game.y).toBeGreaterThan(positions.participants.y + positions.participants.height);

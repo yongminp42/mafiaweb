@@ -33,14 +33,19 @@ public class AuthController {
             @RequestParam(name = "email", required = false) String email,
             @RequestParam(name = "password", required = false) String password,
             @RequestParam(name = "passwordConfirm", required = false) String passwordConfirm,
+            @RequestParam(name = "agreement", required = false, defaultValue = "false") boolean agreement,
             Model model) {
         try {
+            if (!agreement) {
+                throw new SignupException("회원가입을 위해 이용약관과 개인정보 처리방침에 동의해 주세요.");
+            }
             signupService.signup(nickname, email, password, passwordConfirm);
             return "redirect:/login?signup";
         } catch (SignupException exception) {
             model.addAttribute("signupError", exception.getMessage());
             model.addAttribute("nickname", nickname);
             model.addAttribute("email", email);
+            model.addAttribute("agreement", agreement);
             return "auth/signup";
         }
     }
