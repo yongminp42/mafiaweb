@@ -266,6 +266,7 @@ test('E2E scopes and the three QA profiles are isolated', async () => {
       assert.equal(profile.PROFILE_CONFIG.chatMessageCount, expected.messages);
       assert.equal(profile.shouldCaptureScreenshots(), expected.screenshots);
       assert.equal(profile.shouldCaptureVideo(), expected.video);
+      assert.equal(profile.shouldCaptureGameplayVideo(), true);
       assert.equal(profile.PROFILE_CONFIG.runExtendedScenarios, expected.extended);
       assert.equal(profile.PROFILE_CONFIG.trace, expected.trace);
       assert.deepEqual(
@@ -358,73 +359,45 @@ test('game QA profiles share orphan-safe server startup and cleanup', async () =
   }
 });
 
-test('Full QA startup prevents PowerShell policy and capture-gate silent skips', async () => {
+test('QA gameplay WEBM evidence cannot silently skip validation', async () => {
   const runbook = await readFile(
     new URL('../../docs/QA_scripts/MAFIAGAME_QA_TEST_EXECUTION_SCRIPT.md', import.meta.url),
     'utf8'
   );
-  const launcherStart = runbook.indexOf('#### PowerShell startup gate');
-  const recorderStart = runbook.indexOf('### Full QA progress recording (required)');
+  const permissionGuideStart = runbook.indexOf('#### Permission boundary handling');
+  const evidenceStart = runbook.indexOf('### Playwright gameplay WEBM evidence (required for all profiles)');
   const environmentStart = runbook.indexOf('\n## 0. Environment Preflight');
   const javaStart = runbook.indexOf('## 1. Java Tests');
-  const permissionGuideStart = runbook.indexOf('#### Permission boundary handling');
-  assert.notEqual(launcherStart, -1, 'QA runbook must explain the PowerShell 5.1 launch gate.');
   assert.notEqual(permissionGuideStart, -1, 'QA runbook must explain sandbox permission recovery.');
-  assert.ok(recorderStart < environmentStart, 'Full recording must start before environment preflight.');
-  assert.ok(environmentStart < javaStart, 'Environment gates must precede Java tests.');
+  assert.ok(evidenceStart > permissionGuideStart, 'All profiles must document required gameplay evidence.');
+  assert.ok(environmentStart > evidenceStart, 'Evidence setup must precede environment preflight.');
+  assert.ok(javaStart > environmentStart, 'Environment gates must precede Java tests.');
 
-  const permissionGuide = runbook.slice(permissionGuideStart, launcherStart);
+  const permissionGuide = runbook.slice(permissionGuideStart, evidenceStart);
   assert.match(permissionGuide, /Node `child_process\.fork` returns `EPERM`/);
   assert.match(permissionGuide, /sandbox_permissions: "require_escalated"/);
-  assert.match(permissionGuide, /Win32 error 5 \/ `Access is denied`/);
-  assert.match(permissionGuide, /before the MariaDB probe or any test command/);
-  assert.match(permissionGuide, /Do not change machine-level\s+desktop-capture permissions/);
+  assert.match(permissionGuide, /process-scoped RemoteSigned/);
+  assert.match(permissionGuide, /Do not change a\s+persistent execution policy or use Bypass/);
 
-  const startupGate = runbook.slice(launcherStart, environmentStart);
-  const captureMarkerIndex = runbook.indexOf('[QA_PROGRESS] Recording started before preflight:');
+  const evidence = runbook.slice(evidenceStart, environmentStart);
+  assert.match(evidence, /Every profile records core gameplay through Playwright recordVideo/);
+  assert.match(evidence, /core-4\/core-flow\.webm/);
+  assert.match(evidence, /\$gameplayVideoState = 'NOT RUN'/);
+  assert.match(evidence, /\$gameplayVideoState = 'BLOCKED'/);
+  assert.match(evidence, /\$headerBytesRead -eq 4 -and \$gameplayVideoBytes -gt 1024 -and \$gameplayVideoHeader -eq '1A-45-DF-A3'/);
+  assert.match(evidence, /duration, dimensions, and first decoded frame/);
+  assert.match(evidence, /Any save or playback validation error fails the Playwright case/);
+  assert.match(evidence, /If E2E is disabled,[^\n]*overall profile cannot be PASS/);
+  assert.match(evidence, /MVP item 41 and the selected profile verdict are BLOCKED unless a test has already made the verdict FAIL/);
+  assert.match(evidence, /Continue cleanup and report generation/);
+
   const databaseProbeIndex = runbook.indexOf("'SELECT 1;'");
-  assert.notEqual(databaseProbeIndex, -1, 'The DB preflight must run an authenticated SELECT 1.');
   const javaCommandIndex = runbook.indexOf('.\\gradlew.bat test --no-daemon --rerun-tasks -x jsTest');
   const javaScriptCommandIndex = runbook.indexOf('node --test --test-isolation=none');
   const playwrightBranchIndex = runbook.indexOf('## 3. Playwright E2E Tests');
-  assert.match(startupGate, /'-ExecutionPolicy', 'RemoteSigned'/);
-  assert.match(startupGate, /'-NoProfile', '-NoExit', '-ExecutionPolicy', 'RemoteSigned'/,
-    'The dedicated QA console must remain open so startup errors stay visible.');
-  assert.match(startupGate, /-WindowStyle Maximized/);
-  assert.match(startupGate, /MainWindowHandle -eq 0/);
-  assert.match(startupGate, /Do not use `Set-ExecutionPolicy`/);
-  assert.match(startupGate, /Do not call `Get-ExecutionPolicy` as a startup gate/);
-  assert.match(startupGate, /`'-ExecutionPolicy',[\s\S]*'RemoteSigned'[\s\S]*before `'-File'`/);
-  assert.match(startupGate, /Do not depend on `\$Host\.UI\.RawUI\.WindowState`/);
-  assert.match(startupGate, /save that\s+file as UTF-8 with BOM/);
-  assert.match(startupGate, /MainWindowTitle/);
-  assert.match(startupGate, /Test-Path -LiteralPath \$progressVideoPath/);
-  assert.match(startupGate, /Length -gt 0/);
-  assert.match(startupGate, /\$ffmpegBin = \$env:FFMPEG_BIN/);
-  assert.match(startupGate, /Join-Path \$ffmpegBin 'ffprobe\.exe'/);
-  assert.match(startupGate, /PATH or FFMPEG_BIN/);
-  assert.match(startupGate, /save the preflight-blocked\s+report and stop before DB checks or test commands/);
-  const captureToolGateStart = runbook.indexOf('if (-not $ffmpegCommand -or -not $ffprobeCommand)');
-  const recorderStartInfo = runbook.indexOf('$ffmpegStartInfo = [System.Diagnostics.ProcessStartInfo]::new()');
-  assert.ok(captureToolGateStart !== -1 && captureToolGateStart < recorderStartInfo,
-    'Full QA must resolve both recorder tools before attempting to start capture.');
-  const blockedReportStart = startupGate.indexOf('function Save-QAProgressPreflightBlockedReport');
-  assert.ok(blockedReportStart !== -1 && blockedReportStart < captureToolGateStart,
-    'Full QA must define its preflight-blocked report before checking recorder tools.');
-  const blockedReport = startupGate.slice(blockedReportStart, captureToolGateStart);
-  const captureToolGate = runbook.slice(captureToolGateStart, recorderStartInfo);
-  assert.match(captureToolGate, /\$qaFinalVerdict = 'BLOCKED'/);
-  assert.match(captureToolGate, /Save-QAProgressPreflightBlockedReport -Reason/);
-  assert.match(blockedReport, /Java 테스트: NOT RUN/);
-  assert.match(blockedReport, /JavaScript 테스트: NOT RUN/);
-  assert.match(blockedReport, /Playwright\/서버\/계정 정리: NOT RUN/);
-  assert.match(captureToolGate, /throw 'Full QA progress recording is BLOCKED/);
-  assert.ok(captureMarkerIndex !== -1 && captureMarkerIndex < databaseProbeIndex,
-    'Full desktop recording must be confirmed before the MariaDB probe.');
+  assert.notEqual(databaseProbeIndex, -1, 'The DB preflight must run an authenticated SELECT 1.');
   assert.ok(databaseProbeIndex < javaCommandIndex && databaseProbeIndex < javaScriptCommandIndex,
     'Database preflight must precede both Java and JavaScript suites.');
-  assert.ok(captureMarkerIndex < javaCommandIndex && captureMarkerIndex < javaScriptCommandIndex,
-    'Full recording must be active before Java and JavaScript commands.');
   assert.ok(javaScriptCommandIndex < playwrightBranchIndex,
     'JavaScript tests must finish before the Playwright/server lifecycle.');
 });
