@@ -198,14 +198,14 @@ Smoke, Regression, and Full keep console output, assertions, JUnit/Gradle report
 `output/test_output/YYYY-MM-DD/<test-name>/` layout. The expensive browser evidence
 is profile-aware:
 
-- Smoke keeps Playwright traces only on failure and does not record routine browser videos or screenshots.
-- Regression keeps traces only on failure and captures screenshots for the UI/core regression cases, but does not record routine videos.
-- Full keeps traces, screenshots, and videos for every executed browser scenario and is the required profile for release evidence and production timing.
-- If a required artifact for the selected profile is missing, report that affected item as `BLOCKED`; do not require Full-only video evidence from Smoke.
-- Java/JavaScript console output and reports remain mandatory for all profiles. Full requires a continuous desktop progress video covering preflight through final result and cleanup; initialize and validate the recorder below before any test command. Smoke/Regression record MVP item 41 as `NOT REQUIRED` and do not block on a desktop video.
+- Smoke keeps Playwright traces only on failure, does not capture routine screenshots, and records WEBM for its core gameplay scenario.
+- Regression keeps traces only on failure, captures screenshots for the UI/core regression cases, and records WEBM for each executed core gameplay scenario.
+- Full keeps traces, screenshots, and videos for every executed browser scenario and is the required profile for release evidence and production timing. It also records WEBM for every executed core gameplay scenario.
+- If a required artifact is missing, report that item as BLOCKED. The core gameplay WEBM is required in every profile; additional UI videos remain profile-specific.
+- Java/JavaScript console output and reports remain mandatory for all profiles. Every profile requires a finalized, valid Playwright WEBM of core gameplay; desktop capture and full-run screenshots are not required.
 - Store screenshots, videos, traces, logs, and other test evidence in `output/test_output/YYYY-MM-DD/<test-name>/`, using a run-specific test name keyed by `E2E_RUN_ID`; never overwrite evidence from an earlier run.
 - Record the exact generated paths in the QA report. Screenshots and videos supplement, but never replace, console output, logs, JUnit XML, Gradle reports, Playwright traces, and assertions.
-- Ensure credentials, tokens, personal data, and unrelated desktop content are not visible in captured evidence.
+- Ensure credentials and tokens are not visible in captured evidence.
 - Use `$dbHost` and `$dbPort` from the application datasource configuration. If MariaDB is not reachable, stop before starting the application and mark the run `BLOCKED`/`NOT RUN`; do not install or start a database service automatically.
 - Save the final QA report under `$projectPath\$qaReportDirectory`.
 - Use a unique report filename containing the execution date and `E2E_RUN_ID` for every profile.
@@ -217,311 +217,74 @@ Treat permission errors from the Codex execution sandbox as a process-capability
 issue. Do not change Windows ACLs, persistent PowerShell execution policy, Windows
 privacy settings, or run the shell as Administrator to work around them.
 
-- **PowerShell script blocked by policy:** start a new local PowerShell process with
-  the process-scoped `RemoteSigned` argument described below. Do not use
-  `Set-ExecutionPolicy` or `Bypass`.
+- **PowerShell script blocked by policy:** start a new local PowerShell
+  process with a process-scoped RemoteSigned argument. Do not change a
+  persistent execution policy or use Bypass.
 - **Node `child_process.fork` returns `EPERM`:** retry the same worker probe and,
   only if it succeeds, run the selected Playwright lifecycle through Codex
   `exec_command` with `sandbox_permissions: "require_escalated"`. The E2E worker
   permission does not carry over to a separate ordinary-sandbox invocation.
-- **Full-profile FFmpeg `gdigrab` reports Win32 error 5 / `Access is denied`:**
-  before the MariaDB probe or any test command, rerun the short desktop-capture
-  startup probe through Codex `exec_command` with
-  `sandbox_permissions: "require_escalated"`. Keep that recorder process alive
-  for the complete Full run. Continue only after it remains running and has
-  produced a nonempty MP4 after the startup check. Do not change machine-level
-  desktop-capture permissions. If the escalated probe is unavailable, denied, or
-  still fails, save the preflight report and mark Full `BLOCKED` with every test
-  scope `NOT RUN`.
+- Desktop recording is not part of any profile. Escalate only when the shared Node
+  worker probe returns `EPERM`, following the retry procedure above.
 
-Smoke and Regression do not use desktop capture. They need escalation only when
-the shared Node worker probe returns `EPERM`; a missing Full-only recorder is not
-a reason to block those profiles.
+### Playwright gameplay WEBM evidence (required for all profiles)
 
-### Full QA progress recording (required)
+Every profile records core gameplay through Playwright recordVideo. The 4-player
+core flow (core-4/core-flow.webm) is the required representative game video. The
+browser scenario closes its contexts before saving the WEBM, allowing Playwright to
+finalize it. Full also saves additional scenario videos according to its existing
+profile settings. Desktop capture, full-run screenshots, FFmpeg, and FFprobe are not
+required in any profile.
 
-For Smoke and Regression, set the progress evidence state to `NOT REQUIRED`. Full
-must start a continuous desktop recording after the user confirms the selected profile
-and before file inspection, DB/dependency
-preflight, Java, JavaScript, server startup, or Playwright. This catches missing
-screen-capture permissions before a long QA run can finish without the required file.
-
-Use a dedicated visible PowerShell window for the whole run. Keep it unminimized and
-show the current command output; close or hide unrelated windows first. Never type or
-display passwords, tokens, or personal data during capture. Do not install FFmpeg
-automatically during QA. If `ffmpeg.exe`/`ffprobe.exe` is missing or desktop capture
-cannot start, stop before running tests, report Full as `BLOCKED`, and include the
-preflight error and `NOT RUN` test scopes in the Korean report.
-
-#### PowerShell startup gate
-
-Windows PowerShell 5.1 can default to `Restricted` even when another PowerShell host
-reports a different policy. A `.ps1` launched with `-File` then exits before its first
-line, so no test or QA report code inside that file can run. Start the dedicated local
-QA process with a process-scoped policy before invoking a `.ps1` file:
-
-```powershell
-$qaPowerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$qaWindow = Start-Process `
-    -FilePath $qaPowerShellPath `
-    -ArgumentList @('-NoProfile', '-NoExit', '-ExecutionPolicy', 'RemoteSigned') `
-    -WindowStyle Maximized `
-    -PassThru
-
-Start-Sleep -Seconds 1
-$qaWindow.Refresh()
-if ($qaWindow.HasExited -or $qaWindow.MainWindowHandle -eq 0) {
-    throw 'QA startup BLOCKED: the dedicated interactive PowerShell window did not open.'
-}
-```
-
-`RemoteSigned` applies only to this new PowerShell process and permits local workspace
-scripts while retaining the signature requirement for scripts marked as downloaded.
-Do not use `Set-ExecutionPolicy`, change a persistent scope, or use `Bypass`. Run the
-runbook commands in this new interactive prompt. If an actual local `.ps1` runner is
-launched instead, add `'-File', $qaScriptPath` to the argument array after validating
-that the path resolves to a file inside the workspace. Put `'-ExecutionPolicy',
-'RemoteSigned'` before `'-File'`. Do not call `Get-ExecutionPolicy` as a startup gate;
-some PowerShell 5.1 installations fail while importing its security module. The
-process launch argument is the process-only setting, and the Full recorder verifies
-that the script is running in a visible window with the expected run-specific title.
-
-Do not depend on `$Host.UI.RawUI.WindowState`; some noninteractive PowerShell hosts do
-not expose that property. The parent uses `-WindowStyle Maximized`. The recorder setup
-must set a run-specific `WindowTitle`, refresh `Get-Process -Id $PID`, and verify the
-visible console handle and title. If either check fails, save the preflight-blocked
-report and stop before DB checks or test commands.
-
-If PowerShell code containing Korean report text is saved as a `.ps1` file, save that
-file as UTF-8 with BOM for Windows PowerShell 5.1. UTF-8 without BOM may be decoded as
-the local ANSI code page and corrupt the Korean report before it is written.
-
-After interactive profile selection and confirmation, run this block for all profiles
-before `## Initial Inspection` and `## 0. Environment Preflight`.
+After profile selection, initialize the run-specific output directory and expected
+video path before Initial Inspection and 0. Environment Preflight:
 
 ```powershell
 $env:E2E_RUN_ID = $e2eRunId
 $testOutputDate = Get-Date -Format 'yyyy-MM-dd'
-$testResultPath = Join-Path $projectPath (Join-Path 'output\test_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
+$testResultPath = Join-Path $projectPath (Join-Path 'output	est_output' (Join-Path $testOutputDate ('qa-run-' + $env:E2E_RUN_ID)))
 if (Test-Path -LiteralPath $testResultPath) {
     throw "QA output already exists; refusing to overwrite: $testResultPath"
 }
 New-Item -ItemType Directory -Force -Path $testResultPath | Out-Null
 
-$progressRecordingState = 'NOT REQUIRED'
-$progressRecorderProcess = $null
-$progressRecorderErrorTask = $null
-$ffmpegBin = $env:FFMPEG_BIN
-if ($e2eProfile -eq 'full') {
-    $progressVideoPath = Join-Path $testResultPath 'qa-progress-full.mp4'
-    $progressStartScreenshotPath = Join-Path $testResultPath 'qa-progress-start.png'
-    $progressFinalScreenshotPath = Join-Path $testResultPath 'qa-progress-final.png'
-    $progressRecorderLogPath = Join-Path $testResultPath 'qa-progress-recorder.log'
-    function Save-QAProgressPreflightBlockedReport {
-        param([Parameter(Mandatory)][string]$Reason)
-
-        $reportDirectoryPath = Join-Path $projectPath $qaReportDirectory
-        New-Item -ItemType Directory -Force -Path $reportDirectoryPath | Out-Null
-        $reportPath = Join-Path $reportDirectoryPath ("MAFIAGAME_QA_REPORT_{0}_{1}.md" -f $testOutputDate, $env:E2E_RUN_ID)
-        if (Test-Path -LiteralPath $reportPath) {
-            throw "Refusing to overwrite an existing QA report: $reportPath"
-        }
-        $report = @"
-# MAFIAGAME Full QA 보고서
-
-- 실행 날짜: $testOutputDate
-- 실행 ID: $env:E2E_RUN_ID
-- 선택 프로필: Full
-- 최종 판정: BLOCKED
-- 차단 단계: 필수 QA 진행 화면 녹화 사전 점검
-- 차단 원인: $Reason
-- MVP 41: BLOCKED (필수 진행 스크린샷/영상 증거를 생성하지 못함)
-- Java 테스트: NOT RUN (진행 녹화 시작 전에 중단)
-- JavaScript 테스트: NOT RUN (진행 녹화 시작 전에 중단)
-- Playwright/서버/계정 정리: NOT RUN (진행 녹화 시작 전에 중단)
-- 진행 영상 경로: $progressVideoPath
-- 진행 스크린샷 경로: $progressStartScreenshotPath; $progressFinalScreenshotPath
-- 녹화 로그: $progressRecorderLogPath
-- 실행 산출물 경로: $testResultPath
-
-진행 화면 증거 준비가 끝나지 않아 어떤 테스트 명령도 실행하지 않았다. 이 보고서는 사전 점검 결과를 기록하며, 미실행 테스트는 PASS로 간주하지 않는다.
-"@
-        Set-Content -LiteralPath $reportPath -Encoding utf8 -Value $report
-        Write-Host "[QA_PROGRESS] Preflight BLOCKED report: $reportPath" -ForegroundColor Yellow
-    }
-    try {
-        $qaConsole = Get-Process -Id $PID -ErrorAction Stop
-        $Host.UI.RawUI.WindowTitle = "MAFIAGAME Full QA - $env:E2E_RUN_ID"
-        $qaConsole.Refresh()
-        if ($qaConsole.MainWindowHandle -eq 0 -or $qaConsole.MainWindowTitle -notlike "*${env:E2E_RUN_ID}*") {
-            throw "The current PowerShell process does not expose the expected visible QA window. PID=$PID; title='$($qaConsole.MainWindowTitle)'; handle=$($qaConsole.MainWindowHandle)."
-        }
-    } catch {
-        $progressRecordingState = 'BLOCKED'
-        $qaFinalVerdict = 'BLOCKED'
-        $qaFinalVerdictReason = $_.Exception.Message
-        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $_.Exception.ToString()
-        Save-QAProgressPreflightBlockedReport -Reason $_.Exception.ToString()
-        throw "Full QA PowerShell startup is BLOCKED before DB/tests: $($_.Exception.Message)"
-    }
-    $ffmpegCommand = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
-    $ffprobeCommand = Get-Command ffprobe.exe -ErrorAction SilentlyContinue
-    if (-not $ffmpegCommand -and $ffmpegBin) {
-        $ffmpegCandidate = Join-Path $ffmpegBin 'ffmpeg.exe'
-        if (Test-Path -LiteralPath $ffmpegCandidate -PathType Leaf) {
-            $ffmpegCommand = [pscustomobject]@{ Source = (Get-Item -LiteralPath $ffmpegCandidate).FullName }
-        }
-    }
-    if (-not $ffprobeCommand -and $ffmpegBin) {
-        $ffprobeCandidate = Join-Path $ffmpegBin 'ffprobe.exe'
-        if (Test-Path -LiteralPath $ffprobeCandidate -PathType Leaf) {
-            $ffprobeCommand = [pscustomobject]@{ Source = (Get-Item -LiteralPath $ffprobeCandidate).FullName }
-        }
-    }
-    if (-not $ffmpegCommand -or -not $ffprobeCommand) {
-        $progressRecordingState = 'BLOCKED'
-        $qaFinalVerdict = 'BLOCKED'
-        $qaFinalVerdictReason = 'Full QA progress capture tools are unavailable; test execution did not start.'
-        $toolLookupFailure = "ffmpeg.exe and/or ffprobe.exe was not found on PATH or FFMPEG_BIN='$ffmpegBin'."
-        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $toolLookupFailure
-        Save-QAProgressPreflightBlockedReport -Reason $toolLookupFailure
-        throw 'Full QA progress recording is BLOCKED: provide existing ffmpeg.exe and ffprobe.exe on PATH or set FFMPEG_BIN to their existing folder before QA starts. Do not install tools during QA.'
-    }
-
-    $ffmpegStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $ffmpegStartInfo.FileName = $ffmpegCommand.Source
-    $ffmpegStartInfo.Arguments = '-hide_banner -loglevel error -nostats -y -f gdigrab -framerate 2 -draw_mouse 1 -i desktop -vf scale=1280:-2 -an -c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p -movflags +faststart -f mp4 "' + $progressVideoPath + '"'
-    $ffmpegStartInfo.UseShellExecute = $false
-    $ffmpegStartInfo.CreateNoWindow = $true
-    $ffmpegStartInfo.RedirectStandardInput = $true
-    $ffmpegStartInfo.RedirectStandardError = $true
-    $progressRecorderProcess = [System.Diagnostics.Process]::new()
-    $progressRecorderProcess.StartInfo = $ffmpegStartInfo
-    try {
-        $recorderStarted = $progressRecorderProcess.Start()
-    } catch {
-        $progressRecordingState = 'BLOCKED'
-        $qaFinalVerdict = 'BLOCKED'
-        $qaFinalVerdictReason = $_.Exception.Message
-        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $_.Exception.ToString()
-        Save-QAProgressPreflightBlockedReport -Reason $_.Exception.ToString()
-        throw "Full QA progress recording is BLOCKED: ffmpeg could not start. $($_.Exception.Message)"
-    }
-    if (-not $recorderStarted) {
-        $progressRecordingState = 'BLOCKED'
-        $qaFinalVerdict = 'BLOCKED'
-        $qaFinalVerdictReason = 'FFmpeg failed to start; tests did not run.'
-        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value 'Process.Start returned false.'
-        Save-QAProgressPreflightBlockedReport -Reason 'Process.Start returned false.'
-        throw 'Full QA progress recording is BLOCKED: ffmpeg did not start.'
-    }
-    $progressRecorderErrorTask = $progressRecorderProcess.StandardError.ReadToEndAsync()
-    $progressRecordingStartedAt = Get-Date
-    Start-Sleep -Seconds 2
-    $recordingFileReady = (Test-Path -LiteralPath $progressVideoPath) -and (Get-Item -LiteralPath $progressVideoPath).Length -gt 0
-    if ($progressRecorderProcess.HasExited -or -not $recordingFileReady) {
-        $recorderError = $progressRecorderErrorTask.Result
-        if (-not $progressRecorderProcess.HasExited) {
-            $progressRecorderProcess.StandardInput.WriteLine('q')
-            $progressRecorderProcess.StandardInput.Close()
-            $progressRecorderProcess.WaitForExit(10000)
-        }
-        $progressRecordingState = 'BLOCKED'
-        $qaFinalVerdict = 'BLOCKED'
-        $qaFinalVerdictReason = 'FFmpeg exited or did not create nonempty video output before environment preflight; tests did not run.'
-        Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $recorderError
-        Save-QAProgressPreflightBlockedReport -Reason "Recorder startup/output check failed. $recorderError"
-        throw "Full QA progress recording is BLOCKED: FFmpeg did not produce a usable recording at startup. $recorderError"
-    }
-
-    $progressRecordingState = 'RECORDING'
-    Write-Host "[QA_PROGRESS] Recording started before preflight: $progressVideoPath" -ForegroundColor Green
-    Write-Host "[QA_PROGRESS] Start screenshot: $progressStartScreenshotPath" -ForegroundColor Green
-}
+$gameplayVideoState = 'NOT RUN'
+$gameplayVideoDirectory = Join-Path $projectPath (Join-Path 'output	est_output' (Join-Path $testOutputDate ("mafia-mvp-test-{0}-{1}" -f $e2eProfile, $env:E2E_RUN_ID)))
+$gameplayVideoPath = Join-Path (Join-Path $gameplayVideoDirectory 'core-4') 'core-flow.webm'
 ```
 
-Keep the recorder alive across the complete Full run, including DB/dependency and
-Playwright-worker preflight, Java and JavaScript suites, server startup/health checks,
-core and UI E2E, current-run account cleanup, server/port cleanup, and the final
-verdict. Print a visible `[QA_PROGRESS]` stage marker before each phase and before
-cleanup; the continuous recording must show the same dedicated PowerShell window and
-actual command output throughout. Do not substitute separate Playwright scenario
-videos, traces, a generated slideshow, or a text transcript for this recording.
-
-After all test/account/server cleanup is complete and the final verdict has been
-calculated, but before saving the report, display the final verdict and cleanup result
-in the visible PowerShell window and keep recording for at least three seconds. Then
-send `q` to FFmpeg's standard input so it finalizes the MP4 container. Extract the
-start/end progress screenshots from the finalized video, validate their image files,
-the video duration, and the complete video decode. Use this finalization block:
-
-Calculate the provisional verdict from executed evidence before this step: any failed
-test is `FAIL`; otherwise any blocked required test, incomplete cleanup, or missing
-required evidence is `BLOCKED`; use `PASS` only when every required item passes.
-Set `$qaFinalVerdict` and `$qaFinalVerdictReason` to the actual result and show that
-same value in the final screen marker. Capture validation below may downgrade it to
-`BLOCKED`, but never upgrade a `FAIL` or `BLOCKED` result.
+After Playwright core scenarios finish and close their browser contexts, validate the
+representative game recording with the WebM container signature and file size:
 
 ```powershell
-if ($e2eProfile -eq 'full') {
-    Write-Host "[QA_PROGRESS] 6/6 Final verdict: $qaFinalVerdict; account cleanup: $accountCleanupStatus; server cleanup: $serverCleanupStatus" -ForegroundColor Cyan
-    Start-Sleep -Seconds 3
-    $progressRecordingEndedAt = Get-Date
-    Write-Host "[QA_PROGRESS] Capture started: $($progressRecordingStartedAt.ToString('o')); final result/cleanup displayed: $($progressRecordingEndedAt.ToString('o'))" -ForegroundColor Cyan
-    Start-Sleep -Milliseconds 500
-
-    if ($null -ne $progressRecorderProcess -and -not $progressRecorderProcess.HasExited) {
-        $progressRecorderProcess.StandardInput.WriteLine('q')
-        $progressRecorderProcess.StandardInput.Close()
-        if (-not $progressRecorderProcess.WaitForExit(15000)) {
-            Stop-Process -Id $progressRecorderProcess.Id -Force -ErrorAction SilentlyContinue
+$gameplayVideoState = 'BLOCKED'
+$gameplayVideoBytes = 0
+$gameplayVideoHeader = ''
+if (Test-Path -LiteralPath $gameplayVideoPath -PathType Leaf) {
+    $videoStream = [System.IO.File]::OpenRead($gameplayVideoPath)
+    try {
+        $videoHeader = [byte[]]::new(4)
+        $headerBytesRead = $videoStream.Read($videoHeader, 0, $videoHeader.Length)
+        $gameplayVideoBytes = $videoStream.Length
+        $gameplayVideoHeader = [System.BitConverter]::ToString($videoHeader)
+        if ($headerBytesRead -eq 4 -and $gameplayVideoBytes -gt 1024 -and $gameplayVideoHeader -eq '1A-45-DF-A3') {
+            $gameplayVideoState = 'PASS'
         }
-    }
-
-    $recorderError = if ($null -ne $progressRecorderErrorTask -and $progressRecorderErrorTask.IsCompleted) { $progressRecorderErrorTask.Result } else { 'Recorder stderr was not fully collected.' }
-    Set-Content -LiteralPath $progressRecorderLogPath -Encoding utf8 -Value $recorderError
-    $startFrameOutput = & $ffmpegCommand.Source -hide_banner -loglevel error -ss 00:00:02 -i $progressVideoPath -frames:v 1 -y $progressStartScreenshotPath 2>&1
-    $startFrameExitCode = $LASTEXITCODE
-    $finalFrameOutput = & $ffmpegCommand.Source -hide_banner -loglevel error -sseof -2 -i $progressVideoPath -frames:v 1 -y $progressFinalScreenshotPath 2>&1
-    $finalFrameExitCode = $LASTEXITCODE
-    $videoDurationText = & $ffprobeCommand.Source -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 $progressVideoPath 2>&1
-    $videoProbeExitCode = $LASTEXITCODE
-    $videoDecodeOutput = & $ffmpegCommand.Source -hide_banner -v error -i $progressVideoPath -f null NUL 2>&1
-    $videoDecodeExitCode = $LASTEXITCODE
-    $recorderExitCode = if ($null -ne $progressRecorderProcess -and $progressRecorderProcess.HasExited) { $progressRecorderProcess.ExitCode } else { -1 }
-    $screenshotsValid = $startFrameExitCode -eq 0 -and $finalFrameExitCode -eq 0 -and (Test-Path -LiteralPath $progressStartScreenshotPath) -and (Test-Path -LiteralPath $progressFinalScreenshotPath) -and ((Get-Item -LiteralPath $progressStartScreenshotPath).Length -gt 0) -and ((Get-Item -LiteralPath $progressFinalScreenshotPath).Length -gt 0)
-    $durationSeconds = 0.0
-    $durationText = [string]($videoDurationText | Select-Object -Last 1)
-    $durationIsValid = [double]::TryParse($durationText, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$durationSeconds) -and $durationSeconds -ge 10
-    $expectedDurationSeconds = ($progressRecordingEndedAt - $progressRecordingStartedAt).TotalSeconds
-    $coversFullRun = $durationSeconds -ge [Math]::Max(10, ($expectedDurationSeconds - 5))
-
-    if ($screenshotsValid -and $videoProbeExitCode -eq 0 -and $videoDecodeExitCode -eq 0 -and $recorderExitCode -eq 0 -and $durationIsValid -and $coversFullRun) {
-        $progressRecordingState = 'PASS'
-    } else {
-        $progressRecordingState = 'BLOCKED'
-        $qaFinalVerdict = 'BLOCKED'
-        $qaFinalVerdictReason = 'Full QA 진행 화면의 시작/종료 스크린샷 또는 전체 구간 영상이 없거나, MP4 재생 검증에 실패했습니다.'
-    }
-    Write-Host "[QA_PROGRESS] Evidence state: $progressRecordingState; expected duration: $expectedDurationSeconds; actual duration: $durationText; recorder exit: $recorderExitCode; video: $progressVideoPath" -ForegroundColor $(if ($progressRecordingState -eq 'PASS') { 'Green' } else { 'Yellow' })
-    if ($progressRecordingState -ne 'PASS') {
-        Write-Warning "[QA_PROGRESS] start-frame: $($startFrameOutput -join ' '); end-frame: $($finalFrameOutput -join ' '); probe: $($videoDurationText -join ' '); decode: $($videoDecodeOutput -join ' '); recorder: $recorderError"
+    } finally {
+        $videoStream.Dispose()
     }
 }
+Write-Host "[QA_PROGRESS] Gameplay WEBM: $gameplayVideoState; bytes: $gameplayVideoBytes; EBML header: $gameplayVideoHeader; path: $gameplayVideoPath"
 ```
 
-If capture startup fails, do not run tests. If final validation fails, retain all
-partial artifacts, set MVP 41 and the Full verdict to `BLOCKED`, and include the
-exact stderr/ffprobe/decode output. Do not relabel missing or corrupt recording as
-`NOT RUN` or `PASS`. The report must list the video, start/end screenshot, and
-recorder-log paths plus the measured duration. Smoke/Regression use `NOT REQUIRED`;
+The test code verifies the saved video's EBML header and size, then loads it in Chromium and checks its duration, dimensions, and first decoded frame.
+Any save or playback validation error fails the Playwright case. Record the validation state, byte count, header, decoded-frame result, and absolute path in the Korean report.
+If E2E is disabled, the required video evidence is NOT RUN and the overall profile cannot be PASS.
 
-When the startup gate throws before tests, still save a Korean preflight report with
-the selected profile, `BLOCKED` verdict, exact recorder error and log path, MVP 41
-`BLOCKED`, Java/JavaScript/Playwright/server/account-cleanup scopes as `NOT RUN`, and
-the created run-specific artifact path. Do not proceed to test sections in that run.
+If the video is missing or validation fails, MVP item 41 and the selected profile verdict are BLOCKED unless a test has already made the verdict FAIL. Continue cleanup and report generation.
 
 ## Project Information
+
 
 - Project path: use `$projectPath` from the run configuration.
 - Report directory: use `$qaReportDirectory` from the run configuration.
@@ -1391,8 +1154,7 @@ For failed Playwright tests, inspect:
 
 Print `[QA_PROGRESS] 5/6 QA server cleanup started.` before the shared finalizer and
 `[QA_PROGRESS] 5/6 QA server cleanup finished.` only after both verified process
-termination and port release have been checked. Keep Full recording active during
-this finalizer.
+termination and port release have been checked. No desktop recording is required during this finalizer.
 
 Use this same finalizer for Smoke, Regression, and Full; do not fork or bypass it in
 profile-specific branches. The outer `try` begins before the server is launched and
@@ -1540,13 +1302,12 @@ confirm the QA processes have exited; retain the taskkill output in the run log.
 
 Print `[QA_PROGRESS] 4/6 current-run test-account cleanup started.` before cleanup,
 then show the matching account count, deleted count, and result. Preserve the same
-`E2E_RUN_ID` used for creation. Keep Full recording active until both account and
-server cleanup are complete.
+`E2E_RUN_ID` used for creation. Complete both account and server cleanup before writing the final report.
 
 After Playwright completes, delete every account created by this QA run. Do this before writing the final report, and record the number of accounts found and deleted.
 Set `$accountCleanupStatus` to `PASS` only when the run-specific cleanup succeeds and
 the remaining account count is zero; otherwise set it to `BLOCKED` and record the
-exact database output. Keep the PowerShell cleanup result visible in the recording.
+exact database output. Preserve PowerShell cleanup output in the run log.
 
 The E2E test account email format is:
 
@@ -1664,7 +1425,7 @@ Validate the following:
 38. System phase-message type, public delivery, one-message-per-transition behavior, and phase-specific guidance
 39. Gray `NIGHT` page background, `background-color` transition, and restoration after `DAY_DISCUSSION` or `FINISHED`
 40. Server-rendered game-room screenshots and a normal→night→normal browser video
-41. Full profile: start/end screenshots and a continuous, decodable desktop video covering preflight through final result, test-account cleanup, server cleanup, and port release. Smoke/Regression: `NOT REQUIRED`
+41. All profiles: finalize core gameplay WEBM at core-4/core-flow.webm; confirm the EBML signature, positive duration, nonzero video dimensions, and at least one decoded frame in Chromium. Desktop screenshots/video are not required.
 42. The removed friend-invite control is absent; host-only room settings follows help and supports 4–8 capacity choices plus password set/change/remove behavior
 43. Capacity reduction below the live participant count is blocked in the UI and rejected by the server; updated capacity and lock state synchronize to every participant
 44. After `FINISHED`, only the public channel remains available and public messages from dead participants are delivered to the public topic
@@ -1880,7 +1641,7 @@ Before saving:
 4. If E2E is disabled, include `E2E: NOT RUN` and the reason in the report.
 5. If a test is blocked or not executed, do not mark it as `PASS`.
 6. Report the absolute saved file path in the final response.
-7. For Full, include the run-specific start/end progress screenshot and continuous-video paths, expected and measured duration, recorder exit code, and `ffprobe`/full-decode result. Missing, truncated, or unreadable evidence makes MVP 41 and the overall Full result `BLOCKED`. For Smoke/Regression explicitly report MVP 41 `NOT REQUIRED`, so those profiles are not blocked by a Full-only desktop video.
+7. For every profile, include the gameplay WEBM path, file size, EBML header, playback duration, dimensions, decoded-frame result, and MVP 41 status. Missing or unreadable video makes MVP 41 and the selected profile BLOCKED; desktop screenshots/video and FFmpeg/FFprobe are not required.
 
 The PowerShell setup for the report path is:
 
@@ -1945,8 +1706,8 @@ For every result, include:
 - Related source files and line numbers
 - JUnit XML paths
 - Gradle HTML report path
-- Full-profile start/end progress screenshot and continuous-video paths; for Smoke/Regression report `NOT REQUIRED`
-- For Full, progress capture start/end timestamps, expected/measured duration, FFmpeg exit code, `ffprobe` result, full MP4 decode result, and recorder log; for other profiles, the profile-aware `NOT REQUIRED`/`NOT APPLICABLE` status
+- All-profile gameplay WEBM path, file size, EBML header, playback duration, dimensions, decoded-frame result, and MVP 41 state
+
 - Playwright trace, screenshot, and video paths
 - Playwright core discovery output and the seven required scenario names
 - Playwright UI discovery output and the two required UI scenario names

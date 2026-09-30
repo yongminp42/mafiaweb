@@ -10,6 +10,7 @@ const PROFILE_DEFINITIONS = Object.freeze({
     maxRunIdLength: 22,
     trace: 'retain-on-failure',
     captureScreenshots: false,
+    captureGameplayVideo: true,
     captureVideo: false,
     runChatScroll: false,
     coreTimeoutMs: 5 * 60 * 1000
@@ -25,6 +26,7 @@ const PROFILE_DEFINITIONS = Object.freeze({
     maxRunIdLength: 22,
     trace: 'retain-on-failure',
     captureScreenshots: true,
+    captureGameplayVideo: true,
     captureVideo: false,
     runChatScroll: true,
     coreTimeoutMs: 12 * 60 * 1000
@@ -40,6 +42,7 @@ const PROFILE_DEFINITIONS = Object.freeze({
     maxRunIdLength: 22,
     trace: 'on',
     captureScreenshots: true,
+    captureGameplayVideo: true,
     captureVideo: true,
     runChatScroll: true,
     coreTimeoutMs: 20 * 60 * 1000
@@ -156,6 +159,10 @@ export function shouldCaptureScreenshots() {
 
 export function shouldCaptureVideo() {
   return PROFILE_CONFIG.captureVideo;
+}
+
+export function shouldCaptureGameplayVideo() {
+  return PROFILE_CONFIG.captureGameplayVideo;
 }
 
 export function usesCenteredRoomLayout() {
