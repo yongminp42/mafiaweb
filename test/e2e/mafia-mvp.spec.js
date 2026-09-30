@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { mkdir, open, stat } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import {
+  E2E_RUN_ID,
   E2E_PROFILE,
   FULL_TIMING_ASSERTIONS,
   PROFILE_CONFIG,
+  assertE2ENickname,
   parseConfiguredPlayerCounts,
   representativeItems,
-  shouldCaptureVideo,
+  shouldCaptureGameplayVideo,
   shouldCaptureScreenshots,
   shouldReplayPlayerCount
 } from './e2e-profile.js';
@@ -32,7 +36,7 @@ import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const PASSWORD = process.env.E2E_PASSWORD || 'MafiaTest2026!';
-const RUN_ID = process.env.E2E_RUN_ID || Date.now().toString(36);
+const RUN_ID = E2E_RUN_ID;
 const ARTIFACT_ROOT = resolveTestOutputDirectory(`mafia-mvp-test-${E2E_PROFILE}`, RUN_ID);
 const configuredOnlineBaseline = process.env.ONLINE_BASELINE?.trim();
 const ONLINE_BASELINE = configuredOnlineBaseline
@@ -231,7 +235,7 @@ async function waitForGameState(trace, phase, occurrence = 0, timeout = 20_000) 
 }
 
 async function signUpAndLogin(page, playerIndex, scenarioId) {
-  const nickname = 'PW' + scenarioId + '-' + (playerIndex + 1);
+  const nickname = assertE2ENickname('PW' + scenarioId + '-' + (playerIndex + 1));
   const email =
     'playwright.' + RUN_ID + '.' + scenarioId + '.' + (playerIndex + 1) + '@example.com';
 
@@ -336,7 +340,7 @@ async function createTrackedContext(browser, { videoDirectory } = {}) {
     baseURL: BASE_URL,
     viewport: { width: 1440, height: 1000 }
   };
-  if (videoDirectory && shouldCaptureVideo()) {
+  if (videoDirectory && shouldCaptureGameplayVideo()) {
     contextOptions.recordVideo = {
       dir: videoDirectory,
       size: { width: 1440, height: 1000 }
@@ -371,14 +375,168 @@ async function captureFinalScenarioScreenshot(page, artifactDirectory) {
     .catch(() => {});
 }
 
-async function saveScenarioVideo(video, artifactDirectory, fileName) {
-  if (!shouldCaptureVideo()) {
+async function verifyPlayableWebm(browser, videoPath) {
+  const videoStats = await stat(videoPath);
+  const server = createServer((request, response) => {
+    if (new URL(request.url, 'http://127.0.0.1').pathname !== '/gameplay.webm') {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Length, Content-Range');
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Content-Type', 'video/webm');
+
+    const rangeMatch = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range || '');
+    let start = 0;
+    let end = videoStats.size - 1;
+    if (rangeMatch) {
+      if (rangeMatch[1]) {
+        start = Number(rangeMatch[1]);
+        end = rangeMatch[2] ? Math.min(Number(rangeMatch[2]), end) : end;
+      } else if (rangeMatch[2]) {
+        const suffixLength = Number(rangeMatch[2]);
+        start = Number.isSafeInteger(suffixLength) && suffixLength > 0
+          ? Math.max(videoStats.size - suffixLength, 0)
+          : videoStats.size;
+      }
+    }
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+        || start < 0 || end < start || start >= videoStats.size) {
+      response.writeHead(416, { 'Content-Range': 'bytes */' + videoStats.size });
+      response.end();
+      return;
+    }
+
+    const partial = Boolean(rangeMatch);
+    response.statusCode = partial ? 206 : 200;
+    response.setHeader('Content-Length', end - start + 1);
+    if (partial) {
+      response.setHeader('Content-Range', 'bytes ' + start + '-' + end + '/' + videoStats.size);
+    }
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
+    createReadStream(videoPath, { start, end }).pipe(response);
+  });
+
+  let context;
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Could not resolve the local WebM playback server address.');
+    }
+
+    context = await browser.newContext();
+    const page = await context.newPage();
+    const videoUrl = 'http://127.0.0.1:' + address.port + '/gameplay.webm';
+    await page.setContent(
+      '<video id="gameplay-video" crossorigin="anonymous" muted playsinline preload="auto" src="' + videoUrl + '"></video>'
+    );
+    const metadata = await page.locator('#gameplay-video').evaluate(videoElement => new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for WebM metadata.')), 15000);
+      const onLoadedMetadata = () => {
+        clearTimeout(timeout);
+        videoElement.removeEventListener('error', onError);
+        resolve({
+          duration: videoElement.duration,
+          width: videoElement.videoWidth,
+          height: videoElement.videoHeight
+        });
+      };
+      const onError = () => {
+        clearTimeout(timeout);
+        reject(new Error('WebM playback failed: ' + (videoElement.error?.message || videoElement.error?.code || 'unknown media error')));
+      };
+      videoElement.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+      videoElement.addEventListener('error', onError, { once: true });
+      if (videoElement.readyState >= 1) {
+        onLoadedMetadata();
+      }
+    }));
+    const decodedFrame = await page.locator('#gameplay-video').evaluate(videoElement => new Promise(async (resolve, reject) => {
+      if (typeof videoElement.requestVideoFrameCallback !== 'function') {
+        reject(new Error('The browser does not support decoded-frame callbacks.'));
+        return;
+      }
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for a decoded WebM frame.')), 15000);
+      videoElement.requestVideoFrameCallback(() => {
+        clearTimeout(timeout);
+        resolve({
+          readyState: videoElement.readyState,
+          frames: videoElement.getVideoPlaybackQuality().totalVideoFrames
+        });
+      });
+      try {
+        await videoElement.play();
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    }));
+
+    expect(Number.isFinite(metadata.duration)).toBeTruthy();
+    expect(metadata.duration).toBeGreaterThan(0);
+    expect(metadata.width).toBeGreaterThan(0);
+    expect(metadata.height).toBeGreaterThan(0);
+    expect(decodedFrame.readyState).toBeGreaterThanOrEqual(2);
+    expect(decodedFrame.frames).toBeGreaterThan(0);
+    return {
+      duration: metadata.duration,
+      width: metadata.width,
+      height: metadata.height,
+      frames: decodedFrame.frames
+    };
+  } finally {
+    if (context) {
+      await context.close().catch(() => {});
+    }
+    if (server.listening) {
+      await new Promise(resolve => server.close(resolve));
+    }
+  }
+}
+
+async function saveScenarioVideo(browser, video, artifactDirectory, fileName) {
+  if (!shouldCaptureGameplayVideo()) {
     return;
   }
   if (!video) {
     throw new Error('QA evidence video is not available for this scenario.');
   }
-  await video.saveAs(path.join(artifactDirectory, fileName));
+  const videoPath = path.join(artifactDirectory, fileName);
+  await video.saveAs(videoPath);
+
+  let videoSize = 0;
+  let videoHeader = '';
+  const videoFile = await open(videoPath, 'r');
+  try {
+    const header = Buffer.alloc(4);
+    const { bytesRead } = await videoFile.read(header, 0, header.length, 0);
+    videoSize = (await videoFile.stat()).size;
+    videoHeader = header.toString('hex').toUpperCase();
+    expect(bytesRead).toBe(4);
+    expect(header).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+    expect(videoSize).toBeGreaterThan(1024);
+  } finally {
+    await videoFile.close();
+  }
+  const playback = await verifyPlayableWebm(browser, videoPath);
+  console.log(
+    '[QA_WEBM] PASS file=' + videoPath
+      + ' bytes=' + videoSize
+      + ' header=' + videoHeader
+      + ' durationSeconds=' + playback.duration.toFixed(2)
+      + ' dimensions=' + playback.width + 'x' + playback.height
+      + ' decodedFrames=' + playback.frames
+  );
 }
 
 async function sendRawRoomMessage(page, roomUrl, channel, content) {
@@ -912,7 +1070,7 @@ for (const playerCount of PLAYER_COUNTS) {
             page: pages[index],
             userId: userIds[index],
             index,
-            nickname: 'PW' + scenarioId + '-' + (index + 1)
+            nickname: assertE2ENickname('PW' + scenarioId + '-' + (index + 1))
           });
         }
         assertRoleAssignments(roleLabels, playerCount);
@@ -1509,7 +1667,7 @@ for (const playerCount of PLAYER_COUNTS) {
         }
         await captureFinalScenarioScreenshot(pages[0], artifactDirectory);
         await Promise.all(contexts.map(context => context.close().catch(() => {})));
-        await saveScenarioVideo(hostVideo, artifactDirectory, 'core-flow.webm');
+        await saveScenarioVideo(browser, hostVideo, artifactDirectory, 'core-flow.webm');
       }
     });
   });
@@ -1571,7 +1729,7 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
     } finally {
       await captureFinalScenarioScreenshot(pages[0], artifactDirectory);
       await Promise.all(contexts.map(context => context.close().catch(() => {})));
-      await saveScenarioVideo(hostVideo, artifactDirectory, 'six-to-five-threshold.webm');
+      await saveScenarioVideo(browser, hostVideo, artifactDirectory, 'six-to-five-threshold.webm');
     }
   });
 
@@ -1711,7 +1869,7 @@ if (RUN_EXTENDED_SCENARIOS && PLAYER_COUNTS.includes(6)) {
     } finally {
       await captureFinalScenarioScreenshot(pages[0], artifactDirectory);
       await Promise.all(contexts.map(context => context.close().catch(() => {})));
-      await saveScenarioVideo(hostVideo, artifactDirectory, 'deadline-reconnect.webm');
+      await saveScenarioVideo(browser, hostVideo, artifactDirectory, 'deadline-reconnect.webm');
     }
   });
 }

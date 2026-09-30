@@ -8,7 +8,7 @@
   --mafia-navy: #252b3c;
   --mafia-mint: #31b596;
   --mafia-purple: #8165b7;
-  --room-column-height: clamp(700px, calc(100vh - 280px), 760px);
+  --room-column-height: clamp(640px, calc(100vh - 350px), 700px);
 }
 
 body {
@@ -38,7 +38,7 @@ body.night-phase {
 }
 
 body[data-room-id] > main.container-xl {
-  padding-bottom: .5rem !important;
+  padding-bottom: 2rem !important;
 }
 
 a {
@@ -572,7 +572,8 @@ a {
 .room-content-layout {
   align-items: stretch;
   height: var(--room-column-height);
-  margin-bottom: .5rem !important;
+  margin-top: 0 !important;
+  margin-bottom: 1.5rem !important;
 }
 
 .room-left-column,

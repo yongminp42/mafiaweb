@@ -68,3 +68,9 @@ test-results/
 ### Temporary and generated documents ###
 tmp/
 output/
+report_kr.md
+
+### Generated scheduler test artifacts ###
+/docs/optimization-backups/phase-scheduler-2026-09-28/measurement-evidence/classes/
+/docs/optimization-backups/phase-scheduler-2026-09-28/measurement-evidence/gradle-test-report/
+/docs/optimization-backups/phase-scheduler-2026-09-28/measurement-evidence/junit-xml/

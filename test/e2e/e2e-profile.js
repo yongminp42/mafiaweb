@@ -6,8 +6,11 @@ const PROFILE_DEFINITIONS = Object.freeze({
     uiCapacity: 5,
     chatMessageCount: 30,
     phaseProfile: 'short',
+    roomLayoutMode: 'centered',
+    maxRunIdLength: 22,
     trace: 'retain-on-failure',
     captureScreenshots: false,
+    captureGameplayVideo: true,
     captureVideo: false,
     runChatScroll: false,
     coreTimeoutMs: 5 * 60 * 1000
@@ -19,8 +22,11 @@ const PROFILE_DEFINITIONS = Object.freeze({
     uiCapacity: 5,
     chatMessageCount: 30,
     phaseProfile: 'short',
+    roomLayoutMode: 'centered',
+    maxRunIdLength: 22,
     trace: 'retain-on-failure',
     captureScreenshots: true,
+    captureGameplayVideo: true,
     captureVideo: false,
     runChatScroll: true,
     coreTimeoutMs: 12 * 60 * 1000
@@ -32,8 +38,11 @@ const PROFILE_DEFINITIONS = Object.freeze({
     uiCapacity: 8,
     chatMessageCount: 210,
     phaseProfile: 'production',
+    roomLayoutMode: 'centered',
+    maxRunIdLength: 22,
     trace: 'on',
     captureScreenshots: true,
+    captureGameplayVideo: true,
     captureVideo: true,
     runChatScroll: true,
     coreTimeoutMs: 20 * 60 * 1000
@@ -53,6 +62,55 @@ export function resolveE2EProfile(value = process.env.E2E_PROFILE) {
 export const E2E_PROFILE = resolveE2EProfile();
 export const PROFILE_CONFIG = PROFILE_DEFINITIONS[E2E_PROFILE];
 export const FULL_TIMING_ASSERTIONS = E2E_PROFILE === 'full';
+
+export const E2E_NICKNAME_MAX_LENGTH = 30;
+export const E2E_RUN_ID_MAX_LENGTH = PROFILE_CONFIG.maxRunIdLength;
+const DEFAULT_E2E_RUN_ID = `qa-${Date.now().toString(36)}-${process.pid.toString(36)}`;
+
+export function resolveE2ERunId(value = process.env.E2E_RUN_ID) {
+  const configuredValue = value == null || !String(value).trim()
+    ? DEFAULT_E2E_RUN_ID
+    : String(value).trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(configuredValue)) {
+    throw new Error(
+      'E2E_RUN_ID must start with a letter or digit and contain only letters, digits, underscores, or hyphens.'
+    );
+  }
+  if (configuredValue.length > E2E_RUN_ID_MAX_LENGTH) {
+    throw new Error(
+      `E2E_RUN_ID must be at most ${E2E_RUN_ID_MAX_LENGTH} characters so generated signup nicknames stay within ${E2E_NICKNAME_MAX_LENGTH} characters.`
+    );
+  }
+  return configuredValue;
+}
+
+export const E2E_RUN_ID = resolveE2ERunId();
+
+export function assertE2ENickname(nickname) {
+  const value = String(nickname ?? '');
+  if (!value || value.length > E2E_NICKNAME_MAX_LENGTH) {
+    throw new Error(
+      `Generated E2E nickname must contain 1-${E2E_NICKNAME_MAX_LENGTH} characters; received ${value.length}.`
+    );
+  }
+  return value;
+}
+
+const supportedRoomLayoutModes = Object.freeze(['centered']);
+const configuredRoomLayoutMode = String(
+  process.env.ROOM_LAYOUT_MODE || PROFILE_CONFIG.roomLayoutMode
+).trim().toLowerCase();
+if (!supportedRoomLayoutModes.includes(configuredRoomLayoutMode)) {
+  throw new Error(
+    `ROOM_LAYOUT_MODE must be one of: ${supportedRoomLayoutModes.join(', ')}.`
+  );
+}
+if (configuredRoomLayoutMode !== PROFILE_CONFIG.roomLayoutMode) {
+  throw new Error(
+    `ROOM_LAYOUT_MODE=${configuredRoomLayoutMode} does not match the ${E2E_PROFILE} profile (${PROFILE_CONFIG.roomLayoutMode}).`
+  );
+}
+export const ROOM_LAYOUT_MODE = configuredRoomLayoutMode;
 
 export function parseConfiguredPlayerCounts(value) {
   if (!value || !String(value).trim()) {
@@ -101,4 +159,12 @@ export function shouldCaptureScreenshots() {
 
 export function shouldCaptureVideo() {
   return PROFILE_CONFIG.captureVideo;
+}
+
+export function shouldCaptureGameplayVideo() {
+  return PROFILE_CONFIG.captureGameplayVideo;
+}
+
+export function usesCenteredRoomLayout() {
+  return ROOM_LAYOUT_MODE === 'centered';
 }

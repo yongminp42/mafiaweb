@@ -100,7 +100,8 @@ public final class RoomGameRules {
     public static Map<GameRole, Integer> roleCountsForPlayerCount(int playerCount) {
         Map<GameRole, Integer> roleCounts = new LinkedHashMap<>();
         for (GameRole role : createRoles(playerCount)) {
-            roleCounts.merge(role, 1, Integer::sum);
+            roleCounts.merge(role, 1, (existing, increment) ->
+                    existing.intValue() + increment.intValue());
         }
         return Collections.unmodifiableMap(roleCounts);
     }

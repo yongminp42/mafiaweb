@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  E2E_RUN_ID,
   PROFILE_CONFIG,
+  assertE2ENickname,
   shouldCaptureScreenshots,
   shouldCaptureVideo
 } from './e2e-profile.js';
@@ -10,7 +12,7 @@ import { resolveTestOutputDirectory } from './test-output-path.js';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const PASSWORD = process.env.E2E_PASSWORD || 'MafiaTest2026!';
-const RUN_ID = process.env.E2E_RUN_ID || `local-${Date.now().toString(36)}-${process.pid}`;
+const RUN_ID = E2E_RUN_ID;
 
 test('role slot is visible before game and chat scrolls without growing the page', async ({ browser }) => {
   test.skip(!PROFILE_CONFIG.runChatScroll, 'chat-scroll runs in Regression and Full QA only.');
@@ -34,7 +36,7 @@ test('role slot is visible before game and chat scrolls without growing the page
   const video = page.video();
 
   try {
-    const nickname = `Scroll-${RUN_ID}`;
+    const nickname = assertE2ENickname(`Scroll-${RUN_ID}`);
     const email = `playwright.${RUN_ID}.chat-scroll.0@example.com`;
 
     await page.goto('/signup');

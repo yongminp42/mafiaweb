@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#10141b">
-  <title>MAFIAGAME 0.5.1-alpha 코드 학습 교재</title>
+  <title>MAFIAGAME 0.5.2-alpha 코드 학습 교재</title>
   <style>
     :root {
       color-scheme: dark;
@@ -311,7 +311,7 @@
           <p class="eyebrow">MAFIAGAME · 처음부터 읽는 프로젝트 교재</p>
           <h1>화면의 한 번의 클릭이<br>게임 결과가 되기까지</h1>
           <p>웹 개발을 처음 배우는 학생을 위한 읽기 자료입니다. 개념을 먼저 이해하고, 이 프로젝트의 실제 코드를 읽은 뒤, 구체적인 상황에 적용해 봅니다.</p>
-          <p class="book-meta">학습 순서: 원리 → 코드 → 예제 → 확인 문제 → 답안<br>프로젝트 버전: 0.5.1-alpha · 소스 기준일: 2026-09-28<br>범위: 현재 src/main 전체 71개 파일, build.gradle, mafiasql.sql · 테스트 코드는 별도 QA 보고서 참고<br>Regression QA 통과: Java 153/153 · JavaScript 45/45 · Playwright Core 3/3 · UI 2/2<br>코드 부록은 이 날짜의 현재 작업 트리에서 다시 읽어 삽입했습니다.</p>
+          <p class="book-meta">학습 순서: 원리 → 코드 → 예제 → 확인 문제 → 답안<br>프로젝트 버전: 0.5.2-alpha · 소스 기준일: 2026-09-29<br>범위: 현재 src/main 전체 71개 파일, build.gradle, mafiasql.sql · 테스트 코드는 별도 QA 보고서 참고<br>Regression QA 기준 결과: Java 153/153 · JavaScript 45/45 · Playwright Core 3/3 · UI 2/2<br>코드 부록은 이 날짜의 현재 작업 트리에서 다시 읽어 삽입했습니다.</p>
           <p>왼쪽 차례를 따라 읽으세요. 코드 블록은 설명을 위한 발췌이고, 부록에는 파일별 전체 소스가 문서 안에 들어 있습니다. 발표할 때는 위의 <b>발표 보기</b>를 누르면 기존 슬라이드로 전환됩니다.</p>
         </section>
 
@@ -456,8 +456,8 @@
 
         <section class="book-chapter" id="book-http">
           <p class="eyebrow">04 · 첫 번째 전체 흐름</p><h2>회원가입: 입력이 DB의 회원이 되기까지</h2>
-          <h3>원리</h3><p>HTML form은 입력값을 HTTP POST로 보냅니다. Spring MVC는 form 필드를 메서드 인자로 묶습니다. Controller는 입력 오류를 화면에 보여주고, 실제 가입 규칙은 <code>SignupService</code>가 담당합니다. 서비스는 입력 정리·검증·이메일과 닉네임 중복 확인·비밀번호 해시·회원 및 통계 행 생성을 처리합니다. 닉네임 중복은 서비스의 사전 확인과 DB의 고유 제약을 함께 사용해 동시 가입 요청도 막습니다. <code>@Transactional</code>은 이 여러 DB 작업을 한 단위로 묶어 중간에 실패하면 되돌립니다.</p>
-          <h3>코드</h3><figure class="code-example"><figcaption>AuthController.java · 가입 요청 처리 <span>src/main/java/kr/or/oti/mafiagame/controller/AuthController.java:28-48</span></figcaption><pre class="source-excerpt">28 |     }
+          <h3>원리</h3><p>HTML form은 입력값을 HTTP POST로 보냅니다. Spring MVC는 form 필드를 메서드 인자로 묶습니다. Controller는 입력 오류를 화면에 보여주고, 실제 가입 규칙은 <code>SignupService</code>가 담당합니다. 서비스는 입력 정리·검증·이메일과 닉네임 중복 확인·비밀번호 해시·회원 및 통계 행 생성을 처리합니다. 약관과 개인정보 처리방침 동의는 브라우저의 <code>required</code>만 믿지 않고 Controller가 서버에서 다시 확인합니다. 닉네임 중복은 서비스의 사전 확인과 DB의 고유 제약을 함께 사용해 동시 가입 요청도 막습니다. <code>@Transactional</code>은 이 여러 DB 작업을 한 단위로 묶어 중간에 실패하면 되돌립니다.</p>
+          <h3>코드</h3><figure class="code-example"><figcaption>AuthController.java · 동의 확인을 포함한 가입 요청 처리 <span>src/main/java/kr/or/oti/mafiagame/controller/AuthController.java:28-52</span></figcaption><pre class="source-excerpt">28 |     }
 29 |
 30 |     @PostMapping(&quot;/signup&quot;)
 31 |     public String signup(
@@ -465,19 +465,24 @@
 33 |             @RequestParam(name = &quot;email&quot;, required = false) String email,
 34 |             @RequestParam(name = &quot;password&quot;, required = false) String password,
 35 |             @RequestParam(name = &quot;passwordConfirm&quot;, required = false) String passwordConfirm,
-36 |             Model model) {
-37 |         try {
-38 |             signupService.signup(nickname, email, password, passwordConfirm);
-39 |             return &quot;redirect:/login?signup&quot;;
-40 |         } catch (SignupException exception) {
-41 |             model.addAttribute(&quot;signupError&quot;, exception.getMessage());
-42 |             model.addAttribute(&quot;nickname&quot;, nickname);
-43 |             model.addAttribute(&quot;email&quot;, email);
-44 |             return &quot;auth/signup&quot;;
-45 |         }
-46 |     }
-47 | }
-48 | </pre></figure><figure class="code-example"><figcaption>SignupService.java · 검증과 저장 <span>src/main/java/kr/or/oti/mafiagame/service/SignupService.java:26-66</span></figcaption><pre class="source-excerpt">26 |
+36 |             @RequestParam(name = &quot;agreement&quot;, required = false, defaultValue = &quot;false&quot;) boolean agreement,
+37 |             Model model) {
+38 |         try {
+39 |             if (!agreement) {
+40 |                 throw new SignupException(&quot;회원가입을 위해 이용약관과 개인정보 처리방침에 동의해 주세요.&quot;);
+41 |             }
+42 |             signupService.signup(nickname, email, password, passwordConfirm);
+43 |             return &quot;redirect:/login?signup&quot;;
+44 |         } catch (SignupException exception) {
+45 |             model.addAttribute(&quot;signupError&quot;, exception.getMessage());
+46 |             model.addAttribute(&quot;nickname&quot;, nickname);
+47 |             model.addAttribute(&quot;email&quot;, email);
+48 |             model.addAttribute(&quot;agreement&quot;, agreement);
+49 |             return &quot;auth/signup&quot;;
+50 |         }
+51 |     }
+52 | }
+53 | </pre></figure><figure class="code-example"><figcaption>SignupService.java · 검증과 저장 <span>src/main/java/kr/or/oti/mafiagame/service/SignupService.java:26-66</span></figcaption><pre class="source-excerpt">26 |
 27 |     @Transactional
 28 |     public void signup(String nickname, String email, String password, String passwordConfirm) {
 29 |         String normalizedNickname = nickname == null ? &quot;&quot; : nickname.trim();
@@ -969,10 +974,11 @@
 100 |     public static Map&lt;GameRole, Integer&gt; roleCountsForPlayerCount(int playerCount) {
 101 |         Map&lt;GameRole, Integer&gt; roleCounts = new LinkedHashMap&lt;&gt;();
 102 |         for (GameRole role : createRoles(playerCount)) {
-103 |             roleCounts.merge(role, 1, Integer::sum);
-104 |         }
-105 |         return Collections.unmodifiableMap(roleCounts);
-106 |     }
+103 |             roleCounts.merge(role, 1, (existing, increment) -&gt;
+104 |                     existing.intValue() + increment.intValue());
+105 |         }
+106 |         return Collections.unmodifiableMap(roleCounts);
+107 |     }
 107 |
 108 |     static GameFaction determineWinner(Collection&lt;? extends GameRulePlayer&gt; players) {
 109 |         int mafiaTeamAlive = 0;
@@ -1174,9 +1180,9 @@
         </section>
 
         <section class="book-chapter" id="book-changes">
-          <p class="eyebrow">15 · 0.5.1-alpha 현재 변경점 읽기</p><h2>무엇이 바뀌었고, 어떤 일을 덜 하게 됐나</h2>
+          <p class="eyebrow">15 · 0.5.2-alpha 현재 변경점 읽기</p><h2>무엇이 바뀌었고, 어떤 일을 덜 하게 됐나</h2>
           <h3>원리</h3>
-          <p class="lead">현재 문서의 기준은 build.gradle의 0.5.1-alpha입니다. 로비·DB·실시간 상태를 가볍게 처리하는 구조를 설명하고, 현재 작업 트리에 포함된 닉네임 중복 방지, 인원별 직업 구성 안내, 마피아 동료 표시, 사망·종료 채널 권한, 경험치 레벨 갱신도 함께 확인합니다. 아래 수치는 측정한 QA 결과와 코드 경로의 구조적 차이를 구분해 읽어야 합니다.</p>
+          <p class="lead">현재 문서의 기준은 build.gradle의 0.5.2-alpha입니다. 로비·DB·실시간 상태를 가볍게 처리하는 구조와 함께, 가입 동의의 서버 재검증, 이용약관·개인정보 처리방침 모달, 인원별 직업 구성 안내, 마피아 동료 표시, 사망·종료 채널 권한, 게임방 화면의 세로 여백 조정, 역할 수 집계의 null 안정성까지 확인합니다. 아래 수치는 측정한 QA 결과와 코드 경로의 구조적 차이를 구분해 읽어야 합니다.</p>
           <p>로비에서 새 방 참가자가 처음 나타났을 때 예전 코드는 150밀리초 뒤 전체 페이지를 새로고침했습니다. 이 과정은 방 목록 HTML과 스크립트를 다시 받고, JavaScript를 다시 실행하고, WebSocket 연결을 다시 만드는 일까지 포함합니다. 현재 코드는 새 카드가 없는 경우에만 <code>/rooms/{roomId}/card</code>를 요청해 카드 한 장을 목록에 넣습니다. 이미 열린 페이지의 필터·검색·연결 상태를 유지합니다.</p>
           <figure class="change-visual">
             <figcaption>새 방이 로비에 나타날 때의 화면 갱신 흐름</figcaption>
@@ -1229,7 +1235,7 @@
             <tr><th>실시간 상태</th><td><code>RoomPresenceService</code>가 방 설정·방장·진행 상태를 캐시하고 DB 대기를 쓰기 잠금 밖으로 옮깁니다. 일반 상태 방송은 바뀐 숫자만 알리고 전체 동기화 요청에는 스냅샷을 보냅니다. 세션 요청 제한 1초와 묶음 방송 간격 250ms는 별도이며, 카운트 예약기와 방 정리 예약기도 분리했습니다.</td></tr>
             <tr><th>게임 결과</th><td><code>GameResultStatsService</code>가 승리 500 XP, 패배 100 XP를 누적합니다. <code>UserProfile</code>과 프로필 화면은 레벨·진행 막대·다음 레벨까지 XP를 표시합니다.</td></tr>
             <tr><th>프로필 정리</th><td>데이터 모델에 실제 값이 없는 경기별 이력과 예시 배지, 임시 친구 추가/온라인 배지를 화면에서 제거하고 누적 전적과 XP에 집중합니다.</td></tr>
-            <tr><th>가입 동의</th><td>화면 체크박스의 <code>required</code>는 남아 있지만 입력의 <code>name</code>과 Controller/Service의 <code>agreed</code> 검사는 제거됐습니다. 따라서 현재 동의 확인은 브라우저에서만 막고 서버가 동의값을 받거나 검증하지 않습니다.</td></tr>
+            <tr><th>가입 동의</th><td><code>signup.html</code>의 체크박스가 <code>name="agreement"</code>으로 전송되고, 이용약관·개인정보 처리방침을 모달에서 확인할 수 있습니다. <code>AuthController</code>는 누락되거나 false인 동의를 서버에서 거절하고 오류 화면에 체크 상태를 보존합니다.</td></tr>
             <tr><th>방 UI</th><td>방 상세의 작동하지 않던 친구 초대 버튼을 제거했습니다. 로비의 입장 안내 toast는 새로 삽입된 카드에도 적용되도록 이벤트 위임으로 처리합니다. 방 생성 안내 문구도 친구 초대 표현에서 참가자 준비 흐름으로 바뀌었습니다.</td></tr>
             <tr><th>검증 규칙 정리</th><td><code>RoomService</code>의 정원·비밀번호 정규화/길이 검사를 공통 함수로 모아 생성과 설정 변경에서 같은 기준을 재사용합니다.</td></tr>
 <tr><th>닉네임 중복 방지</th><td><code>SignupService</code>가 정규화된 닉네임 중복을 먼저 확인하고, <code>V2__unique_user_name.sql</code>의 DB 고유 제약이 동시 가입 요청까지 막습니다. 서비스 검사와 DB 제약은 각각 사용자 안내와 최종 무결성 보장을 담당합니다.</td></tr>
@@ -1237,10 +1243,12 @@
 <tr><th>마피아 동료 표시</th><td>개인 역할 응답은 실제 마피아 직업을 받은 플레이어에게 같은 방의 다른 마피아 닉네임을 담습니다. 마피아가 아닌 역할에는 동료 목록을 보내지 않으며, 화면은 닉네임을 HTML로 해석하지 않고 문자로 표시합니다.</td></tr>
 <tr><th>사망·종료 채널 권한</th><td>게임 중 사망하면 채널 선택 메뉴에서 전체 채널을 감추고 사망자 채널만 보입니다. 서버도 같은 권한을 확인합니다. 게임이 끝나면 기존 참가자와 대기 참가자 모두 전체 채널을 이용할 수 있습니다.</td></tr>
 <tr><th>헤더 레벨 동기화</th><td>게임 종료 시 최신 레벨을 서버에서 다시 읽어 상단 메뉴와 드롭다운에 반영합니다. 화면을 다시 열거나 복원할 때도 갱신하며, 조회에 실패하면 서버가 처음 렌더링한 값을 유지합니다.</td></tr>
+<tr><th>게임방 세로 정렬</th><td><code>app.css</code>가 제목·인원수 상자 아래의 불필요한 공간을 줄이고 콘텐츠 영역 아래 여백을 늘렸습니다. 게임 플레이 영역의 고정 높이와 <code>margin-top: 0</code>을 함께 사용해 화면 중심에 가깝게 배치합니다.</td></tr>
+<tr><th>역할 수 집계 안정성</th><td><code>RoomGameRules.roleCountsForPlayerCount</code>는 <code>Integer::sum</code> 대신 두 <code>Integer</code> 값을 명시적으로 <code>intValue()</code>로 더합니다. IDE의 BiFunction null 타입 안전성 경고를 없애면서 역할 수 계산 결과는 그대로 유지합니다.</td></tr>
           </tbody></table>
           <p class="why"><b>효과를 읽는 법:</b> 코드에서 확인할 수 있는 것은 불필요한 전체 문서 요청, SQL 집계 절, 값이 그대로인 로비 알림 호출이 줄었다는 점입니다. 이 자료는 응답 시간·CPU·전송량을 재서 만든 성능 벤치마크가 아닙니다. 실제 속도 향상 크기는 동일한 환경과 데이터로 전후 측정해야 합니다.</p>
-<p class="callout"><b>2026-09-28 Regression QA · PASS</b> — Java 153/153, JavaScript 45/45, Playwright 핵심 흐름 3/3, UI 2/2를 통과했습니다. 실제 전체 게임 브라우저 흐름은 4·6·8명으로 확인했습니다. Regression 범위에 들어 있지 않은 5·7명 전체 게임, 실제 30초 재접속 대기, 기본 페이즈 장시간 실측, 역할 배정 통계 검정은 실행하지 않았으며 Full QA 통과로 확대 해석하지 않습니다. 상세 근거는 <code>docs/QA_report/MAFIAGAME_QA_REPORT_2026-09-28_qa-20260928-200203-833.md</code>입니다.</p>
-          <p class="callout">코드 부록은 2026-09-28 현재 작업 트리의 <code>src/main/**</code> 전체 71개 파일과 <code>build.gradle</code>, <code>mafiasql.sql</code>을 담았습니다. 테스트 코드는 별도 QA 보고서에서 다룹니다. 문서의 버전과 파일 목록은 이후 코드가 바뀌면 함께 다시 확인해야 합니다.</p>
+<p class="callout"><b>2026-09-28 Regression QA · PASS</b> — Java 153/153, JavaScript 45/45, Playwright 핵심 흐름 3/3, UI 2/2를 통과했습니다. 실제 전체 게임 브라우저 흐름은 4·6·8명으로 확인했습니다. 이 결과는 0.5.1-alpha 기준 보고서이며, 이번 0.5.2-alpha 문서 갱신 자체를 새 QA 통과로 표시하지 않습니다. Regression 범위에 들어 있지 않은 5·7명 전체 게임, 실제 30초 재접속 대기, 기본 페이즈 장시간 실측, 역할 배정 통계 검정은 실행하지 않았으며 Full QA 통과로 확대 해석하지 않습니다. 상세 근거는 <code>docs/QA_report/MAFIAGAME_QA_REPORT_2026-09-28_qa-20260928-200203-833.md</code>입니다.</p>
+          <p class="callout">코드 부록은 2026-09-29 현재 작업 트리의 <code>src/main/**</code> 전체 71개 파일과 <code>build.gradle</code>, <code>mafiasql.sql</code>을 담았습니다. 테스트 코드는 별도 QA 보고서에서 다룹니다. 문서의 버전과 파일 목록은 이후 코드가 바뀌면 함께 다시 확인해야 합니다.</p>
           <h3>코드</h3>
           <figure class="code-example"><figcaption>RoomMapper.xml · SQL의 집계 제거 <span>src/main/resources/mappers/RoomMapper.xml:7-22</span></figcaption><pre class="source-excerpt"> 7 |     &lt;select id=&quot;findAll&quot; resultType=&quot;kr.or.oti.mafiagame.dto.RoomSummary&quot;&gt;
  8 |         SELECT
@@ -3954,7 +3962,8 @@ public final class RoomGameRules {
     public static Map&lt;GameRole, Integer&gt; roleCountsForPlayerCount(int playerCount) {
         Map&lt;GameRole, Integer&gt; roleCounts = new LinkedHashMap&lt;&gt;();
         for (GameRole role : createRoles(playerCount)) {
-            roleCounts.merge(role, 1, Integer::sum);
+            roleCounts.merge(role, 1, (existing, increment) -&gt;
+                    existing.intValue() + increment.intValue());
         }
         return Collections.unmodifiableMap(roleCounts);
     }
